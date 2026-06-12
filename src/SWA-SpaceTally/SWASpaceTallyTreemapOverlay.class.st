@@ -25,16 +25,56 @@ SWASpaceTallyTreemapOverlay >> clearHover [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 11:47'
+	#'squeak_changestamp' : 'MCPServer 6/12/2026 14:37'
 }
 SWASpaceTallyTreemapOverlay >> drawOn: aCanvas [
-	"Only draw a white border around the selected tile."
+	"Draw a white border on the selected tile, fading borders on all
+	 ancestor tiles, and colored borders on other-parent tiles."
 
-	| origin screenR |
+	| origin screenR node r alpha parentColor otherParentSeen |
 	hoveredTile ifNil: [^ self].
 	origin := self position.
+
+	"--- Selected tile: white border ---"
 	screenR := hoveredTile value translateBy: origin.
-	aCanvas frameRectangle: screenR width: 2 color: Color white
+	aCanvas frameRectangle: screenR width: 2 color: Color white.
+
+	"--- Walk parent chain upward, fading from bright cyan to dim ---"
+	node := hoveredTile key parent.
+	alpha := 0.7.
+	[node notNil and: [node parent notNil "stop at synthetic root"]] whileTrue: [
+		r := treemapMorph rectForNode: node.
+		r ifNotNil: [
+			parentColor := Color cyan alpha: alpha.
+			screenR := r translateBy: origin.
+			aCanvas frameRectangle: screenR width: 2 color: parentColor].
+		alpha := (alpha - 0.15) max: 0.15.
+		node := node parent].
+
+	"--- Other parents: orange borders ---"
+	otherParentSeen := IdentitySet new.
+	hoveredTile key otherParents ifNotNil: [:ops |
+		ops do: [:otherNode |
+			"Highlight the other parent node itself"
+			(otherParentSeen includes: otherNode) ifFalse: [
+				otherParentSeen add: otherNode.
+				r := treemapMorph rectForNode: otherNode.
+				r ifNotNil: [
+					screenR := r translateBy: origin.
+					aCanvas frameRectangle: screenR width: 2 color: (Color orange alpha: 0.8)]].
+			"Walk up that other parent's ancestor chain too"
+			node := otherNode parent.
+			alpha := 0.5.
+			[node notNil and: [node parent notNil]] whileTrue: [
+				(otherParentSeen includes: node) ifFalse: [
+					otherParentSeen add: node.
+					r := treemapMorph rectForNode: node.
+					r ifNotNil: [
+						parentColor := Color orange alpha: alpha.
+						screenR := r translateBy: origin.
+						aCanvas frameRectangle: screenR width: 2 color: parentColor]].
+				alpha := (alpha - 0.12) max: 0.1.
+				node := node parent]]]
 ]
 
 {
@@ -81,14 +121,14 @@ SWASpaceTallyTreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 6/12/2026 14:37'
 }
 SWASpaceTallyTreemapOverlay >> mouseDown: evt [
 	"Left-click: select tile. Click again on same tile: zoom in.
 	 Right-click: context menu.
 	 Shift+click: explore tally node."
 
-	| local hit origin oldHover |
+	| local hit |
 	local := evt position - self position.
 	hit := treemapMorph tileAtLocal: local.
 	hit ifNil: [^ self].
@@ -106,11 +146,8 @@ SWASpaceTallyTreemapOverlay >> mouseDown: evt [
 		ifTrue: [^ treemapMorph zoomInto: hit key].
 
 	"Otherwise select this tile"
-	oldHover := hoveredTile.
 	hoveredTile := hit.
-	origin := self position.
-	oldHover ifNotNil: [self invalidRect: ((oldHover value insetBy: -2) translateBy: origin)].
-	self invalidRect: ((hit value insetBy: -2) translateBy: origin).
+	self changed.
 	treemapMorph updateSelectionPath: hit key
 ]
 
@@ -124,12 +161,12 @@ SWASpaceTallyTreemapOverlay >> mouseLeave: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:57'
+	#'squeak_changestamp' : 'MCPServer 6/12/2026 14:37'
 }
 SWASpaceTallyTreemapOverlay >> mouseMove: evt [
 	"Update hover highlight and tooltip as the mouse moves."
 
-	| local hit origin oldHover |
+	| local hit |
 	local := evt position - self position.
 	hit := treemapMorph tileAtLocal: local.
 
@@ -138,12 +175,10 @@ SWASpaceTallyTreemapOverlay >> mouseMove: evt [
 		hoveredTile notNil and: [hit notNil and: [hoveredTile key == hit key]]])
 		ifTrue: [^ self].
 
-	oldHover := hoveredTile.
 	hoveredTile := hit.
-	origin := self position.
-	oldHover ifNotNil: [self invalidRect: ((oldHover value insetBy: -2) translateBy: origin)].
+	"Invalidate entire overlay because parent highlights can span the full area."
+	self changed.
 	hit ifNotNil: [
-		self invalidRect: ((hit value insetBy: -2) translateBy: origin).
 		self setBalloonText: (treemapMorph balloonStringFor: hit key).
 		treemapMorph updateSelectionPath: hit key]
 	ifNil: [

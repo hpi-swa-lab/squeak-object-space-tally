@@ -595,6 +595,19 @@ SWASpaceTallyTreemapMorph >> overlayMorph: aMorph [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/12/2026 14:37'
+}
+SWASpaceTallyTreemapMorph >> rectForNode: aNode [
+	"Return the layout rectangle for aNode, or nil if not found in the current tiles."
+
+	tiles ifNil: [^ nil].
+	tiles do: [:assoc |
+		assoc key == aNode ifTrue: [^ assoc value]].
+	^ nil
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 17:30'
 }
