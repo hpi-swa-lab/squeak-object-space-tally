@@ -19,8 +19,8 @@ To load this package:
 
 ```smalltalk
 Metacello new
-    baseline: 'ObjectSpaceTally';
     repository: 'github://hpi-swa-lab/squeak-object-space-tally:main/src';
+    package: 'SWA-SpaceTally';
     load.
 ```
 
