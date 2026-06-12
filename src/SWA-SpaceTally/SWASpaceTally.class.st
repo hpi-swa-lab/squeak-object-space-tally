@@ -5,7 +5,7 @@ It walks the object graph breadth-first from a labelled set of roots, charging e
 
 Slot access goes through thisContext mirror primitives (#objectClass:, #objectSize:, #object:instVarAt:, #object:basicAt:) so we bypass class-side overrides on proxies like FutureMaker and Context. This is the same defense the standard SpaceTally references via the Mirror alias.
 
-References to analyzed objects are strong during the walk. Call #compact afterwards to nil out the object refs (and all walker state) so the long-lived tally tree doesn't pin objects. See notes/SWASpaceTally.md for the full design rationale.
+References to analyzed objects are strong during the walk. Call #compact afterwards to nil out the object refs (and all walker state) so the long-lived tally tree doesn't pin objects. See doc/SWASpaceTally.md for the full design rationale.
 
 == Typical usage ==
 
