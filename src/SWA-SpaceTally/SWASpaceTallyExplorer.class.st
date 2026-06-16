@@ -161,6 +161,40 @@ SWASpaceTallyExplorer >> compactThresholdText: aStringOrText [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:51'
+}
+SWASpaceTallyExplorer >> ignoreSelectedClassToLabel [
+	"Add a diff-ignore pattern for the selected node, constrained to its
+	parent's class: parentClassName -> edgeLabel (e.g. #Morph -> #fullBounds)."
+
+	| node parentNode parentToken childToken |
+	node := self selectedNode.
+	node ifNil: [^ self].
+	parentNode := node parent.
+	parentToken := parentNode ifNotNil: [parentNode className].
+	childToken := node edgeLabel ifNil: [node className].
+	(parentToken isNil or: [childToken isNil]) ifTrue: [^ self].
+	SWASpaceTally addDiffIgnore: parentToken asSymbol -> childToken asSymbol
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:51'
+}
+SWASpaceTallyExplorer >> ignoreSelectedLabel [
+	"Add a diff-ignore pattern for the selected node's edge label, matching
+	that label under any parent (nil -> label)."
+
+	| node token |
+	node := self selectedNode.
+	node ifNil: [^ self].
+	token := node edgeLabel ifNil: [node className].
+	token ifNil: [^ self].
+	SWASpaceTally addDiffIgnore: nil -> token asSymbol
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:58'
 }
@@ -192,13 +226,15 @@ SWASpaceTallyExplorer >> jumpToOriginal [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:03'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:52'
 }
 SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
-	"Add a 'jump to original' item for diff trees so you can locate the
-	selected object back in the baseline tally it was diffed against."
+	"Add diff-related items: jump back to the baseline (diff trees only) and
+	two 'ignore in diffs' commands for the selected node, with labels showing
+	the concrete tokens they will add to the ignore preference."
 
 	<treeListMenu>
+	| node child parent |
 	super mainTreeListMenu: aMenu.
 	(tallyRoot notNil and: [tallyRoot baseTally notNil]) ifTrue: [
 		aMenu addLine.
@@ -207,6 +243,24 @@ SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
 			target: self
 			selector: #jumpToOriginal
 			argument: nil].
+
+	node := self selectedNode.
+	node ifNotNil: [
+		child := node edgeLabel ifNil: [node className].
+		parent := node parent ifNotNil: [:p | p className].
+		child ifNotNil: [
+			aMenu addLine.
+			aMenu
+				add: 'ignore label (', child asString, ')'
+				target: self
+				selector: #ignoreSelectedLabel
+				argument: nil.
+			parent ifNotNil: [
+				aMenu
+					add: 'ignore ', parent asString, ' -> ', child asString
+					target: self
+					selector: #ignoreSelectedClassToLabel
+					argument: nil]]].
 	^ aMenu
 ]
 
@@ -278,6 +332,30 @@ SWASpaceTallyExplorer >> runTallyFull [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:53'
+}
+SWASpaceTallyExplorer >> selectedNode [
+	"Return the SWASpaceTally node for the current tree selection, or nil.
+	The selection is the wrapper's item (name -> realObject). We find the
+	matching visible wrapper -- preferring identity, falling back to equal
+	key and identical value -- and ask it for its tally node."
+
+	| sel match |
+	sel := self currentSelection.
+	(sel isKindOf: Association) ifFalse: [^ nil].
+	match := nil.
+	self visibleObjectExplorerWrappers do: [:w |
+		(w isKindOf: SWASpaceTallyWrapper) ifTrue: [
+			w item == sel ifTrue: [^ w tallyNode].
+			(match isNil
+				and: [w item key = sel key
+				and: [w item value == sel value]])
+					ifTrue: [match := w]]].
+	^ match ifNotNil: [match tallyNode]
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:10'
 }
 SWASpaceTallyExplorer >> tallyRoot [
@@ -286,11 +364,16 @@ SWASpaceTallyExplorer >> tallyRoot [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:10'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
-SWASpaceTallyExplorer >> tallyRoot: aTallyNode [
-	tallyRoot := aTallyNode.
-	self rootObject: aTallyNode
+SWASpaceTallyExplorer >> tallyRoot: aTallyGroupOrNode [
+	"Accept the SWASpaceTally group (preferred) or a bare node. Keep the group
+	as tallyRoot for title/diff metadata, but point the tree at the lean node."
+
+	tallyRoot := aTallyGroupOrNode.
+	self rootObject: ((aTallyGroupOrNode isKindOf: SWASpaceTally)
+		ifTrue: [aTallyGroupOrNode rootNode]
+		ifFalse: [aTallyGroupOrNode])
 ]
 
 {

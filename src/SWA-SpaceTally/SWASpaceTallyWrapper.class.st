@@ -86,3 +86,13 @@ SWASpaceTallyWrapper >> setTallyNode: aTallyNode name: aString model: aModel [
 	realObject := aTallyNode object ifNil: [aTallyNode].
 	self setItem: aString -> realObject model: aModel
 ]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:51'
+}
+SWASpaceTallyWrapper >> tallyNode [
+	"The SWASpaceTally node this wrapper represents in the tree."
+
+	^ tallyNode
+]

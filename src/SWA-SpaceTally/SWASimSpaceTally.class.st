@@ -30,8 +30,6 @@ Class {
 	#superclass : #SWASpaceTally,
 	#instVars : [
 		'sim',
-		'oop',
-		'mirror',
 		'oopSeen'
 	],
 	#category : #'SWA-SpaceTally-Sim',
@@ -103,11 +101,11 @@ SWASimSpaceTally class >> simulatorClass [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:40'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
 }
 SWASimSpaceTally >> clearWalkerState [
-	"Also drop the oop-keyed seen dictionary used during the sim walk.
-	Keep oop and mirror so the explorer can still reach the sim object."
+	"Also drop the oop-keyed seen dictionary used during the sim walk."
+
 	super clearWalkerState.
 	oopSeen := nil
 ]
@@ -127,11 +125,11 @@ SWASimSpaceTally >> defaultRootOops [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:38'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
 }
 SWASimSpaceTally >> expandSimNode: aNode [
-	"Visit one node: enumerate its simulated referents and enqueue
-	first-time ones. Dedup keyed on followed oop via oopSeen."
+	"Visit one node: enumerate its simulated referents and enqueue first-time
+	ones. Dedup keyed on followed oop via oopSeen."
 
 	visitCount := visitCount + 1.
 	aNode depth >= maxDepth ifTrue: [
@@ -202,49 +200,22 @@ SWASimSpaceTally >> isTallyableOop: anOop [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:38'
-}
-SWASimSpaceTally >> mirror [
-	"The SimObjectMirror for this node's simulated object (nil for root)."
-	^ mirror
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:36'
 }
 SWASimSpaceTally >> newSimChildFor: anOop parent: parentNode edge: aLabel [
-	"Create a child node wrapping the simulated object at anOop (already followed).
-	Captures className and selfSize immediately from the mirror."
+	"Create a lean sim child node wrapping the simulated object at anOop
+	(already followed). Captures className and selfSize immediately from the
+	mirror, and hooks the node into the tree."
 
 	| node m |
-	node := self class new.
+	node := SWASimSpaceTallyNode new.
 	node setSimulator: sim.
 	node setParent: parentNode depth: parentNode depth + 1.
 	node edgeLabel: aLabel.
 	m := SimObjectMirror on: sim oop: anOop.
 	node setOop: anOop mirror: m.
-	parentNode children add: node.
+	parentNode addChild: node.
 	^ node
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:38'
-}
-SWASimSpaceTally >> object [
-	"The analyzed object. For the sim tally this is the mirror, not a
-	host object. The explorer/treemap only use it opaquely (shift-click)."
-	^ mirror
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
-}
-SWASimSpaceTally >> oop [
-	"The simulated heap address this node wraps (nil for the synthetic root)."
-	^ oop
 ]
 
 {
@@ -269,21 +240,11 @@ SWASimSpaceTally >> rootOops: oopCollection [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
-}
-SWASimSpaceTally >> setOop: anOop mirror: aMirror [
-	"Record the simulated object and capture class name + self size up front."
-	oop := anOop.
-	mirror := aMirror.
-	className := aMirror simClassName.
-	selfSize := aMirror byteSize
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
 }
 SWASimSpaceTally >> setSimulator: aStackInterpreterSimulator [
+	"Set the simulator this group will walk."
+
 	sim := aStackInterpreterSimulator
 ]
 
@@ -306,32 +267,39 @@ SWASimSpaceTally >> simLabelForOwner: ownerNode slotIndex: zeroBasedIndex [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
 }
 SWASimSpaceTally >> simulator [
+	"The StackInterpreterSimulator whose memory this group walked."
+
 	^ sim
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
 }
 SWASimSpaceTally >> walk [
-	"BFS over the simulated heap from the configured root oops.
-	Self is the synthetic root node. Dedup is keyed on oop via a plain
-	Dictionary (oopSeen), since host identity can't dedup mirrors or large oops."
+	"BFS over the simulated heap from the configured root oops, building a tree
+	of lean SWASimSpaceTallyNode objects rooted at rootNode. Dedup is keyed on
+	oop via a plain Dictionary (oopSeen), since host identity can't dedup
+	mirrors or large oops. Records run metadata on this group. Returns self."
 
-	| progressStep nextProgress om |
+	| progressStep nextProgress startMs |
 	sim ifNil: [^ self error: 'no simulator set'].
-	om := sim objectMemory.
 	roots ifNil: [roots := self defaultRootOops].
 	deadlineMs ifNil: [self deadlineMs: 30000].
+	startMs := Time millisecondClockValue.
+	startedAt := DateAndTime now.
 	oopSeen := Dictionary new: (maxVisits min: 4000000).
 	queue := OrderedCollection new.
 	visitCount := 0.
+	limitHit := nil.
+	compacted := false.
 
-	className := 'SWASimSpaceTally root'.
-	selfSize := 0.
+	rootNode := SWASimSpaceTallyNode new.
+	rootNode setSimulator: sim.
+	rootNode setClassName: 'SWASimSpaceTally root' selfSize: 0 totalSize: 0.
 
 	roots do: [:each |
 		| label rootOop |
@@ -342,10 +310,10 @@ SWASimSpaceTally >> walk [
 			| followed |
 			followed := self followOop: rootOop.
 			(oopSeen includesKey: followed) ifFalse: [
-				| rootNode |
-				rootNode := self newSimChildFor: followed parent: self edge: label.
-				oopSeen at: followed put: rootNode.
-				queue addLast: rootNode]]].
+				| childNode |
+				childNode := self newSimChildFor: followed parent: rootNode edge: label.
+				oopSeen at: followed put: childNode.
+				queue addLast: childNode]]].
 
 	progressStep := (maxVisits // 200) max: 1000.
 	nextProgress := progressStep.
@@ -358,7 +326,15 @@ SWASimSpaceTally >> walk [
 					bar value: visitCount.
 					nextProgress := nextProgress + progressStep]]].
 
+	queue notEmpty ifTrue: [
+		limitHit := self deadlineReached
+			ifTrue: [#timeout]
+			ifFalse: [#maxVisits]].
+
 	queue do: [:n | n markTruncated].
-	self rollUp.
+	rootNode rollUp.
+	durationMs := Time millisecondClockValue - startMs.
+	self captureParamsSnapshot.
+	self clearWalkerState.
 	^ self
 ]

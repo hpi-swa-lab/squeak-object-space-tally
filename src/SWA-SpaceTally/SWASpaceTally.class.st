@@ -99,36 +99,69 @@ Class {
 	#name : #SWASpaceTally,
 	#superclass : #Object,
 	#instVars : [
-		'objectRef',
-		'className',
-		'selfSize',
-		'totalSize',
-		'parent',
-		'children',
-		'depth',
-		'truncated',
-		'seen',
-		'queue',
+		'rootNode',
+		'roots',
 		'maxDepth',
 		'maxVisits',
 		'deadlineMs',
 		'visitCount',
-		'roots',
-		'pruned',
-		'prunedChildCount',
-		'prunedChildBytes',
-		'edgeLabel',
-		'classInfo',
-		'otherParents',
+		'limitHit',
+		'compacted',
+		'baseTally',
 		'trackOtherParents',
 		'ignoreSet',
 		'ignoreClasses',
-		'isNew',
-		'baseTally'
+		'seen',
+		'queue',
+		'classInfo',
+		'runLabel',
+		'startedAt',
+		'durationMs',
+		'paramsSnapshot'
+	],
+	#classVars : [
+		'DiffIgnoreSet'
 	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:32'
+}
+SWASpaceTally class >> addDiffIgnore: aParentToChildAssociation [
+	"Add one parent->child path pattern to the diff ignore preference, e.g.
+		SWASpaceTally addDiffIgnore: #NewParagraph -> #caretRect.
+	No-op if an equal pattern is already present."
+
+	| patterns |
+	patterns := self diffIgnorePatterns.
+	(patterns anySatisfy: [:p |
+		p key = aParentToChildAssociation key
+			and: [p value = aParentToChildAssociation value]])
+		ifFalse: [patterns add: aParentToChildAssociation].
+	^ aParentToChildAssociation
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:32'
+}
+SWASpaceTally class >> defaultDiffIgnorePatterns [
+	"The built-in set of parent->child path patterns to ignore when diffing.
+	Each pattern is an Association whose key matches the parent node and whose
+	value matches the child node. A pattern symbol matches a node when it
+	equals either the node's className or its edgeLabel (instVar/slot label).
+
+	Example: #NewParagraph -> #caretRect ignores a caretRect slot reached
+	directly from a NewParagraph -- editor caret noise that changes on every
+	keystroke and pollutes diffs."
+
+	^ OrderedCollection new
+		add: #NewParagraph -> #caretRect;
+		yourself
+]
 
 {
 	#category : #'instances mode',
@@ -209,6 +242,30 @@ SWASpaceTally class >> defaultRoots [
 	Processor ifNotNil: [roots add: 'Processor' -> Processor].
 	roots add: 'Resources' -> self resourceRoots asArray.
 	^ roots
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:32'
+}
+SWASpaceTally class >> diffIgnorePatterns [
+	"The current preference: a collection of parent->child path-pattern
+	Associations ignored when diffing. Persists in the image (class variable).
+	Initialised from #defaultDiffIgnorePatterns on first access."
+
+	DiffIgnoreSet ifNil: [DiffIgnoreSet := self defaultDiffIgnorePatterns].
+	^ DiffIgnoreSet
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:32'
+}
+SWASpaceTally class >> diffIgnorePatterns: aCollectionOfAssociations [
+	"Set the diff ignore preference. Each element is a parent->child
+	Association of Symbols/Strings. Pass an empty collection to ignore nothing."
+
+	DiffIgnoreSet := aCollectionOfAssociations
 ]
 
 {
@@ -312,11 +369,17 @@ SWASpaceTally class >> initialize [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:07'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:46'
 }
 SWASpaceTally class >> open [
-	"Open a space tally explorer from the world menu."
-	^ self explore
+	"Open a space tally explorer from the Apps/World menu.
+	Unlike #explore, this does NOT compact the walk, so the full walker
+	state (object refs, etc.) is kept around for diffing the result later."
+
+	| t |
+	t := self walk.
+	t openExplorer.
+	^ t
 ]
 
 {
@@ -329,6 +392,20 @@ SWASpaceTally class >> openTreemap [
 	| t |
 	t := self new walk; compact; yourself.
 	^ t openTreemap
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:32'
+}
+SWASpaceTally class >> removeDiffIgnore: aParentToChildAssociation [
+	"Remove a parent->child path pattern from the diff ignore preference.
+	Matches by equal key and value. No-op if not present."
+
+	DiffIgnoreSet := self diffIgnorePatterns reject: [:p |
+		p key = aParentToChildAssociation key
+			and: [p value = aParentToChildAssociation value]].
+	^ aParentToChildAssociation
 ]
 
 {
@@ -403,62 +480,12 @@ SWASpaceTally class >> walkRoots: aCollection [
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
 SWASpaceTally >> allObjects [
-	"Return an IdentitySet of all live objects in this tally tree.
-	Traverses all nodes and collects their object references (skipping GC'd ones)."
+	"IdentitySet of all live objects in the tree (delegates to the root node)."
 
-	| result stack node obj |
-	result := IdentitySet new.
-	stack := OrderedCollection new.
-	stack addLast: self.
-	[stack notEmpty] whileTrue: [
-		node := stack removeLast.
-		obj := node object.
-		obj ifNotNil: [result add: obj].
-		node children do: [:c | stack addLast: c]].
-	^ result
-]
-
-{
-	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 13:11'
-}
-SWASpaceTally >> asExplorerString [
-	"The right-column value text. Tab-separated fields for column alignment:
-	  className | total | self | children | pruned | refs | [truncated]"
-
-	^ String streamContents: [:s |
-		s nextPutAll: className.
-		s nextPut: Character tab.
-		s nextPutAll: (self formatBytes: self totalSize).
-		s nextPut: Character tab.
-		selfSize > 0 ifTrue: [
-			s nextPutAll: (self formatBytes: selfSize)].
-		s nextPut: Character tab.
-		children isEmpty ifFalse: [
-			children size printOn: s.
-			s nextPutAll: ' children'].
-		s nextPut: Character tab.
-		pruned ifTrue: [
-			prunedChildCount printOn: s.
-			s nextPutAll: ' pruned '.
-			s nextPutAll: (self formatBytes: prunedChildBytes)].
-		s nextPut: Character tab.
-		otherParents ifNotNil: [
-			otherParents size printOn: s.
-			s nextPutAll: ' refs'].
-		s nextPut: Character tab.
-		truncated ifTrue: [s nextPutAll: '[truncated]']]
-]
-
-{
-	#category : #output,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:01'
-}
-SWASpaceTally >> asJsonString [
-	^ String streamContents: [:s | self printTreemapJsonOn: s]
+	^ rootNode ifNil: [IdentitySet new] ifNotNil: [rootNode allObjects]
 ]
 
 {
@@ -481,19 +508,28 @@ SWASpaceTally >> baseTally: aTally [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
+	#category : #private,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:12'
 }
-SWASpaceTally >> children [
-	^ children
+SWASpaceTally >> captureParamsSnapshot [
+	"Record the walk parameters used for this run, for display/diagnostics."
+
+	paramsSnapshot := Dictionary new.
+	paramsSnapshot at: #maxDepth put: maxDepth.
+	paramsSnapshot at: #maxVisits put: maxVisits.
+	paramsSnapshot at: #trackOtherParents put: (trackOtherParents == true).
+	paramsSnapshot at: #rootLabels put: (roots
+		ifNil: [#()]
+		ifNotNil: [roots collect: [:r | (r isKindOf: Association) ifTrue: [r key] ifFalse: [r printString]]]).
+	paramsSnapshot at: #instancesMode put: (ignoreSet notNil or: [ignoreClasses notNil])
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 10:14'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
-SWASpaceTally >> children: aCollection [
-	children := aCollection
+SWASpaceTally >> children [
+	^ rootNode ifNil: [#()] ifNotNil: [rootNode children]
 ]
 
 {
@@ -518,35 +554,16 @@ SWASpaceTally >> classInfoFor: aClass [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
-}
-SWASpaceTally >> className [
-	^ className
-]
-
-{
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:02'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:12'
 }
 SWASpaceTally >> clearWalkerState [
-	"Nil out walker-only ivars. Called by #compact for every node.
-	Root-only ivars (seen, queue, classInfo, etc.) are nil on non-root nodes
-	anyway, so it's safe to nil them unconditionally.
-	
-	objectRef is a WeakArray and kept alive -- it doesn't pin the object
-	(GC can reclaim it) and allows the explorer workspace to reach the
-	real object via #object."
+	"Drop the transient BFS machinery now that the tree is built. The lean
+	nodes never held this state; it lives only on the group during a walk."
 
 	seen := nil.
 	queue := nil.
-	roots := nil.
-	classInfo := nil.
-	maxDepth := nil.
-	maxVisits := nil.
-	deadlineMs := nil
-	"Keep visitCount on the root for diagnostics; it's a SmallInteger, costs nothing.
-	Keep objectRef -- it's a single-slot WeakArray, costs 24 bytes per node."
+	classInfo := nil
 ]
 
 {
@@ -561,113 +578,28 @@ SWASpaceTally >> compact [
 
 {
 	#category : #compacting,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 10:14'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:12'
 }
 SWASpaceTally >> compact: threshold [
-	"Drop walker state (objectRefs, queue, seen-set, etc.) AND prune children
-	whose totalSize < threshold, all in a single in-place pass.
-	Pruned children are counted into prunedChildCount/prunedChildBytes.
-	
-	With threshold = 0 this behaves exactly like the old #compact.
-	
-	After #compact:, #object returns nil but #className, #selfSize,
-	#totalSize, #depth, #truncated, #pruned still work."
+	"Prune the tree's children below threshold (delegated to the root node)
+	and mark this group as compacted. With threshold = 0 nothing is pruned;
+	the marker is still set so the UI shows [compacted]."
 
-	| stack node keep drop |
-	stack := OrderedCollection new.
-	stack add: self.
-	[stack notEmpty] whileTrue: [
-		node := stack removeLast.
-		node clearWalkerState.
-		threshold > 0 ifTrue: [
-			keep := OrderedCollection new.
-			drop := OrderedCollection new.
-			node children do: [:c |
-				c totalSize >= threshold
-					ifTrue: [keep add: c]
-					ifFalse: [drop add: c]].
-			drop isEmpty ifFalse: [
-				node markPrunedDropping: drop.
-				node children: keep]].
-		node children do: [:c | stack add: c]].
+	compacted := true.
+	rootNode ifNotNil: [rootNode compact: threshold].
 	^ self
 ]
 
 {
-	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:05'
 }
-SWASpaceTally >> copyFilteredBy: isNewBlock [
-	"Return a new tally tree keeping only branches that contain at least
-	one node for which isNewBlock evaluates to true.
+SWASpaceTally >> compacted [
+	"True if this tree has been compacted (walker state dropped, possibly
+	pruned). Object references may be gone, so the tree can't be re-walked
+	or used as a fresh diff baseline as effectively. Survives on the root."
 
-	Nodes on the path that are NOT new get selfSize zeroed (they're just
-	structural context) and isNew: false. New nodes keep their full
-	selfSize and isNew: true. Because a branch is kept only when it reaches
-	a new node, every old context node is guaranteed to sit on a path that
-	ends in a new object.
-
-	The result is a proper SWASpaceTally root with rolled-up totals, flagged
-	as a diff tree (isNew: false marks the synthetic root as structural)."
-
-	| root |
-	root := self class new.
-	root setClassName: 'SWASpaceTally DIFF' selfSize: 0 totalSize: 0.
-	root isNew: false.
-	self children do: [:child |
-		| copied |
-		copied := child copySubtreeFilteredBy: isNewBlock depth: 1.
-		copied ifNotNil: [
-			copied setParent: root depth: 1.
-			root children add: copied]].
-	root rollUp.
-	^ root
-]
-
-{
-	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
-}
-SWASpaceTally >> copySubtreeFilteredBy: isNewBlock depth: d [
-	"Recursively copy this subtree, keeping only branches that contain
-	at least one node satisfying isNewBlock.
-
-	Returns a copy of this node (with filtered children), or nil if
-	this entire subtree contains no new objects.
-
-	Each copied node records whether it is genuinely new (isNew: true) or
-	merely structural context on the path to a new object (isNew: false).
-	New nodes keep their full selfSize; context nodes get a zeroed selfSize
-	so they don't inflate the byte totals."
-
-	| iAmNew keptChildren copy |
-	iAmNew := isNewBlock value: self.
-
-	"Recurse into children first"
-	keptChildren := OrderedCollection new.
-	children do: [:child |
-		| copied |
-		copied := child copySubtreeFilteredBy: isNewBlock depth: d + 1.
-		copied ifNotNil: [keptChildren add: copied]].
-
-	"If I'm not new and no children survived, prune this branch"
-	(iAmNew not and: [keptChildren isEmpty]) ifTrue: [^ nil].
-
-	"Build a shallow copy of this node"
-	copy := self class new.
-	copy setObjectRef: objectRef.
-	copy setClassName: className selfSize: (iAmNew ifTrue: [selfSize] ifFalse: [0]) totalSize: 0.
-	copy setParent: nil depth: d.
-	copy edgeLabel: edgeLabel.
-	copy setTruncated: truncated.
-	copy isNew: iAmNew.
-
-	"Attach surviving children"
-	keptChildren do: [:c |
-		c setParent: copy depth: d + 1.
-		copy children add: c].
-
-	^ copy
+	^ compacted == true
 ]
 
 {
@@ -689,114 +621,75 @@ SWASpaceTally >> deadlineReached [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
-}
-SWASpaceTally >> depth [
-	^ depth
-]
-
-{
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:14'
 }
-SWASpaceTally >> diffColor [
-	"Row text color for diff trees. New objects are green, old context
-	objects are grayed out. nil (the default) lets the explorer use the
-	theme's normal color -- used for ordinary, non-diff tallies."
-
-	isNew isNil ifTrue: [^ nil].
-	^ isNew
-		ifTrue: [Color green muchDarker]
-		ifFalse: [Color gray]
-]
-
-{
-	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
-}
-SWASpaceTally >> diffFrom: baseTally [
-	"Produce a new SWASpaceTally tree containing only nodes whose objects
-	are NOT present in baseTally. Preserves the tree structure (paths to roots)
-	so you can see how new objects are reachable.
-
-	The result is flagged as a DIFF tree: new nodes are marked isNew: true
-	(shown green), old context nodes isNew: false (shown gray), and the diff
-	root keeps a reference back to baseTally so you can jump to the original.
+SWASpaceTally >> diffFrom: aBaseTally [
+	"Produce a new diff SWASpaceTally group containing only nodes whose objects
+	are NOT present in aBaseTally. New nodes are shown green, old context nodes
+	gray, and the diff keeps a reference back to aBaseTally so you can jump to
+	the original.
 
 	Usage:
-		base := SWASpaceTally walk compact.
+		base := SWASpaceTally walk.
 		'... do stuff ...'
-		after := SWASpaceTally walk compact.
+		after := SWASpaceTally walk.
 		diff := after diffFrom: base.
 		diff openExplorer.
 
-	Returns a synthetic root node (like walk does)."
+	Returns the diff group."
 
-	| baseObjects diff |
-	baseObjects := baseTally allObjects.
-	diff := self diffFromObjects: baseObjects.
-	diff baseTally: baseTally.
+	| diff |
+	diff := self diffFromObjects: aBaseTally allObjects.
+	diff baseTally: aBaseTally.
 	^ diff
 ]
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 13:13'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:14'
 }
 SWASpaceTally >> diffFromObjects: baseObjects [
-	"Build a filtered copy of this tally tree, keeping only branches
-	that contain at least one object not in baseObjects.
-	
-	The algorithm works bottom-up:
-	1. Walk the tree depth-first
-	2. A leaf is 'new' if its object is not in baseObjects
-	3. An interior node is kept if any descendant is new
-	4. Kept nodes are shallow-copied into a new tree
-	
-	Nodes whose objects existed in the baseline are still shown along
-	the path (as context), but their selfSize is zeroed out so they
-	don't inflate the totals. Only genuinely new objects contribute bytes."
+	"Build a new diff SWASpaceTally group whose tree keeps only branches that
+	contain at least one object not in baseObjects. New nodes are isNew: true
+	(green), context nodes isNew: false (gray); ignore patterns are applied.
+	The filtered node tree is produced by SWASpaceTallyNode>>copyFilteredBy:."
 
-	^ self copyFilteredBy: [:node |
+	| diff filteredRoot |
+	filteredRoot := rootNode copyFilteredBy: [:node |
 		| obj |
 		obj := node object.
-		obj notNil and: [(baseObjects includes: obj) not]]
+		obj notNil and: [(baseObjects includes: obj) not]].
+	diff := SWASpaceTally new.
+	diff rootNode: filteredRoot.
+	^ diff
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:05'
+	#category : #metadata,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
-SWASpaceTally >> edgeLabel [
-	"The label describing how we got from parent to self: an instVar name
-	('array'), an indexed-slot tag ('[42]'), or a special slot ('class').
-	Nil on the synthetic root and on per-root nodes."
+SWASpaceTally >> durationMs [
+	"Wall-clock milliseconds the walk took, or nil."
 
-	^ edgeLabel
+	^ durationMs
 ]
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:05'
-}
-SWASpaceTally >> edgeLabel: aStringOrNil [
-	edgeLabel := aStringOrNil
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:12'
 }
 SWASpaceTally >> expandNode: aNode [
 	"Visit one node: enumerate its referents and enqueue first-time ones.
-	The slot label is built lazily, only when we actually create a child node,
-	so filtered-out slots don't allocate label strings.
-	
-	When trackOtherParents is true, second hits record aNode on the
-	target's otherParents collection."
+	The slot label is built lazily, only when a child node is created.
 
-	| obj tallyClass |
+	When trackOtherParents is true, second hits record aNode on the target's
+	otherParents collection.
+
+	Skips referents that are SWASpaceTally or SWASpaceTallyNode instances so
+	the walker's own tree is never tallied."
+
+	| obj |
 	visitCount := visitCount + 1.
 	aNode depth >= maxDepth ifTrue: [
 		aNode markTruncated.
@@ -804,16 +697,17 @@ SWASpaceTally >> expandNode: aNode [
 	obj := aNode object.
 	obj ifNil: [^ self].
 
-	tallyClass := SWASpaceTally.
 	self referentsOf: obj do: [:referent :slotKind :slotIndex |
+		| refClass |
+		refClass := thisContext objectClass: referent.
 		((self isTallyable: referent)
-			and: [(thisContext objectClass: referent) ~~ tallyClass])
+			and: [refClass ~~ SWASpaceTally and: [refClass ~~ SWASpaceTallyNode]])
 		ifTrue: [
 			| existingNode |
 			existingNode := seen at: referent ifAbsent: [nil].
 			existingNode
 				ifNotNil: [
-					trackOtherParents == true ifTrue: [
+					(trackOtherParents == true and: [existingNode isKindOf: SWASpaceTallyNode]) ifTrue: [
 						| op |
 						op := existingNode otherParents.
 						op ifNil: [op := OrderedCollection new: 2. existingNode setOtherParents: op].
@@ -846,53 +740,12 @@ SWASpaceTally >> exploreCoarse: threshold [
 
 {
 	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 11:02'
-}
-SWASpaceTally >> explorerContents [
-	"Return a wrapper per child, sorted by totalSize descending. Uses
-	SWASpaceTallyWrapper so the tree navigates by tally structure while
-	the workspace self binding is the real analyzed object."
-
-	| sorted |
-	sorted := children asSortedCollection: [:a :b | a totalSize > b totalSize].
-	^ (sorted asArray collect: [:child |
-		SWASpaceTallyWrapper
-			withTally: child
-			name: child explorerItemName
-			model: self]) asOrderedCollection
-]
-
-{
-	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:07'
-}
-SWASpaceTally >> explorerItemName [
-	"Left-column label for a child line in the ObjectExplorer.
-	Format: 'edgeLabel: name' if there's an edge label, else just name."
-
-	edgeLabel ifNil: [^ self name].
-	^ edgeLabel , ': ' , self name
-]
-
-{
-	#category : #exploring,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:58'
 }
 SWASpaceTally >> formatBytes: anInteger [
 	"Pretty-print a byte count. Delegates to the class-side utility."
 
 	^ self class formatBytes: anInteger
-]
-
-{
-	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:21'
-}
-SWASpaceTally >> hasContentsInExplorer [
-	"Show a disclosure triangle only if we have real children. Pruning is
-	communicated via the asExplorerString annotation on this node."
-
-	^ children notEmpty
 ]
 
 {
@@ -917,52 +770,29 @@ SWASpaceTally >> ignoreSet: anIdentitySet [
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'SqueakXR 6/10/2026 10:32'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:11'
 }
 SWASpaceTally >> initialize [
-
 	super initialize.
-	children := OrderedCollection new.
-	depth := 0.
-	truncated := false.
 	maxDepth := 40.
 	maxVisits := 2000000.
 	deadlineMs := nil.
 	visitCount := 0.
-	pruned := false.
-	prunedChildCount := 0.
-	prunedChildBytes := 0.
-	edgeLabel := nil
+	limitHit := nil.
+	compacted := false.
+	trackOtherParents := false
 ]
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:14'
 }
 SWASpaceTally >> isDiff [
-	"True if this tree is a diff result (holds a reference to a baseline tally)."
+	"True if this group is a diff result (has a baseline, or its root node was
+	produced by the diff filter and so carries an isNew marker)."
 
-	^ baseTally notNil or: [isNew notNil]
-]
-
-{
-	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
-}
-SWASpaceTally >> isNew [
-	"In a diff tree: true if this node's object is new (not present in the
-	baseline). false means it's an old/context node shown only because it
-	lies on the path to a new object. nil means this is not a diff tree."
-
-	^ isNew
-]
-
-{
-	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
-}
-SWASpaceTally >> isNew: aBoolean [
-	isNew := aBoolean
+	^ baseTally notNil
+		or: [rootNode notNil and: [rootNode isNew notNil]]
 ]
 
 {
@@ -1033,23 +863,30 @@ SWASpaceTally >> labelForKind: slotKind index: slotIndex ownerObject: ownerObjec
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:13'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:04'
 }
-SWASpaceTally >> markPrunedDropping: droppedChildren [
-	"Record on self that some children were pruned away."
+SWASpaceTally >> limitHit [
+	"Why the walk stopped early, or nil if it completed fully:
+	  #maxVisits - the maxVisits cap was reached
+	  #timeout   - the wall-clock deadline (deadlineMs) was reached
+	The result is incomplete (some objects were never visited) when non-nil.
+	Survives #compact so the UI can warn about it."
 
-	pruned := true.
-	prunedChildCount := prunedChildCount + droppedChildren size.
-	droppedChildren do: [:c | prunedChildBytes := prunedChildBytes + c totalSize]
+	^ limitHit
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:00'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:04'
 }
-SWASpaceTally >> markTruncated [
-	truncated := true
+SWASpaceTally >> limitWarning [
+	"A short human-readable warning string for the title bar, or nil if the
+	walk completed without hitting a limit."
+
+	limitHit == #timeout ifTrue: [^ 'WARNING: TIMEOUT - incomplete'].
+	limitHit == #maxVisits ifTrue: [^ 'WARNING: MAX VISITS - incomplete'].
+	^ nil
 ]
 
 {
@@ -1069,125 +906,35 @@ SWASpaceTally >> maxVisits: anInteger [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:59'
-}
-SWASpaceTally >> name [
-	"A short label for this node, suitable for treemap display."
-
-	| obj |
-	parent ifNil: [^ 'root'].  "synthetic root"
-	objectRef ifNil: [^ className asString].  "post-compact: no weak ref to consult"
-	obj := self object.
-	obj ifNil: [^ className asString , ' (gc''d)'].
-	obj isBehavior ifTrue: [^ obj name asString].
-	(obj isString and: [obj size <= 40]) ifTrue: [^ className asString , ' ' , obj printString].
-	^ className asString
-]
-
-{
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:59'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:35'
 }
 SWASpaceTally >> newChildNodeFor: anObject parent: parentNode edge: aLabel [
-	"Create a new node and hook it into the tree. Also mark the node, its
-	children OC, and its objectRef WeakArray as already-seen so BFS will
-	skip them if it ever reaches our tree via the active process's stack."
+	"Create a new lean node and hook it into the tree. Mark the node and (now
+	that it exists) the parent's children collection as already-seen, so BFS
+	skips our own tree if it reaches it via the active process's stack.
 
-	| node weakRef |
-	node := self class new.
+	Objects are held strongly now, so there is no per-node WeakArray to seed."
+
+	| node |
+	node := SWASpaceTallyNode new.
 	node setParent: parentNode depth: parentNode depth + 1.
 	node edgeLabel: aLabel.
-	node objectRef: anObject.
-	parentNode children add: node.
-	seen at: node put: node.
-	seen at: node children put: node.
-	weakRef := node objectRefArray.
-	weakRef ifNotNil: [seen at: weakRef put: node].
+	node objectRef: anObject classInfo: classInfo.
+	parentNode addChild: node.
+	seen at: node put: self.
+	seen at: parentNode children put: self.
 	^ node
 ]
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:03'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
 SWASpaceTally >> nodeForObject: anObject [
-	"Find the first node in this tree whose analyzed object is identical to
-	anObject. Returns nil if not found (or if anObject is nil). Used to map a
-	selection in a diff tree back to the corresponding node in the baseline."
+	"Find the tree node whose object is identical to anObject, or nil."
 
-	| stack node |
-	anObject ifNil: [^ nil].
-	stack := OrderedCollection new.
-	stack addLast: self.
-	[stack notEmpty] whileTrue: [
-		node := stack removeLast.
-		node object == anObject ifTrue: [^ node].
-		node children do: [:c | stack addLast: c]].
-	^ nil
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:58'
-}
-SWASpaceTally >> object [
-	"Return the analyzed object, or nil if garbage-collected."
-
-	objectRef ifNil: [^ nil].
-	^ objectRef at: 1
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:58'
-}
-SWASpaceTally >> objectRef: anObject [
-	"Record anObject as a weak reference. Capture class name and self-size
-	up front so we still have useful info if the object is garbage-collected.
-	
-	For classes and metaclasses, className stores the behavior's own name
-	(e.g. 'OrderedCollection' or 'MCRepositoryGroup class') rather than
-	the generic 'Metaclass' or 'Class'. This gives useful labels in the
-	explorer even after the object is GC'd.
-	
-	When called during a walk, uses the classInfo cache to avoid repeated metadata
-	lookups. Falls back to direct lookup when called outside a walk (e.g. tests)."
-
-	| ctx cls info basicSize byteSizeFixed |
-	ctx := thisContext.
-	objectRef := WeakArray new: 1.
-	objectRef at: 1 put: anObject.
-	cls := ctx objectClass: anObject.
-	className := (cls includesBehavior: Behavior)
-		ifTrue: [anObject name asString]
-		ifFalse: [cls name].
-	(classInfo notNil and: [classInfo includesKey: cls])
-		ifTrue: [
-			info := classInfo at: cls.
-			byteSizeFixed := info at: 7.
-			byteSizeFixed
-				ifNotNil: [selfSize := byteSizeFixed]
-				ifNil: [
-					basicSize := ctx objectSize: anObject.
-					selfSize := (info at: 4) "isImmediate"
-						ifTrue: [0]
-						ifFalse: [cls byteSizeOfInstanceOfSize: basicSize]]]
-		ifFalse: [
-			basicSize := ctx objectSize: anObject.
-			selfSize := cls isVariable
-				ifTrue: [cls byteSizeOfInstanceOfSize: basicSize]
-				ifFalse: [cls byteSizeOfInstance]]
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:59'
-}
-SWASpaceTally >> objectRefArray [
-	"Return the WeakArray holding the object reference, or nil if not set."
-
-	^ objectRef
+	^ rootNode ifNil: [nil] ifNotNil: [rootNode nodeForObject: anObject]
 ]
 
 {
@@ -1204,11 +951,11 @@ SWASpaceTally >> openExplorer [
 
 {
 	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
 SWASpaceTally >> openExplorerSelecting: aNode [
-	"Open a SWASpaceTallyExplorer on self, then expand the tree
-	to aNode and select it. aNode must be a descendant of self."
+	"Open an explorer on this group, then expand the tree to aNode and select
+	it. aNode must be a descendant of this group's rootNode."
 
 	| pair window treeMorph chain pathItems n |
 	pair := self openExplorerWindow.
@@ -1216,22 +963,21 @@ SWASpaceTally >> openExplorerSelecting: aNode [
 	treeMorph := pair second.
 	treeMorph ifNil: [^ window].
 
-	"Build the chain from root's child down to aNode"
+	"Build the chain from the root node's child down to aNode."
 	chain := OrderedCollection new.
 	n := aNode.
-	[n notNil and: [n ~~ self]] whileTrue: [
+	[n notNil and: [n ~~ rootNode]] whileTrue: [
 		chain addFirst: n.
 		n := n parent].
 
-	"Build path items matching what the tree widget stores.
-	 The root item is 'root' -> self (created by ObjectExplorer>>root).
-	 Each child item is explorerItemName -> (object ifNil: [tallyNode])."
+	"Build path items matching what the tree widget stores. The root item is
+	 'root' -> rootNode (created by ObjectExplorer>>root via rootObject:).
+	 Each child item is explorerItemName -> (object ifNil: [node])."
 	pathItems := OrderedCollection new.
-	pathItems add: 'root' -> self.
+	pathItems add: 'root' -> rootNode.
 	chain do: [:node |
 		pathItems add: (node explorerItemName -> (node object ifNil: [node]))].
 
-	"Defer selection to next UI cycle so the tree widget is fully built"
 	pathItems size > 1 ifTrue: [
 		WorldState addDeferredUIMessage: [
 			treeMorph selectPath: pathItems asArray]].
@@ -1241,20 +987,28 @@ SWASpaceTally >> openExplorerSelecting: aNode [
 
 {
 	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:05'
 }
 SWASpaceTally >> openExplorerWindow [
 	"Open a SWASpaceTallyExplorer, configure columns, return {window. treeMorph}.
-	Diff trees get a 'DIFF' prefix in the window title."
+	The title shows a 'DIFF' prefix for diff trees, a '[compacted]' marker when
+	the tree has been compacted, and a loud WARNING when the walk stopped early
+	due to a timeout or the maxVisits cap (the result is then incomplete)."
 
-	| explorer window treeMorph colBlock label |
+	| explorer window treeMorph colBlock parts |
 	explorer := SWASpaceTallyExplorer new.
 	explorer tallyRoot: self.
 	window := ToolBuilder open: explorer.
-	label := (self formatBytes: self totalSize) , '  ' , self visitCount asString , ' visits'.
-	window setLabel: (self isDiff
-		ifTrue: ['DIFF  SWASpaceTally  ' , label]
-		ifFalse: ['SWASpaceTally  ' , label]).
+
+	parts := OrderedCollection new.
+	self isDiff ifTrue: [parts add: 'DIFF'].
+	parts add: 'SWASpaceTally'.
+	parts add: (self formatBytes: self totalSize).
+	parts add: self visitCount asString , ' visits'.
+	self compacted ifTrue: [parts add: '[compacted]'].
+	self limitWarning ifNotNil: [:w | parts add: w].
+	window setLabel: (parts inject: '' into: [:acc :p |
+		acc isEmpty ifTrue: [p] ifFalse: [acc , '  ' , p]]).
 
 	treeMorph := window allMorphs
 		detect: [:m | m isKindOf: PluggableTreeMorph]
@@ -1278,15 +1032,15 @@ SWASpaceTally >> openExplorerWindow [
 
 {
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:41'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
 SWASpaceTally >> openTreemap [
-	"Open a treemap morph with breadcrumb header, selection path, back button, and hover overlay."
+	"Open a treemap morph on the node tree, with breadcrumb header, selection
+	path, back button, and hover overlay."
 
 	| treemap overlay breadcrumb selectionPath panel window headerRow backButton desiredExtent |
-	treemap := SWASpaceTallyTreemapMorph on: self.
+	treemap := SWASpaceTallyTreemapMorph on: rootNode.
 
-	"Back button"
 	backButton := SimpleButtonMorph new
 		label: 'Back';
 		color: (Color gray: 0.3);
@@ -1294,7 +1048,6 @@ SWASpaceTally >> openTreemap [
 		actionSelector: #zoomOut;
 		yourself.
 
-	"Breadcrumb label"
 	breadcrumb := StringMorph new
 		contents: treemap breadcrumbString;
 		font: Preferences standardSystemFont;
@@ -1302,7 +1055,6 @@ SWASpaceTally >> openTreemap [
 		yourself.
 	treemap breadcrumbMorph: breadcrumb.
 
-	"Selection path label (second row)"
 	selectionPath := StringMorph new
 		contents: '';
 		font: Preferences standardSystemFont;
@@ -1310,7 +1062,6 @@ SWASpaceTally >> openTreemap [
 		yourself.
 	treemap selectionPathMorph: selectionPath.
 
-	"Header row: back button + breadcrumb"
 	headerRow := Morph new
 		color: (Color gray: 0.15);
 		layoutPolicy: TableLayout new;
@@ -1327,14 +1078,12 @@ SWASpaceTally >> openTreemap [
 	headerRow addMorph: backButton.
 	headerRow addMorph: breadcrumb.
 
-	"Transparent overlay as submorph of treemap for click/selection"
 	overlay := SWASpaceTallyTreemapOverlay new.
 	overlay treemapMorph: treemap.
 	overlay extent: treemap extent.
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
 
-	"Compose into a column panel"
 	panel := Morph new
 		color: (Color gray: 0.15);
 		layoutPolicy: TableLayout new;
@@ -1352,9 +1101,8 @@ SWASpaceTally >> openTreemap [
 	panel addMorph: treemap.
 
 	window := panel openInWindow.
-	window setLabel: 'Space Treemap'.
+	window setLabel: (self isDiff ifTrue: ['Space Treemap  DIFF'] ifFalse: ['Space Treemap']).
 
-	"Size to fit the display, centered"
 	desiredExtent := (Display extent * 0.75) rounded.
 	window extent: desiredExtent.
 	window center: Display center.
@@ -1362,171 +1110,13 @@ SWASpaceTally >> openTreemap [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 11:37'
+	#category : #metadata,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
-SWASpaceTally >> otherParents [
-	"Other tally nodes that also reference this object. nil when not tracked."
+SWASpaceTally >> paramsSnapshot [
+	"Dictionary of the walk parameters used for this run, or nil."
 
-	^ otherParents
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
-}
-SWASpaceTally >> parent [
-	^ parent
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:06'
-}
-SWASpaceTally >> path [
-	"Return an Array describing the chain from the synthetic root to self.
-	Each entry is a String. The synthetic root contributes nothing; per-root
-	nodes contribute their group label (e.g. 'Classes'); inner nodes contribute
-	the edge label combined with the node name, e.g. 'array (Array)'."
-
-	| chain n |
-	chain := OrderedCollection new.
-	n := self.
-	[n parent notNil] whileTrue: [
-		chain addFirst: n pathSegment.
-		n := n parent].
-	^ chain asArray
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:06'
-}
-SWASpaceTally >> pathSegment [
-	"One step of the path. Format: 'edgeLabel:nodeName' if both, else whichever
-	is present. Examples:
-		'Classes' (per-root node, no name distinction needed)
-		'array (Array)' (instVar 'array' pointing to an Array)
-		'[42] (Symbol)' (indexable slot 42 holding a Symbol)"
-
-	| nm |
-	nm := self name.
-	edgeLabel ifNil: [^ nm].
-	^ edgeLabel , ' (' , nm , ')'
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:07'
-}
-SWASpaceTally >> pathString [
-	"Human-readable path from root to self, joined with ' -> '.
-	(Plain ASCII; the explorer's text widget handles non-ASCII inconsistently.)"
-
-	^ String streamContents: [:s |
-		self path doWithIndex: [:seg :i |
-			i > 1 ifTrue: [s nextPutAll: ' -> '].
-			s nextPutAll: seg]]
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:27'
-}
-SWASpaceTally >> printJsonString: aString on: aStream [
-	"Write aString as a JSON string literal, escaping the minimum needed."
-
-	aStream nextPut: $".
-	aString do: [:ch |
-		ch = $\ ifTrue: [aStream nextPutAll: '\\']
-		ifFalse: [ch = $" ifTrue: [aStream nextPutAll: '\"']
-		ifFalse: [ch = Character lf ifTrue: [aStream nextPutAll: '\n']
-		ifFalse: [ch = Character cr ifTrue: [aStream nextPutAll: '\r']
-		ifFalse: [ch = Character tab ifTrue: [aStream nextPutAll: '\t']
-		ifFalse: [ch asInteger < 32
-			ifTrue: [aStream nextPutAll: '\u'.
-				aStream nextPutAll: (ch asInteger printStringBase: 16 nDigits: 4)]
-			ifFalse: [aStream nextPut: ch]]]]]]].
-	aStream nextPut: $"
-]
-
-{
-	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:13'
-}
-SWASpaceTally >> printOn: aStream [
-	aStream
-		nextPutAll: 'SWASpaceTally(';
-		nextPutAll: self name;
-		nextPutAll: ' self=';
-		print: selfSize;
-		nextPutAll: ' total=';
-		print: self totalSize;
-		nextPutAll: ' kids=';
-		print: children size.
-	pruned ifTrue: [
-		aStream
-			nextPutAll: ' pruned=';
-			print: prunedChildCount;
-			nextPutAll: '/';
-			print: prunedChildBytes].
-	aStream nextPutAll: ')'
-]
-
-{
-	#category : #output,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 15:07'
-}
-SWASpaceTally >> printTreemapJsonOn: aStream [
-	"Write a minimal JSON representation of this subtree to aStream."
-
-	aStream nextPutAll: '{"name":'.
-	self printJsonString: self name on: aStream.
-	aStream nextPutAll: ',"edgeLabel":'.
-	self printJsonString: (edgeLabel ifNil: ['']) on: aStream.
-	aStream nextPutAll: ',"self":'.
-	selfSize printOn: aStream.
-	aStream nextPutAll: ',"total":'.
-	self totalSize printOn: aStream.
-	aStream nextPutAll: ',"depth":'.
-	depth printOn: aStream.
-	aStream nextPutAll: ',"truncated":'.
-	aStream nextPutAll: (truncated ifTrue: ['true'] ifFalse: ['false']).
-	aStream nextPutAll: ',"pruned":'.
-	aStream nextPutAll: (pruned ifTrue: ['true'] ifFalse: ['false']).
-	aStream nextPutAll: ',"prunedChildCount":'.
-	prunedChildCount printOn: aStream.
-	aStream nextPutAll: ',"prunedChildBytes":'.
-	prunedChildBytes printOn: aStream.
-	aStream nextPutAll: ',"children":['.
-	children doWithIndex: [:c :i |
-		i > 1 ifTrue: [aStream nextPut: $,].
-		c printTreemapJsonOn: aStream].
-	aStream nextPutAll: ']}'
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:12'
-}
-SWASpaceTally >> pruned [
-	^ pruned
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:12'
-}
-SWASpaceTally >> prunedChildBytes [
-	^ prunedChildBytes
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:12'
-}
-SWASpaceTally >> prunedChildCount [
-	^ prunedChildCount
+	^ paramsSnapshot
 ]
 
 {
@@ -1576,28 +1166,21 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:00'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
-SWASpaceTally >> rollUp [
-	"Post-order: totalSize := selfSize + sum of children's totalSize.
-	Iterative (explicit stack) to avoid blowing the call stack on deep trees."
+SWASpaceTally >> rootNode [
+	"The synthetic root SWASpaceTallyNode of the tally tree (or nil before walk)."
 
-	| stack visited node sum |
-	stack := OrderedCollection new.
-	visited := IdentitySet new.
-	stack addLast: self.
-	[stack notEmpty] whileTrue: [
-		node := stack last.
-		(visited includes: node)
-			ifTrue: [
-				stack removeLast.
-				sum := node selfSize.
-				node children do: [:c | sum := sum + c totalSize].
-				node setTotalSize: sum]
-			ifFalse: [
-				visited add: node.
-				node children do: [:c | stack addLast: c]]]
+	^ rootNode
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
+}
+SWASpaceTally >> rootNode: aNode [
+	rootNode := aNode
 ]
 
 {
@@ -1613,73 +1196,39 @@ SWASpaceTally >> roots: aCollection [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
+	#category : #metadata,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
-SWASpaceTally >> selfSize [
-	^ selfSize
+SWASpaceTally >> runLabel [
+	"User-assignable label for this tally run, or nil."
+
+	^ runLabel
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:13'
+	#category : #metadata,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
-SWASpaceTally >> setClassName: aName selfSize: aSelfSize totalSize: aTotalSize [
-	className := aName.
-	selfSize := aSelfSize.
-	totalSize := aTotalSize
+SWASpaceTally >> runLabel: aString [
+	runLabel := aString
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:58'
+	#category : #metadata,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
-SWASpaceTally >> setObjectRef: aWeakArrayOrNil [
-	"Set the weak object reference directly (used by shallowCopyForPrune)."
+SWASpaceTally >> startedAt [
+	"DateAndTime when this walk ran, or nil if not yet walked."
 
-	objectRef := aWeakArrayOrNil
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 11:38'
-}
-SWASpaceTally >> setOtherParents: anOrderedCollection [
-
-	otherParents := anOrderedCollection
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:00'
-}
-SWASpaceTally >> setParent: parentNode depth: anInteger [
-	parent := parentNode.
-	depth := anInteger
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:00'
-}
-SWASpaceTally >> setTotalSize: anInteger [
-	totalSize := anInteger
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:13'
-}
-SWASpaceTally >> setTruncated: aBoolean [
-	truncated := aBoolean
+	^ startedAt
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
 SWASpaceTally >> totalSize [
-	^ totalSize ifNil: [selfSize]
+	^ rootNode ifNil: [0] ifNotNil: [rootNode totalSize]
 ]
 
 {
@@ -1695,15 +1244,7 @@ SWASpaceTally >> trackOtherParents: aBoolean [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
-}
-SWASpaceTally >> truncated [
-	^ truncated
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
 SWASpaceTally >> visitCount [
 	^ visitCount
@@ -1711,39 +1252,43 @@ SWASpaceTally >> visitCount [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:53'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:36'
 }
 SWASpaceTally >> walk [
-	"Perform the BFS walk from the configured roots, then roll up totals.
-	Self is the synthetic root node; its children are the per-root nodes.
-	Returns self.
-	
-	roots may be a list of Associations (label -> object) or bare objects.
-	Each root gets its label recorded as its edgeLabel.
-	
-	Self-exclusion has two layers:
-	  1. Pre-seed seen with the walker's own infrastructure (self, seen, queue,
-	     roots, children OC). They're skipped if BFS reaches them via Processor.
-	  2. Structural check in expandNode: rejects any SWASpaceTally instance."
+	"Perform the BFS walk from the configured roots, building a tree of lean
+	SWASpaceTallyNode objects. Records run metadata (timestamp, duration,
+	visitCount, limitHit) on this group. Returns self.
 
-	| seenCapacity progressStep nextProgress |
+	roots may be a list of Associations (label -> object) or bare objects.
+
+	Self-exclusion: pre-seed the seen-set with the walker's own infrastructure
+	(this group, seen, queue, classInfo) and structurally reject any
+	SWASpaceTally / SWASpaceTallyNode instance reached via the active process.
+	Each node's children collection is seeded in #newChildNodeFor:parent:edge:
+	once it actually exists (children are lazily allocated)."
+
+	| seenCapacity progressStep nextProgress startMs |
 	roots ifNil: [roots := self class defaultRoots asArray].
 	deadlineMs ifNil: [self deadlineMs: 10000].
+	startMs := Time millisecondClockValue.
+	startedAt := DateAndTime now.
 	seenCapacity := maxVisits min: 4000000.
 	seen := IdentityDictionary new: seenCapacity.
 	queue := OrderedCollection new.
 	classInfo := IdentityDictionary new: 2000.
 	visitCount := 0.
+	limitHit := nil.
+	compacted := false.
 
-	className := 'SWASpaceTally root'.
-	selfSize := 0.
+	rootNode := SWASpaceTallyNode new.
+	rootNode setClassName: 'SWASpaceTally root' selfSize: 0 totalSize: 0.
 
 	seen at: self put: self.
+	seen at: rootNode put: self.
 	seen at: seen put: self.
 	seen at: queue put: self.
-	seen at: roots put: self.
 	seen at: classInfo put: self.
-	seen at: children put: self.
+	seen at: roots put: self.
 
 	roots do: [:each |
 		| label rootObj |
@@ -1752,10 +1297,10 @@ SWASpaceTally >> walk [
 			ifFalse: [label := nil. rootObj := each].
 		(self isTallyable: rootObj) ifTrue: [
 			(seen includesKey: rootObj) ifFalse: [
-				| rootNode |
-				rootNode := self newChildNodeFor: rootObj parent: self edge: label.
-				seen at: rootObj put: rootNode.
-				queue addLast: rootNode]]].
+				| childNode |
+				childNode := self newChildNodeFor: rootObj parent: rootNode edge: label.
+				seen at: rootObj put: childNode.
+				queue addLast: childNode]]].
 
 	progressStep := (maxVisits // 200) max: 1000.
 	nextProgress := progressStep.
@@ -1768,7 +1313,15 @@ SWASpaceTally >> walk [
 					bar value: visitCount.
 					nextProgress := nextProgress + progressStep]]].
 
+	queue notEmpty ifTrue: [
+		limitHit := self deadlineReached
+			ifTrue: [#timeout]
+			ifFalse: [#maxVisits]].
+
 	queue do: [:n | n markTruncated].
-	self rollUp.
+	rootNode rollUp.
+	durationMs := Time millisecondClockValue - startMs.
+	self captureParamsSnapshot.
+	self clearWalkerState.
 	^ self
 ]
