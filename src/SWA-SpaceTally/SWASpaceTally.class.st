@@ -117,7 +117,10 @@ Class {
 		'runLabel',
 		'startedAt',
 		'durationMs',
-		'paramsSnapshot'
+		'paramsSnapshot',
+		'findDeep',
+		'findDeepSkipped',
+		'deepUniverse'
 	],
 	#classVars : [
 		'DiffIgnoreSet'
@@ -208,7 +211,7 @@ SWASpaceTally class >> defaultIgnoreObjects [
 
 {
 	#category : #defaults,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:50'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:36'
 }
 SWASpaceTally class >> defaultRoots [
 	"Default labelled root groups. Each entry is label -> object. Synthetic
@@ -224,9 +227,15 @@ SWASpaceTally class >> defaultRoots [
 	  ActiveWorld    -- the current world (PasteUpMorph)
 	  SourceFiles    -- the change/sources file array
 	  Processor      -- the ProcessorScheduler
+	  SpecialObjects -- the VM's specialObjectsArray (nil/true/false, the
+	                    compact-class table, selectors the VM sends, etc.)
 	  Resources      -- metaclasses that have class instance variables
 	                    (singletons, caches, registries, font tables, etc.
 	                    The BFS walks their instVars, exposing cached state.)
+	
+	The more specific groups come first so they claim their objects; the
+	catch-all Resources group is last and only nets what the earlier groups
+	did not already capture (BFS claims each object for its first reacher).
 	
 	Returns an OrderedCollection of Associations so iteration order is stable."
 
@@ -240,6 +249,7 @@ SWASpaceTally class >> defaultRoots [
 	ActiveWorld ifNotNil: [roots add: 'ActiveWorld' -> ActiveWorld].
 	SourceFiles ifNotNil: [roots add: 'SourceFiles' -> SourceFiles].
 	Processor ifNotNil: [roots add: 'Processor' -> Processor].
+	roots add: 'SpecialObjects' -> Smalltalk specialObjectsArray.
 	roots add: 'Resources' -> self resourceRoots asArray.
 	^ roots
 ]
@@ -282,6 +292,20 @@ SWASpaceTally class >> explore [
 
 	| t |
 	t := self walk compact.
+	t openExplorer.
+	^ t
+]
+
+{
+	#category : #exploring,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:37'
+}
+SWASpaceTally class >> exploreDeep [
+	"walkDeep + open an explorer (no compaction, so the LostAndFound subtree
+	keeps full detail). Returns the tally."
+
+	| t |
+	t := self walkDeep.
 	t openExplorer.
 	^ t
 ]
@@ -467,6 +491,31 @@ SWASpaceTally class >> walk [
 
 {
 	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:05'
+}
+SWASpaceTally class >> walkDeep [
+	"Walk from the default roots, then sweep the whole heap for objects no root
+	reached and bucket them under a LostAndFound node. Needs a high maxVisits so
+	the normal walk completes first -- an incomplete walk skips the sweep.
+
+	The sweep is bounded by a closed snapshot universe (see #findLostObjects),
+	so it can't run away following ever-growing scaffolding; total nodes are
+	bounded by the heap size at sweep start.
+
+	Example:
+		SWASpaceTally walkDeep openExplorer."
+
+	^ self new
+		roots: self defaultRoots;
+		maxVisits: 3000000;
+		deadlineMs: 120000;
+		findDeep: true;
+		walk;
+		yourself
+]
+
+{
+	#category : #walking,
 	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
 }
 SWASpaceTally class >> walkRoots: aCollection [
@@ -476,6 +525,19 @@ SWASpaceTally class >> walkRoots: aCollection [
 		roots: aCollection;
 		walk;
 		yourself
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:43'
+}
+SWASpaceTally >> allHeapObjectsForSweep [
+	"The candidate object list for the LostAndFound sweep: a GC'd snapshot of
+	the entire heap. Returns nil on low memory (caller skips the sweep).
+	Factored out so tests can override with a small, controlled object set."
+
+	Smalltalk garbageCollect.
+	^ SystemNavigation default allObjectsOrNil
 ]
 
 {
@@ -508,8 +570,27 @@ SWASpaceTally >> baseTally: aTally [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:17'
+}
+SWASpaceTally >> captureDeepUniverse [
+	"Snapshot the heap into `deepUniverse`, an IdentityDictionary of every
+	object that existed BEFORE the walk began. Called from #walk before any
+	walker state is allocated, so the universe excludes all of our own
+	scaffolding by construction. The sweep only ever considers / follows
+	objects in this universe."
+
+	| allObjects |
+	Smalltalk garbageCollect.
+	allObjects := self allHeapObjectsForSweep.
+	allObjects ifNil: [deepUniverse := nil. ^ self].
+	deepUniverse := IdentityDictionary new: allObjects size * 4 // 3 + 16.
+	1 to: allObjects size do: [:i | deepUniverse at: (allObjects at: i) put: nil]
+]
+
+{
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:12'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:39'
 }
 SWASpaceTally >> captureParamsSnapshot [
 	"Record the walk parameters used for this run, for display/diagnostics."
@@ -521,7 +602,9 @@ SWASpaceTally >> captureParamsSnapshot [
 	paramsSnapshot at: #rootLabels put: (roots
 		ifNil: [#()]
 		ifNotNil: [roots collect: [:r | (r isKindOf: Association) ifTrue: [r key] ifFalse: [r printString]]]).
-	paramsSnapshot at: #instancesMode put: (ignoreSet notNil or: [ignoreClasses notNil])
+	paramsSnapshot at: #instancesMode put: (ignoreSet notNil or: [ignoreClasses notNil]).
+	paramsSnapshot at: #findDeep put: self findDeep.
+	paramsSnapshot at: #findDeepSkipped put: self findDeepSkipped
 ]
 
 {
@@ -555,7 +638,7 @@ SWASpaceTally >> classInfoFor: aClass [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:12'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:18'
 }
 SWASpaceTally >> clearWalkerState [
 	"Drop the transient BFS machinery now that the tree is built. The lean
@@ -563,7 +646,8 @@ SWASpaceTally >> clearWalkerState [
 
 	seen := nil.
 	queue := nil.
-	classInfo := nil
+	classInfo := nil.
+	deepUniverse := nil
 ]
 
 {
@@ -739,6 +823,105 @@ SWASpaceTally >> exploreCoarse: threshold [
 ]
 
 {
+	#category : #configuration,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:36'
+}
+SWASpaceTally >> findDeep [
+	^ findDeep == true
+]
+
+{
+	#category : #configuration,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:36'
+}
+SWASpaceTally >> findDeep: aBoolean [
+	"When true, after the normal walk completes, sweep the whole heap for
+	objects no root reached and bucket them under a synthetic LostAndFound
+	node (then recurse from there). Only runs if the normal walk finished;
+	an incomplete (timeout/maxVisits) walk can't tell 'unreachable' from
+	'not yet visited', so the sweep is skipped and flagged."
+
+	findDeep := aBoolean
+]
+
+{
+	#category : #configuration,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:37'
+}
+SWASpaceTally >> findDeepSkipped [
+	"True when a deep sweep was requested but skipped because the normal walk
+	did not complete (so reachability is unknown)."
+
+	^ findDeepSkipped == true
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:34'
+}
+SWASpaceTally >> findLostObjects [
+	"Deep sweep: after a *complete* normal walk, find every heap object no root
+	reached and bucket them flat under a synthetic 'LostAndFound' node, then
+	group those into fixed-size bins so the UI can expand them.
+
+	No recursive expansion / re-parenting: every unreached universe object is a
+	direct (binned) child of LostAndFound. Simple and robust.
+
+	Closed universe: the candidate set is `deepUniverse`, snapshotted by
+	#captureDeepUniverse at the very start of #walk, BEFORE any walker
+	scaffolding existed -- so our own nodes/collections/dictionaries are never
+	in it. An object is 'lost' iff it is in the universe and NOT already in
+	`seen` (the normal walk never reached it)."
+
+	| lostRoot |
+	deepUniverse ifNil: [^ self].  "no snapshot (low memory): skip"
+
+	lostRoot := SWASpaceTallyNode new.
+	lostRoot setParent: rootNode depth: rootNode depth + 1.
+	lostRoot edgeLabel: 'LostAndFound'.
+	lostRoot setClassName: 'LostAndFound' selfSize: 0 totalSize: 0.
+	rootNode addChild: lostRoot.
+	seen at: lostRoot put: self.
+
+	'Deep sweep: collecting lost objects...'
+		displayProgressFrom: 0 to: deepUniverse size
+		during: [:bar |
+			| i |
+			i := 0.
+			deepUniverse keysDo: [:obj |
+				| cls |
+				i := i + 1.
+				(visitCount < maxVisits and: [self deadlineReached not]) ifFalse: [
+					limitHit isNil ifTrue: [
+						limitHit := self deadlineReached ifTrue: [#timeout] ifFalse: [#maxVisits]].
+					^ self finishLost: lostRoot queue: #()].
+				(i \\ 50000 = 0) ifTrue: [bar value: i].
+				cls := thisContext objectClass: obj.
+				((self isTallyable: obj)
+					and: [cls ~~ SWASpaceTally and: [cls ~~ SWASpaceTallyNode]]
+					and: [(seen includesKey: obj) not])
+						ifTrue: [
+							| node |
+							node := self newChildNodeFor: obj parent: lostRoot edge: nil.
+							seen at: obj put: node.
+							visitCount := visitCount + 1]]].
+
+	self finishLost: lostRoot queue: #()
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:37'
+}
+SWASpaceTally >> finishLost: lostRoot queue: ignored [
+	"Wrap up the deep sweep: group the LostAndFound children into per-class bins
+	(a flat list of 200k siblings chokes the UI tree), then recompute sizes."
+
+	lostRoot binChildrenByClass.
+	rootNode rollUp
+]
+
+{
 	#category : #exploring,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:58'
 }
@@ -770,11 +953,11 @@ SWASpaceTally >> ignoreSet: anIdentitySet [
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:11'
+	#'squeak_changestamp' : 'SqueakXR 6/16/2026 20:01'
 }
 SWASpaceTally >> initialize [
 	super initialize.
-	maxDepth := 40.
+	maxDepth := 10000. "shit.... we cannot get linked list that way"
 	maxVisits := 2000000.
 	deadlineMs := nil.
 	visitCount := 0.
@@ -797,12 +980,18 @@ SWASpaceTally >> isDiff [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 17:50'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:18'
 }
 SWASpaceTally >> isTallyable: anObject [
 	"Return true if anObject is a real heap object we want to record.
 	Reject nil and immediates. Uses classInfo cache if available.
-	
+
+	When a deepUniverse snapshot is active (findDeep), ONLY objects that
+	existed at snapshot time are tallyable. This gates BOTH the normal walk
+	and the deep sweep through one membership set, so the walker's own
+	scaffolding (allocated after the snapshot) is never tallied, and later
+	filters can be applied to the universe in one place.
+
 	In instances-mode (ignoreSet/ignoreClasses set), also reject:
 	  - objects on the ignore list
 	  - any Behavior (class or metaclass) -- so an instance's reference to
@@ -811,6 +1000,8 @@ SWASpaceTally >> isTallyable: anObject [
 
 	| cls info |
 	anObject ifNil: [^ false].
+	(deepUniverse notNil and: [(deepUniverse includesKey: anObject) not])
+		ifTrue: [^ false].
 	cls := thisContext objectClass: anObject.
 	(classInfo notNil and: [classInfo includesKey: cls])
 		ifTrue: [
@@ -832,13 +1023,14 @@ SWASpaceTally >> isTallyable: anObject [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:26'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:52'
 }
 SWASpaceTally >> labelForKind: slotKind index: slotIndex ownerObject: ownerObject [
 	"Build the human-readable edge label for a slot. Called only when a child
 	node is actually created (lazy)."
 
 	| ownerClass info names |
+	slotKind == #class ifTrue: [^ '<class>'].
 	slotKind == #index ifTrue: [
 		"For indexed slots, try to show a meaningful key when the
 		 referent is an Association (e.g. inside a Dictionary's array)."
@@ -987,13 +1179,15 @@ SWASpaceTally >> openExplorerSelecting: aNode [
 
 {
 	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:05'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:40'
 }
 SWASpaceTally >> openExplorerWindow [
 	"Open a SWASpaceTallyExplorer, configure columns, return {window. treeMorph}.
-	The title shows a 'DIFF' prefix for diff trees, a '[compacted]' marker when
-	the tree has been compacted, and a loud WARNING when the walk stopped early
-	due to a timeout or the maxVisits cap (the result is then incomplete)."
+	The title shows a 'DIFF' prefix for diff trees, a 'DEEP' marker when the
+	LostAndFound sweep ran, a '[compacted]' marker when the tree has been
+	compacted, and a loud WARNING when the walk stopped early due to a timeout
+	or the maxVisits cap (the result is then incomplete) or when a requested
+	deep sweep was skipped."
 
 	| explorer window treeMorph colBlock parts |
 	explorer := SWASpaceTallyExplorer new.
@@ -1002,10 +1196,12 @@ SWASpaceTally >> openExplorerWindow [
 
 	parts := OrderedCollection new.
 	self isDiff ifTrue: [parts add: 'DIFF'].
+	(self findDeep and: [self findDeepSkipped not]) ifTrue: [parts add: 'DEEP'].
 	parts add: 'SWASpaceTally'.
 	parts add: (self formatBytes: self totalSize).
 	parts add: self visitCount asString , ' visits'.
 	self compacted ifTrue: [parts add: '[compacted]'].
+	self findDeepSkipped ifTrue: [parts add: 'WARNING: DEEP SKIPPED - walk incomplete'].
 	self limitWarning ifNotNil: [:w | parts add: w].
 	window setLabel: (parts inject: '' into: [:acc :p |
 		acc isEmpty ifTrue: [p] ifFalse: [acc , '  ' , p]]).
@@ -1121,27 +1317,39 @@ SWASpaceTally >> paramsSnapshot [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 16:54'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:51'
 }
 SWASpaceTally >> referentsOf: anObject do: aBlock [
 	"Enumerate the heap-object referents of anObject, calling
 		aBlock value: referent value: slotKind value: slotIndex
-	for each slot. slotKind is one of #instVar / #index / #literal.
+	for each slot. slotKind is one of #instVar / #index / #literal / #class.
 	slotIndex is the 1-based index (used to look up instVar names or printed
 	as '[N]' / '#literals[N]'). Callers that don't need labels can simply
 	ignore the kind/index args.
-	
-	Uses cached per-class metadata (#classInfoFor:) and Context mirror primitives."
+
+	Uses cached per-class metadata (#classInfoFor:) and Context mirror primitives.
+
+	Special case: for a class or metaclass we ALSO follow its class pointer
+	(anObject class), since that header field is not an instVar/index/literal
+	slot and is otherwise never traversed. This is what makes metaclasses (and
+	the class-instance-var state they hold -- singletons, caches, registries)
+	reachable: Foo -> Foo class -> Metaclass. We restrict this to Behaviors so
+	we don't add a class-pointer edge to every ordinary object."
 
 	| ctx class info instSize spec isVar instVarNames isCompiled basicSize |
 	ctx := thisContext.
 	class := ctx objectClass: anObject.
+
+	"Follow the class pointer for classes/metaclasses only."
+	(anObject isKindOf: Behavior) ifTrue: [
+		aBlock value: class value: #class value: 0].
+
 	info := self classInfoFor: class.
 	instSize := info at: 1.
 	spec := info at: 2.
 	isVar := info at: 3.
 	isCompiled := info at: 5.
-	
+
 	isCompiled ifTrue: [
 		| i |
 		i := 0.
@@ -1252,7 +1460,7 @@ SWASpaceTally >> visitCount [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:36'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:17'
 }
 SWASpaceTally >> walk [
 	"Perform the BFS walk from the configured roots, building a tree of lean
@@ -1265,11 +1473,29 @@ SWASpaceTally >> walk [
 	(this group, seen, queue, classInfo) and structurally reject any
 	SWASpaceTally / SWASpaceTallyNode instance reached via the active process.
 	Each node's children collection is seeded in #newChildNodeFor:parent:edge:
-	once it actually exists (children are lazily allocated)."
+	once it actually exists (children are lazily allocated).
+
+	When findDeep is set and the normal walk completes (no limit hit), a
+	whole-heap sweep then buckets unreached objects under a LostAndFound node
+	(see #findLostObjects). An incomplete walk skips the sweep (reachability is
+	unknown) and records findDeepSkipped.
+
+	CRITICAL for findDeep: the deep-sweep universe is snapshotted HERE, at the
+	very top, BEFORE we allocate seen/queue/classInfo/rootNode or any tree
+	node. That way the snapshot contains only objects that pre-existed the
+	walk, so none of the walker's own scaffolding (node children collections,
+	the seen/classInfo dictionaries' internal arrays, associations, ...) can
+	ever be mistaken for a 'lost' object during the sweep."
 
 	| seenCapacity progressStep nextProgress startMs |
 	roots ifNil: [roots := self class defaultRoots asArray].
 	deadlineMs ifNil: [self deadlineMs: 10000].
+	findDeepSkipped := false.
+	deepUniverse := nil.
+
+	"Snapshot the deep-sweep universe first, before allocating anything."
+	self findDeep ifTrue: [self captureDeepUniverse].
+
 	startMs := Time millisecondClockValue.
 	startedAt := DateAndTime now.
 	seenCapacity := maxVisits min: 4000000.
@@ -1320,6 +1546,12 @@ SWASpaceTally >> walk [
 
 	queue do: [:n | n markTruncated].
 	rootNode rollUp.
+
+	self findDeep ifTrue: [
+		limitHit isNil
+			ifTrue: [self findLostObjects]
+			ifFalse: [findDeepSkipped := true]].
+
 	durationMs := Time millisecondClockValue - startMs.
 	self captureParamsSnapshot.
 	self clearWalkerState.

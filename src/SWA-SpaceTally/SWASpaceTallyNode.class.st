@@ -118,6 +118,44 @@ SWASpaceTallyNode >> asJsonString [
 ]
 
 {
+	#category : #compacting,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:36'
+}
+SWASpaceTallyNode >> binChildrenByClass [
+	"Group this node's direct children into synthetic 'bin' nodes, one per
+	class, so a UI tree can expand hundreds of thousands of lost objects by
+	class instead of choking on a flat sibling list. Bins are sorted by child
+	count descending. Each bin is labelled with the class name and count; the
+	original children become the bin's children (depth +1)."
+
+	| originals byClass bins |
+	originals := self children asArray.  "snapshot; we replace children below"
+	originals isEmpty ifTrue: [^ self].
+	"Group children by their className (preserving order within a class)."
+	byClass := Dictionary new.
+	originals do: [:child |
+		(byClass at: child className ifAbsentPut: [OrderedCollection new])
+			addLast: child].
+	"Detach current children; bins take ownership."
+	children := nil.
+	bins := OrderedCollection new: byClass size.
+	(byClass associations asSortedCollection: [:a :b | a value size > b value size])
+		do: [:assoc |
+			| bin members |
+			members := assoc value.
+			bin := SWASpaceTallyNode new.
+			bin setParent: self depth: self depth + 1.
+			bin edgeLabel: assoc key asString.
+			bin setClassName: assoc key asString , ' (', members size printString, ')'
+				selfSize: 0 totalSize: 0.
+			members do: [:child |
+				child setParent: bin depth: bin depth + 1.
+				bin addChild: child].
+			bins addLast: bin].
+	self children: bins
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:34'
 }
