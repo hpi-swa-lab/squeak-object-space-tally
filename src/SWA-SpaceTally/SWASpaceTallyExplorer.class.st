@@ -7,11 +7,23 @@ Class {
 	#instVars : [
 		'tallyRoot',
 		'compactThreshold',
-		'trackOtherParents'
+		'trackOtherParents',
+		'highlightMorph',
+		'allHighlights'
 	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:57'
+}
+SWASpaceTallyExplorer >> allHighlightsLabel [
+	^ allHighlights isNil
+		ifTrue: ['Show morphs']
+		ifFalse: ['Hide morphs']
+]
 
 {
 	#category : #building,
@@ -37,6 +49,20 @@ SWASpaceTallyExplorer >> buildOtherParentsCheckboxWith: builder [
 		action: #toggleTrackOtherParents;
 		changeLabelWhen: #otherParentsChanged;
 		help: 'Track alternate parents for shared objects (slower walk, enables "By shared references" color mode)';
+		yourself
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:58'
+}
+SWASpaceTallyExplorer >> buildShowAllButtonWith: builder [
+	^ builder pluggableButtonSpec new
+		model: self;
+		label: #allHighlightsLabel;
+		action: #toggleAllHighlights;
+		changeLabelWhen: #allHighlightsChanged;
+		help: 'Overlay every on-screen morph found in this tally with its calculated size; click again to hide';
 		yourself
 ]
 
@@ -94,7 +120,7 @@ SWASpaceTallyExplorer >> buildTreemapButtonWith: builder [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:59'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:58'
 }
 SWASpaceTallyExplorer >> buildWith: builder [
 	"Like ObjectExplorer>>buildWith: but adds action buttons, a
@@ -102,7 +128,7 @@ SWASpaceTallyExplorer >> buildWith: builder [
 
 	| windowSpec buttonHeight tool w |
 	buttonHeight := Preferences standardButtonFont height * 2.
-	w := 1/6.  "6 items in the button row"
+	w := 1/7.  "7 items in the button row"
 
 	windowSpec := self buildWindowWith: builder specs: {
 		"Button row at the top"
@@ -116,7 +142,9 @@ SWASpaceTallyExplorer >> buildWith: builder [
 			-> [self buildOtherParentsCheckboxWith: builder].
 		(LayoutFrame fractions: ((w*4)@0 corner: (w*5)@0) offsets: (0@0 corner: 0@buttonHeight))
 			-> [self buildTreemapButtonWith: builder].
-		(LayoutFrame fractions: ((w*5)@0 corner: 1@0) offsets: (0@0 corner: 0@buttonHeight))
+		(LayoutFrame fractions: ((w*5)@0 corner: (w*6)@0) offsets: (0@0 corner: 0@buttonHeight))
+			-> [self buildShowAllButtonWith: builder].
+		(LayoutFrame fractions: ((w*6)@0 corner: 1@0) offsets: (0@0 corner: 0@buttonHeight))
 			-> [self buildDiffButtonWith: builder].
 
 		"Tree below the buttons"
@@ -133,6 +161,16 @@ SWASpaceTallyExplorer >> buildWith: builder [
 	tool := builder build: windowSpec.
 	self changed: #expandRootsRequested.
 	^ tool
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:48'
+}
+SWASpaceTallyExplorer >> clearHighlight [
+	"Remove the current highlight overlay, if any."
+
+	highlightMorph ifNotNil: [:m | m delete. highlightMorph := nil]
 ]
 
 {
@@ -158,6 +196,30 @@ SWASpaceTallyExplorer >> compactThresholdText: aStringOrText [
 		ifFalse: [self inform: 'Enter a positive integer (bytes)'].
 	self changed: #compactThresholdText.
 	^ true
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:48'
+}
+SWASpaceTallyExplorer >> currentSelection: anObject [
+	"Besides the normal selection behaviour, when the freshly selected object
+	is a Morph that is currently on screen, drop a half-transparent overlay on
+	it showing the size we calculated for that node."
+
+	super currentSelection: anObject.
+	self updateHighlight
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:57'
+}
+SWASpaceTallyExplorer >> hideAllHighlights [
+	"Remove all the 'show all morphs' overlays, if any."
+
+	allHighlights ifNotNil: [:c | c do: [:m | m delete]].
+	allHighlights := nil
 ]
 
 {
@@ -202,6 +264,22 @@ SWASpaceTallyExplorer >> initialize [
 	super initialize.
 	compactThreshold := 100000.
 	trackOtherParents := false
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:04'
+}
+SWASpaceTallyExplorer >> isHighlightableMorph: aMorph [
+	"True when aMorph is worth covering with a 'show all' overlay: a real,
+	on-screen content morph. Excludes the world/desktop and hands (full-screen
+	or pointer overlays are noise), and our own highlight overlays."
+
+	aMorph world ifNil: [^ false].
+	(aMorph isKindOf: SWASpaceTallyHighlight) ifTrue: [^ false].
+	(aMorph isKindOf: HandMorph) ifTrue: [^ false].
+	(aMorph isKindOf: PasteUpMorph) ifTrue: [^ false].
+	^ true
 ]
 
 {
@@ -308,6 +386,19 @@ SWASpaceTallyExplorer >> otherParentsLabel [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:57'
+}
+SWASpaceTallyExplorer >> rootTallyNode [
+	"The lean SWASpaceTallyNode the tree is rooted at (the group's rootNode,
+	or a bare node if that's what we were handed)."
+
+	^ (tallyRoot isKindOf: SWASpaceTally)
+		ifTrue: [tallyRoot rootNode]
+		ifFalse: [tallyRoot]
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:59'
 }
@@ -332,17 +423,20 @@ SWASpaceTallyExplorer >> runTallyFull [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:53'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:52'
 }
 SWASpaceTallyExplorer >> selectedNode [
 	"Return the SWASpaceTally node for the current tree selection, or nil.
-	The selection is the wrapper's item (name -> realObject). We find the
-	matching visible wrapper -- preferring identity, falling back to equal
-	key and identical value -- and ask it for its tally node."
+	Child rows use SWASpaceTallyWrapper, whose item is (name -> realObject);
+	we find the matching visible wrapper -- preferring identity, falling back
+	to equal key and identical value -- and ask it for its tally node. The
+	root row is a plain ObjectExplorerWrapper whose value is the node itself,
+	so we recognise that directly."
 
 	| sel match |
 	sel := self currentSelection.
 	(sel isKindOf: Association) ifFalse: [^ nil].
+	(sel value isKindOf: SWASpaceTallyNode) ifTrue: [^ sel value].
 	match := nil.
 	self visibleObjectExplorerWrappers do: [:w |
 		(w isKindOf: SWASpaceTallyWrapper) ifTrue: [
@@ -352,6 +446,28 @@ SWASpaceTallyExplorer >> selectedNode [
 				and: [w item value == sel value]])
 					ifTrue: [match := w]]].
 	^ match ifNotNil: [match tallyNode]
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:15'
+}
+SWASpaceTallyExplorer >> showAllHighlights [
+	"Drop a half-transparent overlay on the topmost on-screen morphs discovered
+	in this tally, each labelled with the size we calculated for its node. Skips
+	the World and hands (full-screen / pointer overlays are noise), and skips
+	submorphs whose owner is already overlaid."
+
+	| node |
+	self hideAllHighlights.
+	allHighlights := OrderedCollection new.
+	node := self rootTallyNode.
+	node ifNil: [^ self].
+	node
+		morphNodesDo: [:n |
+			allHighlights add:
+				(SWASpaceTallyHighlight on: n object bytes: n totalSize)]
+		select: [:m | self isHighlightableMorph: m]
 ]
 
 {
@@ -378,6 +494,19 @@ SWASpaceTallyExplorer >> tallyRoot: aTallyGroupOrNode [
 
 {
 	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:57'
+}
+SWASpaceTallyExplorer >> toggleAllHighlights [
+	"Toggle overlays on every discovered on-screen morph on/off."
+
+	allHighlights isNil
+		ifTrue: [self showAllHighlights]
+		ifFalse: [self hideAllHighlights].
+	self changed: #allHighlightsChanged
+]
+
+{
+	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 16:09'
 }
 SWASpaceTallyExplorer >> toggleTrackOtherParents [
@@ -391,4 +520,38 @@ SWASpaceTallyExplorer >> toggleTrackOtherParents [
 }
 SWASpaceTallyExplorer >> trackOtherParents [
 	^ trackOtherParents ifNil: [false]
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:52'
+}
+SWASpaceTallyExplorer >> updateHighlight [
+	"Remove any previous overlay and, if the current selection corresponds to
+	an on-screen Morph, place a fresh half-transparent highlight on it labelled
+	with the tally size we computed for the selected node.
+
+	The selected object is taken from the tally node when we can resolve one
+	(its `object` is the real analyzed object), falling back to the explorer's
+	own `object` for the root row, whose wrapper carries the node itself."
+
+	| node obj bytes |
+	self clearHighlight.
+	node := self selectedNode.
+	obj := node ifNotNil: [node object] ifNil: [self object].
+	((obj isKindOf: Morph) and: [obj world notNil]) ifFalse: [^ self].
+	bytes := node ifNil: [0] ifNotNil: [node totalSize].
+	highlightMorph := SWASpaceTallyHighlight on: obj bytes: bytes
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:58'
+}
+SWASpaceTallyExplorer >> windowIsClosing [
+	"Tidy up our on-screen overlays when the explorer window closes."
+
+	self clearHighlight.
+	self hideAllHighlights.
+	super windowIsClosing
 ]

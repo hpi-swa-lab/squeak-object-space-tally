@@ -428,6 +428,61 @@ SWASpaceTallyNode >> matchesIgnoreToken: aToken [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:15'
+}
+SWASpaceTallyNode >> morphNodesDo: aBlock [
+	"Evaluate aBlock with the topmost on-screen Morph nodes in this subtree,
+	considering every on-screen morph. See morphNodesDo:select: for the
+	owner-topmost semantics; here the candidate filter accepts all morphs."
+
+	self morphNodesDo: aBlock select: [:m | true]
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:15'
+}
+SWASpaceTallyNode >> morphNodesDo: aBlock select: aPredicate [
+	"Evaluate aBlock with the topmost on-screen Morph nodes in this subtree,
+	restricted to morphs for which aPredicate answers true. A morph is yielded
+	only when none of its display owners is another *selected* morph found here
+	(a submorph sits inside its owner's bounds, so the owner's overlay covers
+	it). De-duplicates by morph identity. Non-selected morphs (e.g. the World or
+	hands) are ignored entirely, so they neither get yielded nor block their
+	descendants."
+
+	| nodes morphs |
+	nodes := OrderedCollection new.
+	morphs := IdentitySet new.
+	self morphNodesUnfilteredDo: [:n |
+		((morphs includes: n object) not and: [aPredicate value: n object])
+			ifTrue: [morphs add: n object. nodes addLast: n]].
+	nodes do: [:n |
+		(self owner: n object isUnderAnyOf: morphs)
+			ifFalse: [aBlock value: n]]
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:15'
+}
+SWASpaceTallyNode >> morphNodesUnfilteredDo: aBlock [
+	"Evaluate aBlock with every node in this subtree whose analyzed object is a
+	Morph currently on screen (in a world). No owner filtering or de-duplication."
+
+	| stack node obj |
+	stack := OrderedCollection new.
+	stack addLast: self.
+	[stack notEmpty] whileTrue: [
+		node := stack removeLast.
+		obj := node object.
+		((obj isKindOf: Morph) and: [obj world notNil])
+			ifTrue: [aBlock value: node].
+		node children do: [:c | stack addLast: c]]
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:35'
 }
@@ -516,6 +571,22 @@ SWASpaceTallyNode >> objectRef: anObject classInfo: classInfo [
 }
 SWASpaceTallyNode >> otherParents [
 	^ otherParents
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:15'
+}
+SWASpaceTallyNode >> owner: aMorph isUnderAnyOf: aMorphSet [
+	"True when one of aMorph's display owners is a member of aMorphSet (i.e.
+	aMorph is nested inside another discovered morph)."
+
+	| owner |
+	owner := aMorph owner.
+	[owner notNil] whileTrue: [
+		(aMorphSet includes: owner) ifTrue: [^ true].
+		owner := owner owner].
+	^ false
 ]
 
 {
