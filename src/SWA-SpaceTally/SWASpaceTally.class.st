@@ -122,7 +122,9 @@ Class {
 		'otherParents',
 		'trackOtherParents',
 		'ignoreSet',
-		'ignoreClasses'
+		'ignoreClasses',
+		'isNew',
+		'baseTally'
 	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
@@ -460,6 +462,25 @@ SWASpaceTally >> asJsonString [
 ]
 
 {
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
+}
+SWASpaceTally >> baseTally [
+	"In a diff tree, the original baseline SWASpaceTally this was diffed
+	against. Only the diff root carries it. nil otherwise."
+
+	^ baseTally
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
+}
+SWASpaceTally >> baseTally: aTally [
+	baseTally := aTally
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
 }
@@ -574,20 +595,25 @@ SWASpaceTally >> compact: threshold [
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 13:13'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
 }
 SWASpaceTally >> copyFilteredBy: isNewBlock [
 	"Return a new tally tree keeping only branches that contain at least
 	one node for which isNewBlock evaluates to true.
-	
+
 	Nodes on the path that are NOT new get selfSize zeroed (they're just
-	structural context). New nodes keep their full selfSize.
-	
-	The result is a proper SWASpaceTally root with rolled-up totals."
+	structural context) and isNew: false. New nodes keep their full
+	selfSize and isNew: true. Because a branch is kept only when it reaches
+	a new node, every old context node is guaranteed to sit on a path that
+	ends in a new object.
+
+	The result is a proper SWASpaceTally root with rolled-up totals, flagged
+	as a diff tree (isNew: false marks the synthetic root as structural)."
 
 	| root |
 	root := self class new.
-	root setClassName: 'SWASpaceTally diff' selfSize: 0 totalSize: 0.
+	root setClassName: 'SWASpaceTally DIFF' selfSize: 0 totalSize: 0.
+	root isNew: false.
 	self children do: [:child |
 		| copied |
 		copied := child copySubtreeFilteredBy: isNewBlock depth: 1.
@@ -600,28 +626,33 @@ SWASpaceTally >> copyFilteredBy: isNewBlock [
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 13:13'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
 }
 SWASpaceTally >> copySubtreeFilteredBy: isNewBlock depth: d [
 	"Recursively copy this subtree, keeping only branches that contain
 	at least one node satisfying isNewBlock.
-	
+
 	Returns a copy of this node (with filtered children), or nil if
-	this entire subtree contains no new objects."
+	this entire subtree contains no new objects.
+
+	Each copied node records whether it is genuinely new (isNew: true) or
+	merely structural context on the path to a new object (isNew: false).
+	New nodes keep their full selfSize; context nodes get a zeroed selfSize
+	so they don't inflate the byte totals."
 
 	| iAmNew keptChildren copy |
 	iAmNew := isNewBlock value: self.
-	
+
 	"Recurse into children first"
 	keptChildren := OrderedCollection new.
 	children do: [:child |
 		| copied |
 		copied := child copySubtreeFilteredBy: isNewBlock depth: d + 1.
 		copied ifNotNil: [keptChildren add: copied]].
-	
+
 	"If I'm not new and no children survived, prune this branch"
 	(iAmNew not and: [keptChildren isEmpty]) ifTrue: [^ nil].
-	
+
 	"Build a shallow copy of this node"
 	copy := self class new.
 	copy setObjectRef: objectRef.
@@ -629,12 +660,13 @@ SWASpaceTally >> copySubtreeFilteredBy: isNewBlock depth: d [
 	copy setParent: nil depth: d.
 	copy edgeLabel: edgeLabel.
 	copy setTruncated: truncated.
-	
+	copy isNew: iAmNew.
+
 	"Attach surviving children"
 	keptChildren do: [:c |
 		c setParent: copy depth: d + 1.
 		copy children add: c].
-	
+
 	^ copy
 ]
 
@@ -666,25 +698,46 @@ SWASpaceTally >> depth [
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
+}
+SWASpaceTally >> diffColor [
+	"Row text color for diff trees. New objects are green, old context
+	objects are grayed out. nil (the default) lets the explorer use the
+	theme's normal color -- used for ordinary, non-diff tallies."
+
+	isNew isNil ifTrue: [^ nil].
+	^ isNew
+		ifTrue: [Color green muchDarker]
+		ifFalse: [Color gray]
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
 }
 SWASpaceTally >> diffFrom: baseTally [
 	"Produce a new SWASpaceTally tree containing only nodes whose objects
 	are NOT present in baseTally. Preserves the tree structure (paths to roots)
 	so you can see how new objects are reachable.
-	
+
+	The result is flagged as a DIFF tree: new nodes are marked isNew: true
+	(shown green), old context nodes isNew: false (shown gray), and the diff
+	root keeps a reference back to baseTally so you can jump to the original.
+
 	Usage:
 		base := SWASpaceTally walk compact.
 		'... do stuff ...'
 		after := SWASpaceTally walk compact.
 		diff := after diffFrom: base.
 		diff openExplorer.
-	
+
 	Returns a synthetic root node (like walk does)."
 
-	| baseObjects |
+	| baseObjects diff |
 	baseObjects := baseTally allObjects.
-	^ self diffFromObjects: baseObjects
+	diff := self diffFromObjects: baseObjects.
+	diff baseTally: baseTally.
+	^ diff
 ]
 
 {
@@ -883,6 +936,36 @@ SWASpaceTally >> initialize [
 ]
 
 {
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
+}
+SWASpaceTally >> isDiff [
+	"True if this tree is a diff result (holds a reference to a baseline tally)."
+
+	^ baseTally notNil or: [isNew notNil]
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
+}
+SWASpaceTally >> isNew [
+	"In a diff tree: true if this node's object is new (not present in the
+	baseline). false means it's an old/context node shown only because it
+	lies on the path to a new object. nil means this is not a diff tree."
+
+	^ isNew
+]
+
+{
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:01'
+}
+SWASpaceTally >> isNew: aBoolean [
+	isNew := aBoolean
+]
+
+{
 	#category : #private,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 17:50'
 }
@@ -1025,6 +1108,26 @@ SWASpaceTally >> newChildNodeFor: anObject parent: parentNode edge: aLabel [
 ]
 
 {
+	#category : #diff,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:03'
+}
+SWASpaceTally >> nodeForObject: anObject [
+	"Find the first node in this tree whose analyzed object is identical to
+	anObject. Returns nil if not found (or if anObject is nil). Used to map a
+	selection in a diff tree back to the corresponding node in the baseline."
+
+	| stack node |
+	anObject ifNil: [^ nil].
+	stack := OrderedCollection new.
+	stack addLast: self.
+	[stack notEmpty] whileTrue: [
+		node := stack removeLast.
+		node object == anObject ifTrue: [^ node].
+		node children do: [:c | stack addLast: c]].
+	^ nil
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/10/2026 10:58'
 }
@@ -1138,16 +1241,20 @@ SWASpaceTally >> openExplorerSelecting: aNode [
 
 {
 	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:27'
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
 }
 SWASpaceTally >> openExplorerWindow [
-	"Open a SWASpaceTallyExplorer, configure columns, return {window. treeMorph}."
+	"Open a SWASpaceTallyExplorer, configure columns, return {window. treeMorph}.
+	Diff trees get a 'DIFF' prefix in the window title."
 
-	| explorer window treeMorph colBlock |
+	| explorer window treeMorph colBlock label |
 	explorer := SWASpaceTallyExplorer new.
 	explorer tallyRoot: self.
 	window := ToolBuilder open: explorer.
-	window setLabel: ('SWASpaceTally  ' , (self formatBytes: self totalSize) , '  ' , self visitCount asString , ' visits').
+	label := (self formatBytes: self totalSize) , '  ' , self visitCount asString , ' visits'.
+	window setLabel: (self isDiff
+		ifTrue: ['DIFF  SWASpaceTally  ' , label]
+		ifFalse: ['SWASpaceTally  ' , label]).
 
 	treeMorph := window allMorphs
 		detect: [:m | m isKindOf: PluggableTreeMorph]

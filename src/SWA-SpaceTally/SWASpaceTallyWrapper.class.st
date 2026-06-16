@@ -63,6 +63,17 @@ SWASpaceTallyWrapper >> objectString [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:02'
+}
+SWASpaceTallyWrapper >> preferredColor [
+	"In a diff tree, color new objects green and old/context objects gray.
+	Returns nil for ordinary tallies so the theme default applies."
+
+	^ tallyNode diffColor
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 6/10/2026 11:02'
 }

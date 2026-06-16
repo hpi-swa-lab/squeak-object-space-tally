@@ -171,6 +171,46 @@ SWASpaceTallyExplorer >> initialize [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:06'
+}
+SWASpaceTallyExplorer >> jumpToOriginal [
+	"Open the baseline tally this diff was derived from, expanded to and
+	selecting the node corresponding to the current selection (matched by
+	object identity). Falls back to opening the baseline root if the object
+	is gone or can't be located. Returns the opened window."
+
+	| base obj node |
+	base := tallyRoot baseTally.
+	base ifNil: [^ self].
+	obj := self object.
+	node := base nodeForObject: obj.
+	^ node
+		ifNil: [base openExplorerWindow first]
+		ifNotNil: [base openExplorerSelecting: node]
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:03'
+}
+SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
+	"Add a 'jump to original' item for diff trees so you can locate the
+	selected object back in the baseline tally it was diffed against."
+
+	<treeListMenu>
+	super mainTreeListMenu: aMenu.
+	(tallyRoot notNil and: [tallyRoot baseTally notNil]) ifTrue: [
+		aMenu addLine.
+		aMenu
+			add: 'jump to original'
+			target: self
+			selector: #jumpToOriginal
+			argument: nil].
+	^ aMenu
+]
+
+{
 	#category : #private,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:58'
 }
