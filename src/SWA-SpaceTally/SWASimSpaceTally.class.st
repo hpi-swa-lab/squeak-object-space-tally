@@ -198,7 +198,7 @@ SWASimSpaceTally >> clearWalkerState [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:20'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
 }
 SWASimSpaceTally >> defaultRootOops [
 	"Curated, labelled roots for a whole-image walk of the simulated heap,
@@ -214,8 +214,12 @@ SWASimSpaceTally >> defaultRootOops [
 	Resolution sources:
 	  Display        -- the global named 'Display'.
 	  ActiveWorld    -- the global named 'ActiveWorld' (a PasteUpMorph), if set.
-	  Processor      -- the global named 'Processor' (its lists hold the
-	                    processes, covering the live walker's 'Processes' group).
+	  Processes      -- EVERY Process instance (heap scan), like the live
+	                    walker's `Process allInstances`. A collection-valued root
+	                    -> one synthetic 'Processes' parent node. The scheduler
+	                    only reaches runnable processes, so this is the accurate
+	                    source (suspended / semaphore-blocked processes too).
+	  Processor      -- the global named 'Processor' (run queues, active process).
 	  Globals        -- the simulated Smalltalk (SmalltalkImage), via
 	                    specialObjectsArray slot 8.
 	  Classes        -- the class table (classTableRootObj, a hidden root that
@@ -226,18 +230,47 @@ SWASimSpaceTally >> defaultRootOops [
 	The deep-sweep nets anything no root reached into LostAndFound. Absent
 	globals are simply skipped."
 
-	| om roots |
+	| om roots processOops |
 	om := sim objectMemory.
 	roots := OrderedCollection new.
 	"Specific / interesting first."
 	(self globalNamed: 'Display') ifNotNil: [:o | roots add: 'Display' -> o].
 	(self globalNamed: 'ActiveWorld') ifNotNil: [:o | roots add: 'ActiveWorld' -> o].
+	processOops := self instanceOopsOfClassNamed: 'Process'.
+	processOops isEmpty ifFalse: [roots add: 'Processes' -> processOops].
 	(self globalNamed: 'Processor') ifNotNil: [:o | roots add: 'Processor' -> o].
 	"Broad catch-alls last."
 	roots add: 'Globals' -> self smalltalkOop.
 	roots add: 'Classes' -> om classTableRootObj.
 	roots add: 'SpecialObjects' -> om specialObjectsOop.
 	^ roots
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
+}
+SWASimSpaceTally >> enqueueGroupRoot: oopCollection label: aLabel [
+	"A root whose value is a host collection of oops (e.g. all Process
+	instances). Create one synthetic parent node labelled aLabel so the group is
+	a single expandable node, then enqueue each member oop as a child of it. The
+	sim equivalent of the live walker's synthetic-Array roots.
+
+	The synthetic node holds no simulated oop (selfSize 0); it's registered in
+	oopSeen under a fresh host key is unnecessary -- it's never a referent. Its
+	children are the real instances, deduped via oopSeen like any other node."
+
+	| groupNode |
+	groupNode := SWASimSpaceTallyNode new.
+	groupNode setSimulator: sim.
+	groupNode setParent: rootNode depth: rootNode depth + 1.
+	groupNode edgeLabel: aLabel.
+	groupNode setClassName: (aLabel ifNil: ['(group)']) selfSize: 0 totalSize: 0.
+	rootNode addChild: groupNode.
+
+	oopCollection do: [:oop |
+		(self isTallyableOop: oop) ifTrue: [
+			self enqueueSimReferent: oop parent: groupNode labelBlock: [nil]]]
 ]
 
 {
@@ -266,6 +299,18 @@ SWASimSpaceTally >> enqueueSimReferent: refOop parent: aNode labelBlock: aLabelB
 			child := self newSimChildFor: followed parent: aNode edge: aLabelBlock value.
 			oopSeen at: followed put: child.
 			queue addLast: child]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
+}
+SWASimSpaceTally >> enqueueSingleRoot: rootOop label: aLabel [
+	"Enqueue a single-oop root as a direct child of rootNode (if tallyable and
+	not already seen)."
+
+	(self isTallyableOop: rootOop) ifFalse: [^ self].
+	(self enqueueSimReferent: rootOop parent: rootNode labelBlock: [aLabel])
 ]
 
 {
@@ -410,6 +455,26 @@ SWASimSpaceTally >> instVarNamesOfClassOop: aClassOop [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:13'
+}
+SWASimSpaceTally >> instanceOopsOfClassNamed: aString [
+	"Answer an OrderedCollection of every heap oop whose class is the simulated
+	global class named aString (direct instances only, like #allInstances). The
+	sim has no #allInstances, so we scan the heap via objectMemory allObjectsDo:.
+	Answers an empty collection if the class global is absent."
+
+	| om classOop result |
+	om := sim objectMemory.
+	classOop := self globalNamed: aString.
+	result := OrderedCollection new.
+	classOop ifNil: [^ result].
+	om allObjectsDo: [:oop |
+		(om fetchClassOfNonImm: oop) = classOop ifTrue: [result add: oop]].
+	^ result
+]
+
+{
 	#category : #walking,
 	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:18'
 }
@@ -549,7 +614,7 @@ SWASimSpaceTally >> smalltalkOop [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
 }
 SWASimSpaceTally >> walk [
 	"BFS over the simulated heap from the configured root oops, building a tree
@@ -560,6 +625,11 @@ SWASimSpaceTally >> walk [
 	universe of every object oop in the simulated heap (#captureSimUniverse).
 	That universe is finite and oopSeen claims each oop once, so the BFS always
 	terminates. The universe size also drives a real progress bar.
+
+	A root's value may be a single oop (label -> oop) OR a host collection of
+	oops (label -> #(oop ...)). A collection root becomes one synthetic parent
+	node with the oops as children -- the sim equivalent of the live walker's
+	synthetic Arrays (e.g. 'Processes' -> all Process instances).
 
 	maxVisits is OPTIONAL (nil = unlimited); set it to bound a walk for testing.
 
@@ -590,18 +660,13 @@ SWASimSpaceTally >> walk [
 	rootNode setClassName: 'SWASimSpaceTally root' selfSize: 0 totalSize: 0.
 
 	roots do: [:each |
-		| label rootOop |
+		| label rootValue |
 		(each isKindOf: Association)
-			ifTrue: [label := each key. rootOop := each value]
-			ifFalse: [label := nil. rootOop := each].
-		(self isTallyableOop: rootOop) ifTrue: [
-			| followed |
-			followed := self followOop: rootOop.
-			(oopSeen includesKey: followed) ifFalse: [
-				| childNode |
-				childNode := self newSimChildFor: followed parent: rootNode edge: label.
-				oopSeen at: followed put: childNode.
-				queue addLast: childNode]]].
+			ifTrue: [label := each key. rootValue := each value]
+			ifFalse: [label := nil. rootValue := each].
+		(rootValue isCollection and: [(rootValue isKindOf: Association) not])
+			ifTrue: [self enqueueGroupRoot: rootValue label: label]
+			ifFalse: [self enqueueSingleRoot: rootValue label: label]].
 
 	progressStep := (universeSize // 200) max: 1000.
 	nextProgress := progressStep.
