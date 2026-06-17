@@ -159,12 +159,21 @@ SimObjectMirror >> setSimulator: aSimulator oop: anOop [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:35'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:52'
 }
 SimObjectMirror >> simClassName [
-	"The name of my class in the simulated image, as a host String."
-	^ [sis nameOfClass: self simClassOop]
-		on: Error do: [:e | '<? ', oop printString, '>']
+	"The name of my class in the simulated image, as a host String.
+
+	The VM's #nameOfClass: returns 'bad class' for VM-internal heap-management
+	objects (free lists, remembered set, class-table page backing, ...) that
+	have no real Smalltalk class. Substitute a role-based name for those so the
+	tally reads sensibly instead of lumping them under 'bad class'."
+
+	| name |
+	name := [sis nameOfClass: self simClassOop]
+		on: Error do: [:e | '<? ', oop printString, '>'].
+	(name = 'bad class') ifTrue: [^ self vmRoleName].
+	^ name
 ]
 
 {
@@ -182,4 +191,30 @@ SimObjectMirror >> simClassOop [
 }
 SimObjectMirror >> simulator [
 	^ sis
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:52'
+}
+SimObjectMirror >> vmRoleName [
+	"A friendly name for a VM-internal heap-management object that has no real
+	Smalltalk class (the VM's #nameOfClass: reports 'bad class' for these). We
+	identify the few singletons we can by oop and label the rest generically.
+
+	These objects are the memory manager's own scaffolding -- free lists, the
+	GC remembered set, class-table page backing, and assorted index/bitmap word
+	arrays -- not user data. They scale with heap size, not with the program."
+
+	| numSlots |
+	oop = om freeListsObject ifTrue: [^ '<VM: freeLists>'].
+	(om respondsTo: #rememberedSetObj) ifTrue: [
+		oop = om rememberedSetObj ifTrue: [^ '<VM: rememberedSet>']].
+	"The big anonymous word arrays: classify by size/format heuristically."
+	numSlots := om numSlotsOf: oop.
+	(om formatOf: oop) >= 9 ifTrue: [
+		numSlots = om classTablePageSize ifTrue: [^ '<VM: classTablePage>'].
+		numSlots >= 4092 ifTrue: [^ '<VM: classTablePage>'].
+		^ '<VM internal (' , numSlots printString , ' words)>'].
+	^ '<VM internal>'
 ]

@@ -43,6 +43,54 @@ Class {
 }
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 12:04'
+}
+SWASpaceTallyNode class >> bucketize: aCollectionOfWrappers model: aModel [
+	"UI-only grouping. Given an ordered collection of explorer wrappers (already
+	sorted), return either the same collection (if small enough) or a smaller
+	collection of SWASpaceTallyBucketWrapper rows, each holding a contiguous
+	slice. The bucket size is chosen so neither this level nor the next exceeds
+	the threshold (size ~ sqrt(n) rounded up to the threshold), keeping the tree
+	shallow. The underlying SWASpaceTallyNode tree is never touched.
+
+	Wrappers may be real child wrappers or, on recursion, bucket wrappers; both
+	answer #bucketTotalBytes so a bucket can sum its slice."
+
+	| n threshold bucketSize buckets |
+	n := aCollectionOfWrappers size.
+	threshold := self explorerBucketThreshold.
+	n <= threshold ifTrue: [^ aCollectionOfWrappers].
+
+	"Slice size: at least `threshold`, and large enough that the number of
+	buckets also stays within `threshold` (so two levels suffice for up to
+	threshold^2 children, three for threshold^3, ...)."
+	bucketSize := threshold max: (n / threshold) ceiling.
+
+	buckets := OrderedCollection new.
+	1 to: n by: bucketSize do: [:start |
+		| stop slice bytes label |
+		stop := (start + bucketSize - 1) min: n.
+		slice := (aCollectionOfWrappers copyFrom: start to: stop) asOrderedCollection.
+		bytes := slice inject: 0 into: [:sum :w | sum + w bucketTotalBytes].
+		label := '[', start printString, '..', stop printString, ']'.
+		buckets add: (SWASpaceTallyBucketWrapper
+			withWrappers: slice name: label bytes: bytes model: aModel)].
+	^ buckets
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 12:04'
+}
+SWASpaceTallyNode class >> explorerBucketThreshold [
+	"Maximum number of rows shown directly under one expanded node before the
+	explorer groups them into visual buckets. Purely a UI concern."
+
+	^ 200
+]
+
+{
 	#category : #private,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:34'
 }
@@ -325,18 +373,21 @@ SWASpaceTallyNode >> edgeLabel: aString [
 
 {
 	#category : #exploring,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 12:05'
 }
 SWASpaceTallyNode >> explorerContents [
-	"A wrapper per child, sorted by totalSize descending."
+	"A wrapper per child, sorted by totalSize descending. When there are very
+	many children, the wrappers are grouped into visual buckets (UI only -- the
+	node tree is unchanged) so the explorer stays responsive."
 
-	| sorted |
+	| sorted wrappers |
 	sorted := self children asSortedCollection: [:a :b | a totalSize > b totalSize].
-	^ (sorted asArray collect: [:child |
+	wrappers := (sorted asArray collect: [:child |
 		SWASpaceTallyWrapper
 			withTally: child
 			name: child explorerItemName
-			model: self]) asOrderedCollection
+			model: self]) asOrderedCollection.
+	^ SWASpaceTallyNode bucketize: wrappers model: self
 ]
 
 {

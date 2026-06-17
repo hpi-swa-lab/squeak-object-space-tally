@@ -30,6 +30,16 @@ SWASpaceTallyWrapper class >> withTally: aTallyNode name: aString model: aModel 
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 12:04'
+}
+SWASpaceTallyWrapper >> bucketTotalBytes [
+	"Total bytes this row represents, for UI bucket summaries."
+
+	^ tallyNode totalSize
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/10/2026 11:02'
 }
