@@ -125,16 +125,14 @@ SWASimSpaceTally >> defaultRootOops [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:44'
 }
 SWASimSpaceTally >> expandSimNode: aNode [
 	"Visit one node: enumerate its simulated referents and enqueue first-time
-	ones. Dedup keyed on followed oop via oopSeen."
+	ones. Dedup keyed on followed oop via oopSeen. No depth cap is needed: the
+	closed (finite) oop space + oopSeen make the BFS finite."
 
 	visitCount := visitCount + 1.
-	aNode depth >= maxDepth ifTrue: [
-		aNode markTruncated.
-		^ self].
 	aNode mirror ifNil: [^ self].
 
 	aNode mirror referentOopsDo: [:refOop :slotIndex |
@@ -277,21 +275,29 @@ SWASimSpaceTally >> simulator [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:46'
 }
 SWASimSpaceTally >> walk [
 	"BFS over the simulated heap from the configured root oops, building a tree
 	of lean SWASimSpaceTallyNode objects rooted at rootNode. Dedup is keyed on
 	oop via a plain Dictionary (oopSeen), since host identity can't dedup
-	mirrors or large oops. Records run metadata on this group. Returns self."
+	mirrors or large oops. Records run metadata on this group. Returns self.
 
-	| progressStep nextProgress startMs |
+	TERMINATION: like the live-heap walk, the simulated heap is a closed,
+	finite oop space that does not grow under us during the walk, and oopSeen
+	claims each followed oop exactly once -- so the BFS terminates on its own.
+	maxVisits is OPTIONAL (nil = unlimited); set it to bound a walk for testing.
+
+	Unlike the live walk we have no cheap exact object count for the simulated
+	heap, so oopSeen starts at the default capacity and grows. The progress bar
+	is bounded by maxVisits when set, otherwise tracks visitCount as a spinner."
+
+	| progressStep nextProgress startMs progressMax |
 	sim ifNil: [^ self error: 'no simulator set'].
 	roots ifNil: [roots := self defaultRootOops].
-	deadlineMs ifNil: [self deadlineMs: 30000].
 	startMs := Time millisecondClockValue.
 	startedAt := DateAndTime now.
-	oopSeen := Dictionary new: (maxVisits min: 4000000).
+	oopSeen := Dictionary new.
 	queue := OrderedCollection new.
 	visitCount := 0.
 	limitHit := nil.
@@ -315,22 +321,17 @@ SWASimSpaceTally >> walk [
 				oopSeen at: followed put: childNode.
 				queue addLast: childNode]]].
 
-	progressStep := (maxVisits // 200) max: 1000.
+	progressMax := maxVisits.
+	progressStep := ((progressMax ifNil: [1000]) // 200) max: 1000.
 	nextProgress := progressStep.
-	'Walking simulated heap...' displayProgressFrom: 0 to: maxVisits during: [:bar |
-		[queue notEmpty
-			and: [visitCount < maxVisits
-			and: [self deadlineReached not]]] whileTrue: [
+	'Walking simulated heap...' displayProgressFrom: 0 to: (progressMax ifNil: [1]) during: [:bar |
+		[queue notEmpty and: [self visitBudgetRemains]] whileTrue: [
 				self expandSimNode: queue removeFirst.
 				visitCount >= nextProgress ifTrue: [
-					bar value: visitCount.
+					bar value: (progressMax ifNil: [visitCount \\ 2] ifNotNil: [visitCount]).
 					nextProgress := nextProgress + progressStep]]].
 
-	queue notEmpty ifTrue: [
-		limitHit := self deadlineReached
-			ifTrue: [#timeout]
-			ifFalse: [#maxVisits]].
-
+	queue notEmpty ifTrue: [limitHit := #maxVisits].
 	queue do: [:n | n markTruncated].
 	rootNode rollUp.
 	durationMs := Time millisecondClockValue - startMs.
