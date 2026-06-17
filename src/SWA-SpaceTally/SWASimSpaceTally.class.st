@@ -37,6 +37,68 @@ Class {
 }
 
 {
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:20'
+}
+SWASimSpaceTally class >> chooseImage [
+	"Pop a file chooser for a *.image file and answer a SWASimSpaceTally opened
+	on the selected image (simulator loaded but not run). Answers nil if the
+	user cancels.
+
+	Example:
+		SWASimSpaceTally chooseImage walkDeep; openExplorer."
+
+	| result path |
+	result := StandardFileMenu
+		oldFileFrom: FileDirectory default
+		withPattern: '*.image'.
+	result ifNil: [^ nil].
+	path := result directory fullNameFor: result name.
+	^ self onImage: path
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:20'
+}
+SWASimSpaceTally class >> chooseImageAndExplore [
+	"Pop a file chooser for a *.image file, run a deep walk of that simulated
+	heap (findDeep: so unreached objects are swept into LostAndFound, no
+	compaction so the tree keeps full detail), and open an explorer window on
+	the result. Answers the tally (or nil if the user cancels).
+
+	Equivalent to:
+		tally := SWASimSpaceTally onImage: <chosen>.
+		tally findDeep: true.
+		tally walk.
+		tally openExplorerWindow."
+
+	| tally |
+	tally := self chooseImage.
+	tally ifNil: [^ nil].
+	tally findDeep: true.
+	tally walk.
+	tally openExplorerWindow.
+	^ tally
+]
+
+{
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:24'
+}
+SWASimSpaceTally class >> initialize [
+	"Register an Apps/World menu entry next to 'Space Tally' that walks a
+	simulated image picked from a file, rather than the running image.
+	registerOpenCommand: is idempotent by label, so re-running is safe."
+
+	(TheWorldMenu respondsTo: #registerOpenCommand:)
+		ifTrue: [TheWorldMenu registerOpenCommand: {
+			'Space Tally (image file)'.
+			{self. #chooseImageAndExplore}.
+			'Walk and explore the heap of a Squeak image file (via the VM simulator)'}]
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 15:12'
 }
@@ -100,6 +162,30 @@ SWASimSpaceTally class >> simulatorClass [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:00'
+}
+SWASimSpaceTally >> captureSimUniverse [
+	"Snapshot the entire simulated heap into `deepUniverse`, a Dictionary of
+	every enumerable object oop -> nil. This is the sim analogue of the live
+	walk's #captureDeepUniverse: it gives a closed, finite oop set so the walk
+	terminates, and it is the candidate set for the LostAndFound sweep.
+
+	Keyed on FOLLOWED oop (forwarders resolved) so membership tests match the
+	oops the walk actually enqueues. The simulated heap does not change while we
+	traverse it, so this snapshot stays valid for the whole walk."
+
+	| om |
+	om := sim objectMemory.
+	deepUniverse := Dictionary new: 200000.
+	om allObjectsDo: [:oop |
+		| followed |
+		followed := self followOop: oop.
+		(om isFreeObject: followed) ifFalse: [
+			deepUniverse at: followed put: nil]]
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
 }
@@ -112,47 +198,133 @@ SWASimSpaceTally >> clearWalkerState [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:07'
 }
 SWASimSpaceTally >> defaultRootOops [
-	"Default roots for a whole-image walk: the special objects array
-	(reaches the class table, nil/true/false, the active process, etc.).
-	Labelled for readability in the explorer/treemap."
+	"Default roots for a whole-image walk of the simulated heap.
+
+	Two roots, both resolved INSIDE the simulated image:
+	  - 'specialObjects' -- the VM's specialObjectsArray (nil/true/false, the
+	    selectors the VM sends, the active process, etc.).
+	  - 'classTable' -- the hidden roots object (classTableRootObj). Spur keeps
+	    every class/metaclass in this class table, which is a HIDDEN root and is
+	    NOT reachable from specialObjectsArray. Without it the walk never reaches
+	    the class table and almost every class/metaclass (plus its method
+	    dictionary, organizer, compiled methods, ...) falls into LostAndFound.
+
+	Between these two roots and the LostAndFound sweep, the whole image is
+	covered and correctly categorized."
+
 	| om |
 	om := sim objectMemory.
-	^ Array with: ('specialObjectsArray' -> om specialObjectsOop)
+	^ OrderedCollection new
+		add: 'specialObjects' -> om specialObjectsOop;
+		add: 'classTable' -> om classTableRootObj;
+		yourself
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:06'
+}
+SWASimSpaceTally >> enqueueSimReferent: refOop parent: aNode labelBlock: aLabelBlock [
+	"Shared dedup/enqueue step for #expandSimNode:. Skips non-tallyable oops.
+	On a repeat hit, records aNode as an other-parent (when tracking is on); on
+	a first hit, creates a lean child (label computed lazily via aLabelBlock
+	only now that we know a node is needed) and enqueues it."
+
+	| followed existingNode |
+	(self isTallyableOop: refOop) ifFalse: [^ self].
+	followed := self followOop: refOop.
+	existingNode := oopSeen at: followed ifAbsent: [nil].
+	existingNode
+		ifNotNil: [
+			trackOtherParents == true ifTrue: [
+				| op |
+				op := existingNode otherParents.
+				op ifNil: [op := OrderedCollection new: 2. existingNode setOtherParents: op].
+				op addLast: aNode]]
+		ifNil: [
+			| child |
+			child := self newSimChildFor: followed parent: aNode edge: aLabelBlock value.
+			oopSeen at: followed put: child.
+			queue addLast: child]
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:06'
 }
 SWASimSpaceTally >> expandSimNode: aNode [
 	"Visit one node: enumerate its simulated referents and enqueue first-time
 	ones. Dedup keyed on followed oop via oopSeen. No depth cap is needed: the
-	closed (finite) oop space + oopSeen make the BFS finite."
+	closed (finite) oop space + oopSeen make the BFS finite.
 
+	Class-pointer fix (mirrors the live walker's #referentsOf:do:): the mirror's
+	#referentOopsDo: only follows pointer slots, NOT the class header field, so a
+	class would never reach its metaclass and all metaclasses (plus their
+	class-instance-var state) would land in LostAndFound. When this node's oop is
+	a class/metaclass we therefore ALSO follow its class oop, labelled
+	'<class>': Foo -> Foo class -> Metaclass. Restricted to class oops so an
+	ordinary object never gets a class edge."
+
+	| obj |
 	visitCount := visitCount + 1.
 	aNode mirror ifNil: [^ self].
+	obj := aNode oop.
+
+	"Follow the class pointer for classes/metaclasses only."
+	(self isClassOop: obj) ifTrue: [
+		self enqueueSimReferent: aNode mirror simClassOop parent: aNode labelBlock: ['<class>']].
 
 	aNode mirror referentOopsDo: [:refOop :slotIndex |
-		(self isTallyableOop: refOop) ifTrue: [
-			| followed existingNode |
-			followed := self followOop: refOop.
-			existingNode := oopSeen at: followed ifAbsent: [nil].
-			existingNode
-				ifNotNil: [
-					trackOtherParents == true ifTrue: [
-						| op |
-						op := existingNode otherParents.
-						op ifNil: [op := OrderedCollection new: 2. existingNode setOtherParents: op].
-						op addLast: aNode]]
-				ifNil: [
-					| child label |
-					label := self simLabelForOwner: aNode slotIndex: slotIndex.
-					child := self newSimChildFor: followed parent: aNode edge: label.
-					oopSeen at: followed put: child.
-					queue addLast: child]]]
+		self
+			enqueueSimReferent: refOop
+			parent: aNode
+			labelBlock: [self simLabelForOwner: aNode slotIndex: slotIndex]]
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:00'
+}
+SWASimSpaceTally >> findSimLostObjects [
+	"Deep sweep for the simulated heap: after a complete walk, find every
+	universe oop the walk never reached and bucket them flat under a synthetic
+	'LostAndFound' node, then group those into per-class bins.
+
+	Lost = in deepUniverse and NOT in oopSeen. Mirrors #findLostObjects on the
+	live walker, oop-keyed. Honors the optional maxVisits budget."
+
+	| lostRoot |
+	deepUniverse ifNil: [^ self].
+
+	lostRoot := SWASimSpaceTallyNode new.
+	lostRoot setSimulator: sim.
+	lostRoot setParent: rootNode depth: rootNode depth + 1.
+	lostRoot edgeLabel: 'LostAndFound'.
+	lostRoot setClassName: 'LostAndFound' selfSize: 0 totalSize: 0.
+	rootNode addChild: lostRoot.
+
+	'Deep sweep: collecting lost objects...'
+		displayProgressFrom: 0 to: deepUniverse size
+		during: [:bar |
+			| i |
+			i := 0.
+			deepUniverse keysDo: [:oop |
+				i := i + 1.
+				self visitBudgetRemains ifFalse: [
+					limitHit isNil ifTrue: [limitHit := #maxVisits].
+					^ self finishLost: lostRoot queue: #()].
+				(i \\ 50000 = 0) ifTrue: [bar value: i].
+				((oopSeen includesKey: oop) not and: [self isTallyableOop: oop])
+					ifTrue: [
+						| node |
+						node := self newSimChildFor: oop parent: lostRoot edge: nil.
+						oopSeen at: oop put: node.
+						visitCount := visitCount + 1]]].
+
+	self finishLost: lostRoot queue: #()
 ]
 
 {
@@ -176,6 +348,36 @@ SWASimSpaceTally >> instVarNamesOfClassOop: aClassOop [
 	"Reading instVar names out of the simulated class is possible but not yet
 	implemented; returning nil makes slot labels fall back to '[N]'."
 	^ nil
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:18'
+}
+SWASimSpaceTally >> isClassOop: anOop [
+	"True if anOop is a class or metaclass registered in the simulated image's
+	class table. Spur stores a class's class-table index in its identity-hash
+	field, so an object is a class iff the class table at its hash resolves back
+	to itself. This is the oop-level analogue of `isKindOf: Behavior` and lets us
+	follow a class's class pointer to its metaclass (see #expandSimNode:).
+
+	CRITICAL: for a non-class object the hash is an arbitrary identity hash, NOT
+	a class index, and may fall outside the legal class-index range. We must
+	range-check it BEFORE calling #classOrNilAtIndex:, which asserts the index is
+	valid (`idx <= tagMask or: [idx >= arrayClassIndexPun]`) and indexes the
+	fixed-capacity class table -- an out-of-range hash would trip the assertion
+	or read past the table. Legal indices are: (<= tagMask OR >= arrayClassIndexPun)
+	AND < the class-table capacity."
+
+	| om h capacity |
+	om := sim objectMemory.
+	h := om rawHashBitsOf: anOop.
+	h = 0 ifTrue: [^ false].
+	"Reject hashes that aren't legal class-table indices."
+	(h <= om tagMask or: [h >= om arrayClassIndexPun]) ifFalse: [^ false].
+	capacity := om numClassTablePages * om classTablePageSize.
+	h >= capacity ifTrue: [^ false].
+	^ (om classOrNilAtIndex: h) = anOop
 ]
 
 {
@@ -275,29 +477,37 @@ SWASimSpaceTally >> simulator [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:46'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:01'
 }
 SWASimSpaceTally >> walk [
 	"BFS over the simulated heap from the configured root oops, building a tree
 	of lean SWASimSpaceTallyNode objects rooted at rootNode. Dedup is keyed on
-	oop via a plain Dictionary (oopSeen), since host identity can't dedup
-	mirrors or large oops. Records run metadata on this group. Returns self.
+	oop via a plain Dictionary (oopSeen). Records run metadata. Returns self.
 
-	TERMINATION: like the live-heap walk, the simulated heap is a closed,
-	finite oop space that does not grow under us during the walk, and oopSeen
-	claims each followed oop exactly once -- so the BFS terminates on its own.
+	TERMINATION & COVERAGE: like the live-heap walk, we first snapshot a closed
+	universe of every object oop in the simulated heap (#captureSimUniverse).
+	That universe is finite and oopSeen claims each oop once, so the BFS always
+	terminates. The universe size also drives a real progress bar.
+
 	maxVisits is OPTIONAL (nil = unlimited); set it to bound a walk for testing.
 
-	Unlike the live walk we have no cheap exact object count for the simulated
-	heap, so oopSeen starts at the default capacity and grows. The progress bar
-	is bounded by maxVisits when set, otherwise tracks visitCount as a spinner."
+	When findDeep is set and the walk completed, a whole-heap sweep buckets
+	every oop the walk did not reach under a LostAndFound node (see
+	#findSimLostObjects) -- so the reported total covers the entire image, not
+	just what the roots reached."
 
-	| progressStep nextProgress startMs progressMax |
+	| progressStep nextProgress startMs universeSize |
 	sim ifNil: [^ self error: 'no simulator set'].
 	roots ifNil: [roots := self defaultRootOops].
+	findDeepSkipped := false.
+
+	"Snapshot the closed universe first."
+	self captureSimUniverse.
+	universeSize := deepUniverse size.
+
 	startMs := Time millisecondClockValue.
 	startedAt := DateAndTime now.
-	oopSeen := Dictionary new.
+	oopSeen := Dictionary new: universeSize.
 	queue := OrderedCollection new.
 	visitCount := 0.
 	limitHit := nil.
@@ -321,19 +531,24 @@ SWASimSpaceTally >> walk [
 				oopSeen at: followed put: childNode.
 				queue addLast: childNode]]].
 
-	progressMax := maxVisits.
-	progressStep := ((progressMax ifNil: [1000]) // 200) max: 1000.
+	progressStep := (universeSize // 200) max: 1000.
 	nextProgress := progressStep.
-	'Walking simulated heap...' displayProgressFrom: 0 to: (progressMax ifNil: [1]) during: [:bar |
+	'Walking simulated heap...' displayProgressFrom: 0 to: universeSize during: [:bar |
 		[queue notEmpty and: [self visitBudgetRemains]] whileTrue: [
 				self expandSimNode: queue removeFirst.
 				visitCount >= nextProgress ifTrue: [
-					bar value: (progressMax ifNil: [visitCount \\ 2] ifNotNil: [visitCount]).
+					bar value: visitCount.
 					nextProgress := nextProgress + progressStep]]].
 
 	queue notEmpty ifTrue: [limitHit := #maxVisits].
 	queue do: [:n | n markTruncated].
 	rootNode rollUp.
+
+	self findDeep ifTrue: [
+		limitHit isNil
+			ifTrue: [self findSimLostObjects]
+			ifFalse: [findDeepSkipped := true]].
+
 	durationMs := Time millisecondClockValue - startMs.
 	self captureParamsSnapshot.
 	self clearWalkerState.

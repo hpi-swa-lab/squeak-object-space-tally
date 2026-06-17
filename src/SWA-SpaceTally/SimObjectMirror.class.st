@@ -54,11 +54,15 @@ SimObjectMirror >> = anObject [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:35'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:02'
 }
 SimObjectMirror >> byteSize [
-	"Total heap bytes I occupy in the simulated image, including header."
-	^ om byteSizeOf: oop
+	"Total heap bytes I occupy in the simulated image, INCLUDING the object
+	header. `byteSizeOf:` / `numBytesOf:` return only the content (body) bytes
+	and omit the header, which undercounts every object by 8-16 bytes; for a
+	memory tally we want the real footprint, so use `bytesInBody:`."
+
+	^ om bytesInBody: oop
 ]
 
 {
