@@ -210,44 +210,50 @@ SWASpaceTally class >> defaultIgnoreObjects [
 
 {
 	#category : #defaults,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:36'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:20'
 }
 SWASpaceTally class >> defaultRoots [
 	"Default labelled root groups. Each entry is label -> object. Synthetic
 	Arrays are built where it makes sense so each top-level group appears as
 	one expandable node rather than thousands of siblings.
-	
-	Groups:
-	  Classes        -- every class in the system
-	  Processes      -- every Process instance
-	  Globals        -- the Smalltalk SystemDictionary
-	  SymbolTable    -- every Symbol instance
+
+	ORDER MATTERS: the BFS claims each object for its FIRST reacher, so root
+	order is attribution priority. We list the SPECIFIC, interesting categories
+	first (UI/app/runtime state) so they claim their own objects, and put the
+	broad catch-alls (Classes, then Globals, SymbolTable, SpecialObjects,
+	Resources) LATER so they only net what the specific groups did not already
+	capture. Otherwise 'Classes' -- which reaches almost the whole image via
+	methods/strings/symbols -- would absorb everything and the interesting
+	groups would look empty.
+
+	Groups (in claim order):
 	  Display        -- the DisplayScreen
 	  ActiveWorld    -- the current world (PasteUpMorph)
-	  SourceFiles    -- the change/sources file array
+	  Processes      -- every Process instance
 	  Processor      -- the ProcessorScheduler
-	  SpecialObjects -- the VM's specialObjectsArray (nil/true/false, the
-	                    compact-class table, selectors the VM sends, etc.)
-	  Resources      -- metaclasses that have class instance variables
-	                    (singletons, caches, registries, font tables, etc.
-	                    The BFS walks their instVars, exposing cached state.)
-	
-	The more specific groups come first so they claim their objects; the
-	catch-all Resources group is last and only nets what the earlier groups
-	did not already capture (BFS claims each object for its first reacher).
-	
+	  SourceFiles    -- the change/sources file array
+	  Globals        -- the Smalltalk SystemDictionary
+	  SymbolTable    -- every Symbol instance
+	  Classes        -- every class in the system (broad)
+	  SpecialObjects -- the VM's specialObjectsArray
+	  Resources      -- metaclasses with class instance variables (singletons,
+	                    caches, registries, font tables; their instVars expose
+	                    cached state). Last catch-all.
+
 	Returns an OrderedCollection of Associations so iteration order is stable."
 
 	| roots |
 	roots := OrderedCollection new.
-	roots add: 'Classes' -> Smalltalk allClasses asArray.
-	roots add: 'Processes' -> Process allInstances.
-	roots add: 'Globals' -> Smalltalk.
-	roots add: 'SymbolTable' -> Symbol allInstances.
+	"Specific / interesting first."
 	Display ifNotNil: [roots add: 'Display' -> Display].
 	ActiveWorld ifNotNil: [roots add: 'ActiveWorld' -> ActiveWorld].
-	SourceFiles ifNotNil: [roots add: 'SourceFiles' -> SourceFiles].
+	roots add: 'Processes' -> Process allInstances.
 	Processor ifNotNil: [roots add: 'Processor' -> Processor].
+	SourceFiles ifNotNil: [roots add: 'SourceFiles' -> SourceFiles].
+	"Broad catch-alls last."
+	roots add: 'Globals' -> Smalltalk.
+	roots add: 'SymbolTable' -> Symbol allInstances.
+	roots add: 'Classes' -> Smalltalk allClasses asArray.
 	roots add: 'SpecialObjects' -> Smalltalk specialObjectsArray.
 	roots add: 'Resources' -> self resourceRoots asArray.
 	^ roots

@@ -198,29 +198,46 @@ SWASimSpaceTally >> clearWalkerState [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:07'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:20'
 }
 SWASimSpaceTally >> defaultRootOops [
-	"Default roots for a whole-image walk of the simulated heap.
+	"Curated, labelled roots for a whole-image walk of the simulated heap,
+	mirroring SWASpaceTally>>defaultRoots but resolved INSIDE the simulated
+	image (host globals don't translate to sim oops).
 
-	Two roots, both resolved INSIDE the simulated image:
-	  - 'specialObjects' -- the VM's specialObjectsArray (nil/true/false, the
-	    selectors the VM sends, the active process, etc.).
-	  - 'classTable' -- the hidden roots object (classTableRootObj). Spur keeps
-	    every class/metaclass in this class table, which is a HIDDEN root and is
-	    NOT reachable from specialObjectsArray. Without it the walk never reaches
-	    the class table and almost every class/metaclass (plus its method
-	    dictionary, organizer, compiled methods, ...) falls into LostAndFound.
+	ORDER MATTERS: the BFS claims each object for its FIRST reacher, so root
+	order is attribution priority. We list SPECIFIC, interesting categories
+	first so they claim their own state, and put the broad catch-alls (Globals,
+	Classes, SpecialObjects) LATER so 'Classes' -- which reaches almost the
+	whole image via methods/strings/symbols -- doesn't absorb everything.
 
-	Between these two roots and the LostAndFound sweep, the whole image is
-	covered and correctly categorized."
+	Resolution sources:
+	  Display        -- the global named 'Display'.
+	  ActiveWorld    -- the global named 'ActiveWorld' (a PasteUpMorph), if set.
+	  Processor      -- the global named 'Processor' (its lists hold the
+	                    processes, covering the live walker's 'Processes' group).
+	  Globals        -- the simulated Smalltalk (SmalltalkImage), via
+	                    specialObjectsArray slot 8.
+	  Classes        -- the class table (classTableRootObj, a hidden root that
+	                    holds every class/metaclass; not reachable from
+	                    specialObjects). Broad.
+	  SpecialObjects -- the VM's specialObjectsArray.
 
-	| om |
+	The deep-sweep nets anything no root reached into LostAndFound. Absent
+	globals are simply skipped."
+
+	| om roots |
 	om := sim objectMemory.
-	^ OrderedCollection new
-		add: 'specialObjects' -> om specialObjectsOop;
-		add: 'classTable' -> om classTableRootObj;
-		yourself
+	roots := OrderedCollection new.
+	"Specific / interesting first."
+	(self globalNamed: 'Display') ifNotNil: [:o | roots add: 'Display' -> o].
+	(self globalNamed: 'ActiveWorld') ifNotNil: [:o | roots add: 'ActiveWorld' -> o].
+	(self globalNamed: 'Processor') ifNotNil: [:o | roots add: 'Processor' -> o].
+	"Broad catch-alls last."
+	roots add: 'Globals' -> self smalltalkOop.
+	roots add: 'Classes' -> om classTableRootObj.
+	roots add: 'SpecialObjects' -> om specialObjectsOop.
+	^ roots
 ]
 
 {
@@ -338,6 +355,48 @@ SWASimSpaceTally >> followOop: anOop [
 	^ (om isForwarded: anOop)
 		ifTrue: [om followForwarded: anOop]
 		ifFalse: [anOop]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:18'
+}
+SWASimSpaceTally >> globalBindingsArrayOop [
+	"The oop of the array backing the simulated image's global bindings
+	dictionary. Navigates Smalltalk -> globals (Environment) -> bindings
+	(IdentityDictionary) -> array. Each non-nil slot of that array is an
+	Association (Symbol -> global value)."
+
+	| om smalltalk globals bindings |
+	om := sim objectMemory.
+	smalltalk := self smalltalkOop.
+	globals := om fetchPointer: 0 ofObject: smalltalk.       "SmalltalkImage>>globals"
+	bindings := om fetchPointer: 2 ofObject: globals.        "Environment>>bindings"
+	^ om fetchPointer: 1 ofObject: bindings                  "Dictionary>>array"
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:18'
+}
+SWASimSpaceTally >> globalNamed: aString [
+	"Look up a global by name in the simulated image's Smalltalk and answer its
+	value oop, or nil if absent. Scans the global bindings array for an
+	Association whose key Symbol prints as aString."
+
+	| om array nilOop |
+	om := sim objectMemory.
+	array := self globalBindingsArrayOop.
+	nilOop := om nilObject.
+	0 to: (om numSlotsOf: array) - 1 do: [:i |
+		| assoc |
+		assoc := om fetchPointer: i ofObject: array.
+		(assoc ~= nilOop and: [(om isImmediate: assoc) not]) ifTrue: [
+			| keyOop keyStr |
+			keyOop := om fetchPointer: 0 ofObject: assoc.
+			keyStr := [sim stringOf: keyOop] on: Error do: [:e | nil].
+			keyStr = aString ifTrue: [^ om fetchPointer: 1 ofObject: assoc]]].
+	^ nil
 ]
 
 {
@@ -473,6 +532,19 @@ SWASimSpaceTally >> simulator [
 	"The StackInterpreterSimulator whose memory this group walked."
 
 	^ sim
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:17'
+}
+SWASimSpaceTally >> smalltalkOop [
+	"The simulated image's SmalltalkImage (i.e. `Smalltalk`), held in the
+	specialObjectsArray (slot 8)."
+
+	| om |
+	om := sim objectMemory.
+	^ om fetchPointer: 8 ofObject: om specialObjectsOop
 ]
 
 {
