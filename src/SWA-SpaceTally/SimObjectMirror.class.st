@@ -130,15 +130,23 @@ SimObjectMirror >> printOn: aStream [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:36'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:02'
 }
 SimObjectMirror >> referentOopsDo: aBlock [
-	"Evaluate aBlock with each non-immediate, non-nil referent oop and its
-	0-based slot index. Skips immediates and the nil oop (no heap footprint).
-	Uniform across fixed/variable/compiled-method objects via numPointerSlots."
+	"Evaluate aBlock with each non-immediate, non-nil STRONG referent oop and
+	its 0-based slot index. Skips immediates and the nil oop (no heap footprint).
+	Uniform across fixed/variable/compiled-method objects via numPointerSlots.
+
+	WEAK SLOTS ARE NOT FOLLOWED. For a weak object only the named (fixed) slots
+	are strong; the indexed part holds weak references that do not express
+	ownership, so following them would impose a misleading parent in the tree.
+	We therefore only enumerate the fixed slots of a weak object. Anything
+	reachable only through a weak slot is claimed later via a strong path or
+	ends up in LostAndFound -- which is fine."
 
 	| n nilOop |
 	n := self numPointerSlots.
+	(om isWeakNonImm: oop) ifTrue: [n := om numFixedSlotsOf: oop].
 	nilOop := om nilObject.
 	0 to: n - 1 do: [:i |
 		| ref |

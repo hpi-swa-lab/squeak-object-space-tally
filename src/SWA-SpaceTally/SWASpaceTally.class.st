@@ -620,15 +620,15 @@ SWASpaceTally >> children [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 16:54'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:01'
 }
 SWASpaceTally >> classInfoFor: aClass [
 	"Return a cached Array describing aClass:
-		#(instSize instSpec isVariable isImmediate isCompiledCodeClass instVarNames byteSizeIfFixed)
+		#(instSize instSpec isVariable isImmediate isCompiledCodeClass instVarNames byteSizeIfFixed isWeak)
 	The cache (classInfo) is built lazily and reused for the lifetime of the walk."
 
 	^ classInfo at: aClass ifAbsentPut: [
-		| spec isImm isVar size instVarNames byteSizeFixed isCompiled |
+		| spec isImm isVar size instVarNames byteSizeFixed isCompiled isWeak |
 		spec := aClass instSpec.
 		isImm := aClass isImmediateClass.
 		isVar := aClass isVariable.
@@ -636,7 +636,8 @@ SWASpaceTally >> classInfoFor: aClass [
 		instVarNames := size > 0 ifTrue: [aClass allInstVarNames] ifFalse: [#()].
 		byteSizeFixed := (isVar or: [isImm]) ifTrue: [nil] ifFalse: [aClass byteSizeOfInstance].
 		isCompiled := aClass includesBehavior: CompiledCode.
-		{ size. spec. isVar. isImm. isCompiled. instVarNames. byteSizeFixed }]
+		isWeak := aClass isWeak.
+		{ size. spec. isVar. isImm. isCompiled. instVarNames. byteSizeFixed. isWeak }]
 ]
 
 {
@@ -1309,7 +1310,7 @@ SWASpaceTally >> paramsSnapshot [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:51'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:01'
 }
 SWASpaceTally >> referentsOf: anObject do: aBlock [
 	"Enumerate the heap-object referents of anObject, calling
@@ -1321,6 +1322,13 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 
 	Uses cached per-class metadata (#classInfoFor:) and Context mirror primitives.
 
+	WEAK SLOTS ARE NOT FOLLOWED. For a weak class, the *indexed* (variable)
+	part holds weak references; a weak slot does not express ownership, so
+	following it would impose a misleading parent in the tree. We therefore skip
+	the indexed enumeration for weak classes (their named instVars stay strong
+	and ARE followed). Anything reachable only through a weak slot will be
+	claimed later via a strong path, or land in LostAndFound -- which is fine.
+
 	Special case: for a class or metaclass we ALSO follow its class pointer
 	(anObject class), since that header field is not an instVar/index/literal
 	slot and is otherwise never traversed. This is what makes metaclasses (and
@@ -1328,7 +1336,7 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	reachable: Foo -> Foo class -> Metaclass. We restrict this to Behaviors so
 	we don't add a class-pointer edge to every ordinary object."
 
-	| ctx class info instSize spec isVar instVarNames isCompiled basicSize |
+	| ctx class info instSize spec isVar instVarNames isCompiled basicSize isWeak |
 	ctx := thisContext.
 	class := ctx objectClass: anObject.
 
@@ -1341,6 +1349,7 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	spec := info at: 2.
 	isVar := info at: 3.
 	isCompiled := info at: 5.
+	isWeak := info at: 8.
 
 	isCompiled ifTrue: [
 		| i |
@@ -1349,7 +1358,8 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 			i := i + 1.
 			aBlock value: lit value: #literal value: i].
 		^ self].
-	(spec between: 2 and: 4) ifTrue: [
+	"Indexed slots: skipped for weak classes (the weak part)."
+	(isWeak not and: [spec between: 2 and: 4]) ifTrue: [
 		basicSize := ctx objectSize: anObject.
 		1 to: basicSize do: [:i |
 			aBlock
