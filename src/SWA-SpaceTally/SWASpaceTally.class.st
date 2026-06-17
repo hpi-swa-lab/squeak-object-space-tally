@@ -352,11 +352,13 @@ SWASpaceTally class >> exploreInstancesOf: aClass [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/10/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:32'
 }
 SWASpaceTally class >> exploreWithOtherParents [
-	"Walk with other-parents tracking, compact, and open a multi-column explorer.
-	
+	"Walk, compact, and open a multi-column explorer. Other-parents tracking is
+	now ON by default (see #initialize), so this is just walk + compact + open;
+	kept for backward compatibility / explicitness.
+
 	Example:
 		SWASpaceTally exploreWithOtherParents."
 
@@ -961,7 +963,7 @@ SWASpaceTally >> ignoreSet: anIdentitySet [
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:45'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:32'
 }
 SWASpaceTally >> initialize [
 	super initialize.
@@ -970,7 +972,11 @@ SWASpaceTally >> initialize [
 	visitCount := 0.
 	limitHit := nil.
 	compacted := false.
-	trackOtherParents := false
+	"Track other-parents by default. It's cheap per step (a list append on a
+	`seen` hit, no extra traversal) and the 'who else points here' information is
+	always valuable. Memory grows with sharing (~12 MB on a full image walk);
+	set trackOtherParents: false to skip it."
+	trackOtherParents := true
 ]
 
 {

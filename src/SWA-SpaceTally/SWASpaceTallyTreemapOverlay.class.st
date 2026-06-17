@@ -24,6 +24,23 @@ SWASpaceTallyTreemapOverlay >> clearHover [
 ]
 
 {
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:04'
+}
+SWASpaceTallyTreemapOverlay >> copySubtreeToClipboard: aNode [
+	"Pretty-print aNode's subtree as a nested bullet list and put it on the
+	clipboard, for sharing in chat / issues. Mirrors the explorer's
+	#copySelectedSubtree; confirms on the Transcript, no popup."
+
+	| text |
+	text := aNode asBulletListString.
+	Clipboard clipboardText: text.
+	Transcript show: 'SWASpaceTally: copied subtree (';
+		show: text lineCount printString;
+		show: ' lines) to clipboard.'; cr
+]
+
+{
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/12/2026 14:37'
 }
@@ -206,7 +223,7 @@ SWASpaceTallyTreemapOverlay >> setColorMode: aSymbol [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 17:20'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:04'
 }
 SWASpaceTallyTreemapOverlay >> showMenuFor: aNode event: evt [
 	"Show a context menu for the given tally node."
@@ -217,6 +234,7 @@ SWASpaceTallyTreemapOverlay >> showMenuFor: aNode event: evt [
 	menu add: 'go back' target: treemapMorph selector: #zoomOut.
 	menu addLine.
 	menu add: 'open in SpaceTally Explorer' selector: #openExplorerOn: argument: aNode.
+	menu add: 'copy subtree to clipboard' selector: #copySubtreeToClipboard: argument: aNode.
 	menu addLine.
 	obj := aNode object.
 	obj

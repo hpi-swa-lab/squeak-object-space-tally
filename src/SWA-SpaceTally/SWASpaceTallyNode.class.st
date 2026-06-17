@@ -124,6 +124,31 @@ SWASpaceTallyNode >> allObjects [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:51'
+}
+SWASpaceTallyNode >> asBulletListString [
+	"A nested-bullet (markdown) pretty-print of this subtree, for pasting into
+	chat / issues. Indented two spaces per level. See #printBulletOn:depth:."
+
+	^ String streamContents: [:s | self printBulletOn: s depth: 0]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:52'
+}
+SWASpaceTallyNode >> asBulletListStringMaxDepth: maxLevels [
+	"Like #asBulletListString but only descends maxLevels deep (nil = unlimited).
+	A node whose own depth is at the limit prints its bullet but not its
+	children, with a '...' marker if it has any. Keeps a clipboard copy of a huge
+	tree manageable."
+
+	^ String streamContents: [:s |
+		self printBulletOn: s depth: 0 maxDepth: maxLevels]
+]
+
+{
 	#category : #exploring,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:37'
 }
@@ -655,6 +680,78 @@ SWASpaceTallyNode >> objectRef: anObject classInfo: classInfo [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:01'
+}
+SWASpaceTallyNode >> openExplorerSelecting: aNode [
+	"Open an explorer rooted at THIS node, then expand to and select aNode.
+	aNode must be a descendant of self (or self itself). Node-level twin of
+	SWASpaceTally>>openExplorerSelecting: -- used from the treemap overlay, which
+	holds a node, not a group, so it works for both live and Sim nodes."
+
+	| pair window treeMorph chain pathItems n |
+	pair := self openExplorerWindow.
+	window := pair first.
+	treeMorph := pair second.
+	treeMorph ifNil: [^ window].
+
+	"Build the chain from self's child down to aNode."
+	chain := OrderedCollection new.
+	n := aNode.
+	[n notNil and: [n ~~ self]] whileTrue: [
+		chain addFirst: n.
+		n := n parent].
+
+	"Path items matching what the tree widget stores: the root item is
+	 'root' -> self; each child is explorerItemName -> (object ifNil: [node])."
+	pathItems := OrderedCollection new.
+	pathItems add: 'root' -> self.
+	chain do: [:node |
+		pathItems add: (node explorerItemName -> (node object ifNil: [node]))].
+
+	pathItems size > 1 ifTrue: [
+		WorldState addDeferredUIMessage: [
+			treeMorph selectPath: pathItems asArray]].
+
+	^ window
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:01'
+}
+SWASpaceTallyNode >> openExplorerWindow [
+	"Open a SWASpaceTallyExplorer rooted at THIS node (used when we only have a
+	node, e.g. from the treemap overlay, with no owning SWASpaceTally group).
+	Returns { window. treeMorph }. Configures the same columns the group's
+	#openExplorerWindow does."
+
+	| explorer window treeMorph colBlock |
+	explorer := SWASpaceTallyExplorer new.
+	explorer tallyRoot: self.
+	window := ToolBuilder open: explorer.
+	window setLabel: 'SWASpaceTally  ', (self formatBytes: self totalSize).
+
+	treeMorph := window allMorphs
+		detect: [:m | m isKindOf: PluggableTreeMorph]
+		ifNone: [nil].
+	treeMorph ifNotNil: [
+		colBlock := [:col | [:listMorph |
+			(listMorph filteredItems collect: [:item |
+				item preferredWidthOfColumn: col]) max]].
+		treeMorph columns: {
+			colBlock value: 1.
+			colBlock value: 2.
+			colBlock value: 3.
+			colBlock value: 4.
+			colBlock value: 5.
+			colBlock value: 6.
+			colBlock value: 7.
+			nil }].
+	^ { window. treeMorph }
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:10'
 }
@@ -722,6 +819,74 @@ SWASpaceTallyNode >> pathSegment [
 SWASpaceTallyNode >> pathString [
 	^ self path inject: '' into: [:acc :seg |
 		acc isEmpty ifTrue: [seg] ifFalse: [acc , ' / ' , seg]]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:52'
+}
+SWASpaceTallyNode >> printBulletOn: aStream depth: anInteger [
+	"Write one '- ' bullet for this node at the given depth (2 spaces per level),
+	then recurse into children sorted by totalSize descending. Each line shows
+	the edge label (if any), the node name, total size, self size, child count,
+	other-parent count and a [truncated] marker -- enough to share a tree shape
+	for debugging."
+
+	aStream next: anInteger * 2 put: $ .
+	aStream nextPutAll: '- '.
+	edgeLabel ifNotNil: [aStream nextPutAll: edgeLabel; nextPutAll: ': '].
+	aStream nextPutAll: self name.
+	aStream nextPutAll: '  ('.
+	aStream nextPutAll: (self formatBytes: self totalSize).
+	selfSize > 0 ifTrue: [
+		aStream nextPutAll: ', self '; nextPutAll: (self formatBytes: selfSize)].
+	self children isEmpty ifFalse: [
+		aStream nextPutAll: ', '; print: self children size; nextPutAll: ' children'].
+	otherParents ifNotNil: [:op |
+		op isEmpty ifFalse: [
+			aStream nextPutAll: ', '; print: op size; nextPutAll: ' other-parents']].
+	truncated ifTrue: [aStream nextPutAll: ', truncated'].
+	aStream nextPutAll: ')'.
+	aStream nextPut: Character lf.
+	(self children asSortedCollection: [:a :b | a totalSize > b totalSize])
+		do: [:child | child printBulletOn: aStream depth: anInteger + 1]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:52'
+}
+SWASpaceTallyNode >> printBulletOn: aStream depth: anInteger maxDepth: maxLevels [
+	"Depth-limited bullet print. maxLevels nil = unlimited. When the limit is
+	reached, print this node's bullet and, if it has children, a single
+	'...(N children)' line instead of recursing."
+
+	aStream next: anInteger * 2 put: $ .
+	aStream nextPutAll: '- '.
+	edgeLabel ifNotNil: [aStream nextPutAll: edgeLabel; nextPutAll: ': '].
+	aStream nextPutAll: self name.
+	aStream nextPutAll: '  ('.
+	aStream nextPutAll: (self formatBytes: self totalSize).
+	selfSize > 0 ifTrue: [
+		aStream nextPutAll: ', self '; nextPutAll: (self formatBytes: selfSize)].
+	self children isEmpty ifFalse: [
+		aStream nextPutAll: ', '; print: self children size; nextPutAll: ' children'].
+	otherParents ifNotNil: [:op |
+		op isEmpty ifFalse: [
+			aStream nextPutAll: ', '; print: op size; nextPutAll: ' other-parents']].
+	truncated ifTrue: [aStream nextPutAll: ', truncated'].
+	aStream nextPutAll: ')'.
+	aStream nextPut: Character lf.
+
+	(maxLevels notNil and: [anInteger + 1 >= maxLevels]) ifTrue: [
+		self children isEmpty ifFalse: [
+			aStream next: (anInteger + 1) * 2 put: $ .
+			aStream nextPutAll: '- ...('; print: self children size; nextPutAll: ' children)'.
+			aStream nextPut: Character lf].
+		^ self].
+
+	(self children asSortedCollection: [:a :b | a totalSize > b totalSize])
+		do: [:child | child printBulletOn: aStream depth: anInteger + 1 maxDepth: maxLevels]
 ]
 
 {

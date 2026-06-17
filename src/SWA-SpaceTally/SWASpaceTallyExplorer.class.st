@@ -120,7 +120,7 @@ SWASpaceTallyExplorer >> buildTreemapButtonWith: builder [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:58'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:55'
 }
 SWASpaceTallyExplorer >> buildWith: builder [
 	"Like ObjectExplorer>>buildWith: but adds action buttons, a
@@ -196,6 +196,24 @@ SWASpaceTallyExplorer >> compactThresholdText: aStringOrText [
 		ifFalse: [self inform: 'Enter a positive integer (bytes)'].
 	self changed: #compactThresholdText.
 	^ true
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:59'
+}
+SWASpaceTallyExplorer >> copySelectedSubtree [
+	"Pretty-print the SELECTED node's subtree as a nested bullet list and put it
+	on the clipboard, for sharing in chat / issues. No-op if nothing is selected
+	(the menu item is only offered when there is a selection)."
+
+	| node text |
+	node := self selectedNode ifNil: [^ self].
+	text := node asBulletListString.
+	Clipboard clipboardText: text.
+	Transcript show: 'SWASpaceTally: copied subtree (';
+		show: text lineCount printString;
+		show: ' lines) to clipboard.'; cr
 ]
 
 {
@@ -304,12 +322,14 @@ SWASpaceTallyExplorer >> jumpToOriginal [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:52'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:56'
 }
 SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
 	"Add diff-related items: jump back to the baseline (diff trees only) and
 	two 'ignore in diffs' commands for the selected node, with labels showing
-	the concrete tokens they will add to the ignore preference."
+	the concrete tokens they will add to the ignore preference. Plus a
+	'copy subtree to clipboard' item (selection only) that pretty-prints the
+	selected subtree as a nested bullet list."
 
 	<treeListMenu>
 	| node child parent |
@@ -324,6 +344,13 @@ SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
 
 	node := self selectedNode.
 	node ifNotNil: [
+		aMenu addLine.
+		aMenu
+			add: 'copy subtree to clipboard'
+			target: self
+			selector: #copySelectedSubtree
+			argument: nil.
+
 		child := node edgeLabel ifNil: [node className].
 		parent := node parent ifNotNil: [:p | p className].
 		child ifNotNil: [
