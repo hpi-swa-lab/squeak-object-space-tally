@@ -20,3 +20,12 @@ BaselineOfObjectSpaceTally >> baseline: spec [
 	spec for: #common do: [
 		spec package: 'SWA-SpaceTally' ].
 ]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:51'
+}
+BaselineOfObjectSpaceTally >> projectClass [
+
+	^ (self environment classNamed: #MetacelloCypressBaselineProject) ifNil: [super projectClass]
+]

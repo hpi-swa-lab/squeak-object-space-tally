@@ -1368,7 +1368,7 @@ SWASpaceTally >> progressLabel [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:52'
 }
 SWASpaceTally >> referentsOf: anObject do: aBlock [
 	"Enumerate the heap-object referents of anObject, calling
@@ -1388,18 +1388,24 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	claimed later via a strong path, or land in LostAndFound -- which is fine.
 
 	Special case: for a class or metaclass we ALSO follow its class pointer
-	(anObject class), since that header field is not an instVar/index/literal
-	slot and is otherwise never traversed. This is what makes metaclasses (and
-	the class-instance-var state they hold -- singletons, caches, registries)
+	(its class), since that header field is not an instVar/index/literal slot
+	and is otherwise never traversed. This is what makes metaclasses (and the
+	class-instance-var state they hold -- singletons, caches, registries)
 	reachable: Foo -> Foo class -> Metaclass. We restrict this to Behaviors so
-	we don't add a class-pointer edge to every ordinary object."
+	we don't add a class-pointer edge to every ordinary object.
+
+	PROXY-SAFE: the Behavior test is `class includesBehavior: Behavior` on the
+	mirror-derived class, NOT `anObject isKindOf: Behavior`. #isKindOf: sends a
+	real message to anObject, which a proxy / remote-image stub may answer
+	misleadingly (or fault on) -- that once sent the walk off into a remote
+	image. Testing the class reflectively never touches the object."
 
 	| ctx class info instSize spec isVar instVarNames isCompiled basicSize isWeak |
 	ctx := thisContext.
 	class := ctx objectClass: anObject.
 
-	"Follow the class pointer for classes/metaclasses only."
-	(anObject isKindOf: Behavior) ifTrue: [
+	"Follow the class pointer for classes/metaclasses only (proxy-safe test)."
+	(class includesBehavior: Behavior) ifTrue: [
 		aBlock value: class value: #class value: 0].
 
 	info := self classInfoFor: class.
