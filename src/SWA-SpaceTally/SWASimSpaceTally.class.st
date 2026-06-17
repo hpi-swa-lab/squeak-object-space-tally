@@ -29,8 +29,7 @@ Class {
 	#name : #SWASimSpaceTally,
 	#superclass : #SWASpaceTally,
 	#instVars : [
-		'sim',
-		'oopSeen'
+		'sim'
 	],
 	#category : #'SWA-SpaceTally-Sim',
 	#'squeak_changestamp' : '<historical>'
@@ -186,14 +185,35 @@ SWASimSpaceTally >> captureSimUniverse [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> captureUniverse [
+	"Snapshot the simulated heap's closed oop universe."
+
+	self captureSimUniverse
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> checkWalkPreconditions [
+	"A sim walk needs a simulator to traverse."
+
+	sim ifNil: [^ self error: 'no simulator set']
+]
+
+{
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
 }
 SWASimSpaceTally >> clearWalkerState [
-	"Also drop the oop-keyed seen dictionary used during the sim walk."
+	"The sim shares the inherited `seen` dedup map; only `classInfo` (unused
+	here) and `deepUniverse` need the superclass cleanup, plus nothing sim-
+	specific remains."
 
-	super clearWalkerState.
-	oopSeen := nil
+	super clearWalkerState
 ]
 
 {
@@ -247,8 +267,18 @@ SWASimSpaceTally >> defaultRootOops [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> defaultRootsForWalk [
+	"Roots resolved inside the simulated image (host globals don't translate)."
+
+	^ self defaultRootOops
+]
+
+{
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
 }
 SWASimSpaceTally >> enqueueGroupRoot: oopCollection label: aLabel [
 	"A root whose value is a host collection of oops (e.g. all Process
@@ -256,9 +286,9 @@ SWASimSpaceTally >> enqueueGroupRoot: oopCollection label: aLabel [
 	a single expandable node, then enqueue each member oop as a child of it. The
 	sim equivalent of the live walker's synthetic-Array roots.
 
-	The synthetic node holds no simulated oop (selfSize 0); it's registered in
-	oopSeen under a fresh host key is unnecessary -- it's never a referent. Its
-	children are the real instances, deduped via oopSeen like any other node."
+	The synthetic node holds no simulated oop (selfSize 0) and is never itself a
+	referent, so it needs no dedup-map entry. Its children are the real
+	instances, deduped via `seen` like any other node."
 
 	| groupNode |
 	groupNode := SWASimSpaceTallyNode new.
@@ -275,18 +305,19 @@ SWASimSpaceTally >> enqueueGroupRoot: oopCollection label: aLabel [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:06'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
 }
 SWASimSpaceTally >> enqueueSimReferent: refOop parent: aNode labelBlock: aLabelBlock [
-	"Shared dedup/enqueue step for #expandSimNode:. Skips non-tallyable oops.
+	"Shared dedup/enqueue step for #expandNode:. Skips non-tallyable oops.
 	On a repeat hit, records aNode as an other-parent (when tracking is on); on
 	a first hit, creates a lean child (label computed lazily via aLabelBlock
-	only now that we know a node is needed) and enqueues it."
+	only now that we know a node is needed) and enqueues it. Dedup keyed on
+	followed oop via the inherited `seen` Dictionary."
 
 	| followed existingNode |
 	(self isTallyableOop: refOop) ifFalse: [^ self].
 	followed := self followOop: refOop.
-	existingNode := oopSeen at: followed ifAbsent: [nil].
+	existingNode := seen at: followed ifAbsent: [nil].
 	existingNode
 		ifNotNil: [
 			trackOtherParents == true ifTrue: [
@@ -297,7 +328,7 @@ SWASimSpaceTally >> enqueueSimReferent: refOop parent: aNode labelBlock: aLabelB
 		ifNil: [
 			| child |
 			child := self newSimChildFor: followed parent: aNode edge: aLabelBlock value.
-			oopSeen at: followed put: child.
+			seen at: followed put: child.
 			queue addLast: child]
 ]
 
@@ -314,13 +345,13 @@ SWASimSpaceTally >> enqueueSingleRoot: rootOop label: aLabel [
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:06'
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
 }
-SWASimSpaceTally >> expandSimNode: aNode [
-	"Visit one node: enumerate its simulated referents and enqueue first-time
-	ones. Dedup keyed on followed oop via oopSeen. No depth cap is needed: the
-	closed (finite) oop space + oopSeen make the BFS finite.
+SWASimSpaceTally >> expandNode: aNode [
+	"Visit one sim node: enumerate its simulated referents and enqueue
+	first-time ones. Dedup keyed on followed oop via `seen`. No depth cap is
+	needed: the closed (finite) oop space + seen make the BFS finite.
 
 	Class-pointer fix (mirrors the live walker's #referentsOf:do:): the mirror's
 	#referentOopsDo: only follows pointer slots, NOT the class header field, so a
@@ -348,15 +379,15 @@ SWASimSpaceTally >> expandSimNode: aNode [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:00'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
 }
-SWASimSpaceTally >> findSimLostObjects [
+SWASimSpaceTally >> findLostObjects [
 	"Deep sweep for the simulated heap: after a complete walk, find every
 	universe oop the walk never reached and bucket them flat under a synthetic
 	'LostAndFound' node, then group those into per-class bins.
 
-	Lost = in deepUniverse and NOT in oopSeen. Mirrors #findLostObjects on the
-	live walker, oop-keyed. Honors the optional maxVisits budget."
+	Lost = in deepUniverse and NOT in seen. Mirrors the live walker's
+	#findLostObjects, oop-keyed. Honors the optional maxVisits budget."
 
 	| lostRoot |
 	deepUniverse ifNil: [^ self].
@@ -377,16 +408,16 @@ SWASimSpaceTally >> findSimLostObjects [
 				i := i + 1.
 				self visitBudgetRemains ifFalse: [
 					limitHit isNil ifTrue: [limitHit := #maxVisits].
-					^ self finishLost: lostRoot queue: #()].
+					^ self finishLost: lostRoot].
 				(i \\ 50000 = 0) ifTrue: [bar value: i].
-				((oopSeen includesKey: oop) not and: [self isTallyableOop: oop])
+				((seen includesKey: oop) not and: [self isTallyableOop: oop])
 					ifTrue: [
 						| node |
 						node := self newSimChildFor: oop parent: lostRoot edge: nil.
-						oopSeen at: oop put: node.
+						seen at: oop put: node.
 						visitCount := visitCount + 1]]].
 
-	self finishLost: lostRoot queue: #()
+	self finishLost: lostRoot
 ]
 
 {
@@ -523,6 +554,31 @@ SWASimSpaceTally >> isTallyableOop: anOop [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> makeRootNode [
+	"Create and configure the synthetic sim root node."
+
+	| node |
+	node := SWASimSpaceTallyNode new.
+	node setSimulator: sim.
+	node setClassName: 'SWASimSpaceTally root' selfSize: 0 totalSize: 0.
+	^ node
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> newSeenOfSize: anInteger [
+	"The sim dedups on simulated oop (an Integer address), so a plain
+	value-keyed Dictionary, not an IdentityDictionary."
+
+	^ Dictionary new: anInteger
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:36'
 }
@@ -543,6 +599,14 @@ SWASimSpaceTally >> newSimChildFor: anOop parent: parentNode edge: aLabel [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> progressLabel [
+	^ 'Walking simulated heap...'
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
 }
@@ -559,6 +623,38 @@ SWASimSpaceTally >> rootOops: oopCollection [
 	"Set explicit root oops (raw simulated addresses, or label -> oop
 	Associations). Each becomes a top-level node."
 	roots := oopCollection asArray.
+	^ self
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> seedRoots [
+	"Enqueue the configured root oops. A root value may be a single oop
+	(label -> oop) OR a host collection of oops (label -> #(oop ...)); a
+	collection becomes one synthetic group parent node (the sim equivalent of
+	the live walker's synthetic Arrays, e.g. 'Processes')."
+
+	roots do: [:each |
+		| label rootValue |
+		(each isKindOf: Association)
+			ifTrue: [label := each key. rootValue := each value]
+			ifFalse: [label := nil. rootValue := each].
+		(rootValue isCollection and: [(rootValue isKindOf: Association) not])
+			ifTrue: [self enqueueGroupRoot: rootValue label: label]
+			ifFalse: [self enqueueSingleRoot: rootValue label: label]]
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASimSpaceTally >> seedSeenWithWalkerState [
+	"The sim's dedup map is keyed on simulated oops (Integers); none of our
+	host-side scaffolding can collide with an oop key, and there is no
+	classInfo cache, so nothing to seed."
+
 	^ self
 ]
 
@@ -610,84 +706,4 @@ SWASimSpaceTally >> smalltalkOop [
 	| om |
 	om := sim objectMemory.
 	^ om fetchPointer: 8 ofObject: om specialObjectsOop
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
-}
-SWASimSpaceTally >> walk [
-	"BFS over the simulated heap from the configured root oops, building a tree
-	of lean SWASimSpaceTallyNode objects rooted at rootNode. Dedup is keyed on
-	oop via a plain Dictionary (oopSeen). Records run metadata. Returns self.
-
-	TERMINATION & COVERAGE: like the live-heap walk, we first snapshot a closed
-	universe of every object oop in the simulated heap (#captureSimUniverse).
-	That universe is finite and oopSeen claims each oop once, so the BFS always
-	terminates. The universe size also drives a real progress bar.
-
-	A root's value may be a single oop (label -> oop) OR a host collection of
-	oops (label -> #(oop ...)). A collection root becomes one synthetic parent
-	node with the oops as children -- the sim equivalent of the live walker's
-	synthetic Arrays (e.g. 'Processes' -> all Process instances).
-
-	maxVisits is OPTIONAL (nil = unlimited); set it to bound a walk for testing.
-
-	When findDeep is set and the walk completed, a whole-heap sweep buckets
-	every oop the walk did not reach under a LostAndFound node (see
-	#findSimLostObjects) -- so the reported total covers the entire image, not
-	just what the roots reached."
-
-	| progressStep nextProgress startMs universeSize |
-	sim ifNil: [^ self error: 'no simulator set'].
-	roots ifNil: [roots := self defaultRootOops].
-	findDeepSkipped := false.
-
-	"Snapshot the closed universe first."
-	self captureSimUniverse.
-	universeSize := deepUniverse size.
-
-	startMs := Time millisecondClockValue.
-	startedAt := DateAndTime now.
-	oopSeen := Dictionary new: universeSize.
-	queue := OrderedCollection new.
-	visitCount := 0.
-	limitHit := nil.
-	compacted := false.
-
-	rootNode := SWASimSpaceTallyNode new.
-	rootNode setSimulator: sim.
-	rootNode setClassName: 'SWASimSpaceTally root' selfSize: 0 totalSize: 0.
-
-	roots do: [:each |
-		| label rootValue |
-		(each isKindOf: Association)
-			ifTrue: [label := each key. rootValue := each value]
-			ifFalse: [label := nil. rootValue := each].
-		(rootValue isCollection and: [(rootValue isKindOf: Association) not])
-			ifTrue: [self enqueueGroupRoot: rootValue label: label]
-			ifFalse: [self enqueueSingleRoot: rootValue label: label]].
-
-	progressStep := (universeSize // 200) max: 1000.
-	nextProgress := progressStep.
-	'Walking simulated heap...' displayProgressFrom: 0 to: universeSize during: [:bar |
-		[queue notEmpty and: [self visitBudgetRemains]] whileTrue: [
-				self expandSimNode: queue removeFirst.
-				visitCount >= nextProgress ifTrue: [
-					bar value: visitCount.
-					nextProgress := nextProgress + progressStep]]].
-
-	queue notEmpty ifTrue: [limitHit := #maxVisits].
-	queue do: [:n | n markTruncated].
-	rootNode rollUp.
-
-	self findDeep ifTrue: [
-		limitHit isNil
-			ifTrue: [self findSimLostObjects]
-			ifFalse: [findDeepSkipped := true]].
-
-	durationMs := Time millisecondClockValue - startMs.
-	self captureParamsSnapshot.
-	self clearWalkerState.
-	^ self
 ]

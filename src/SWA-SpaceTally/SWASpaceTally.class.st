@@ -102,7 +102,6 @@ Class {
 		'rootNode',
 		'roots',
 		'maxVisits',
-		'deadlineMs',
 		'visitCount',
 		'limitHit',
 		'compacted',
@@ -619,6 +618,27 @@ SWASpaceTally >> captureParamsSnapshot [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
+}
+SWASpaceTally >> captureUniverse [
+	"Hook: snapshot the closed `deepUniverse`. Live walker uses the live heap."
+
+	self captureDeepUniverse
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
+}
+SWASpaceTally >> checkWalkPreconditions [
+	"Hook: raise before a walk if we cannot run. The live walker always can;
+	the sim walker overrides this to require a simulator."
+
+	^ self
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:13'
 }
@@ -699,21 +719,13 @@ SWASpaceTally >> compacted [
 ]
 
 {
-	#category : #configuration,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 13:59'
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
 }
-SWASpaceTally >> deadlineMs: anInteger [
-	"Wall-clock budget for the walk, in milliseconds from now."
+SWASpaceTally >> defaultRootsForWalk [
+	"Hook: the roots to walk when none were configured."
 
-	deadlineMs := Time millisecondClockValue + anInteger
-]
-
-{
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/9/2026 14:00'
-}
-SWASpaceTally >> deadlineReached [
-	^ deadlineMs notNil and: [Time millisecondClockValue >= deadlineMs]
+	^ self class defaultRoots asArray
 ]
 
 {
@@ -867,7 +879,7 @@ SWASpaceTally >> findDeepSkipped [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:37'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
 }
 SWASpaceTally >> findLostObjects [
 	"Deep sweep: after a *complete* walk, find every heap object no root
@@ -904,7 +916,7 @@ SWASpaceTally >> findLostObjects [
 				i := i + 1.
 				self visitBudgetRemains ifFalse: [
 					limitHit isNil ifTrue: [limitHit := #maxVisits].
-					^ self finishLost: lostRoot queue: #()].
+					^ self finishLost: lostRoot].
 				(i \\ 50000 = 0) ifTrue: [bar value: i].
 				cls := thisContext objectClass: obj.
 				((self isTallyable: obj)
@@ -916,14 +928,14 @@ SWASpaceTally >> findLostObjects [
 							seen at: obj put: node.
 							visitCount := visitCount + 1]]].
 
-	self finishLost: lostRoot queue: #()
+	self finishLost: lostRoot
 ]
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:37'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
 }
-SWASpaceTally >> finishLost: lostRoot queue: ignored [
+SWASpaceTally >> finishLost: lostRoot [
 	"Wrap up the deep sweep: group the LostAndFound children into per-class bins
 	(a flat list of 200k siblings chokes the UI tree), then recompute sizes."
 
@@ -963,12 +975,11 @@ SWASpaceTally >> ignoreSet: anIdentitySet [
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:32'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:43'
 }
 SWASpaceTally >> initialize [
 	super initialize.
 	maxVisits := nil. "nil = unlimited; the closed universe guarantees termination. Set a value to bound a walk for testing."
-	deadlineMs := nil.
 	visitCount := 0.
 	limitHit := nil.
 	compacted := false.
@@ -993,17 +1004,19 @@ SWASpaceTally >> isDiff [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:18'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
 }
 SWASpaceTally >> isTallyable: anObject [
 	"Return true if anObject is a real heap object we want to record.
 	Reject nil and immediates. Uses classInfo cache if available.
 
-	When a deepUniverse snapshot is active (findDeep), ONLY objects that
-	existed at snapshot time are tallyable. This gates BOTH the normal walk
-	and the deep sweep through one membership set, so the walker's own
+	Every walk snapshots a closed deepUniverse before allocating any walker
+	state, so once #walk is running deepUniverse is always set and ONLY objects
+	that existed at snapshot time are tallyable. This single membership set
+	gates BOTH the normal walk and the deep sweep, so the walker's own
 	scaffolding (allocated after the snapshot) is never tallied, and later
-	filters can be applied to the universe in one place.
+	filters can be applied to the universe in one place. (deepUniverse is nil
+	only outside a walk, e.g. unit tests calling this directly.)
 
 	In instances-mode (ignoreSet/ignoreClasses set), also reject:
 	  - objects on the ignore list
@@ -1083,15 +1096,28 @@ SWASpaceTally >> limitHit [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:04'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:43'
 }
 SWASpaceTally >> limitWarning [
 	"A short human-readable warning string for the title bar, or nil if the
-	walk completed without hitting a limit."
+	walk completed without hitting a limit. The only limit a walk can hit now
+	is the optional maxVisits cap (the closed universe removed timeouts)."
 
-	limitHit == #timeout ifTrue: [^ 'WARNING: TIMEOUT - incomplete'].
 	limitHit == #maxVisits ifTrue: [^ 'WARNING: MAX VISITS - incomplete'].
 	^ nil
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
+}
+SWASpaceTally >> makeRootNode [
+	"Hook: create and configure the synthetic root node."
+
+	| node |
+	node := SWASpaceTallyNode new.
+	node setClassName: 'SWASpaceTally root' selfSize: 0 totalSize: 0.
+	^ node
 ]
 
 {
@@ -1122,6 +1148,16 @@ SWASpaceTally >> newChildNodeFor: anObject parent: parentNode edge: aLabel [
 	seen at: node put: self.
 	seen at: parentNode children put: self.
 	^ node
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
+}
+SWASpaceTally >> newSeenOfSize: anInteger [
+	"Hook: the dedup map. The live walker dedups on object identity."
+
+	^ IdentityDictionary new: anInteger
 ]
 
 {
@@ -1321,6 +1357,16 @@ SWASpaceTally >> paramsSnapshot [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
+}
+SWASpaceTally >> progressLabel [
+	"Hook: the caption for the walk's progress bar."
+
+	^ 'Walking heap...'
+]
+
+{
 	#category : #private,
 	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:01'
 }
@@ -1436,6 +1482,48 @@ SWASpaceTally >> runLabel: aString [
 ]
 
 {
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
+}
+SWASpaceTally >> seedRoots [
+	"Hook: enqueue the configured roots as children of rootNode. Each root is
+	either a bare object or a (label -> object) Association."
+
+	roots do: [:each |
+		| label rootObj |
+		(each isKindOf: Association)
+			ifTrue: [label := each key. rootObj := each value]
+			ifFalse: [label := nil. rootObj := each].
+		(self isTallyable: rootObj) ifTrue: [
+			(seen includesKey: rootObj) ifFalse: [
+				| childNode |
+				childNode := self newChildNodeFor: rootObj parent: rootNode edge: label.
+				seen at: rootObj put: childNode.
+				queue addLast: childNode]]]
+]
+
+{
+	#category : #walking,
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:45'
+}
+SWASpaceTally >> seedSeenWithWalkerState [
+	"Hook: allocate the live-walker's per-class metadata cache and pre-seed the
+	dedup map with the walker's own infrastructure (this group, the seen/queue
+	collections, classInfo, the roots array, rootNode) so the BFS never tallies
+	its own scaffolding if it reaches it via the active process's stack. The sim
+	walker, keyed on simulated oops, has no host scaffolding to hide and no
+	classInfo cache, so it overrides this with a no-op."
+
+	classInfo := IdentityDictionary new: 2000.
+	seen at: self put: self.
+	seen at: rootNode put: self.
+	seen at: seen put: self.
+	seen at: queue put: self.
+	seen at: classInfo put: self.
+	seen at: roots put: self
+]
+
+{
 	#category : #metadata,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
 }
@@ -1487,88 +1575,71 @@ SWASpaceTally >> visitCount [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:45'
+	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:44'
 }
 SWASpaceTally >> walk [
-	"Perform the BFS walk from the configured roots, building a tree of lean
-	SWASpaceTallyNode objects. Records run metadata (timestamp, duration,
-	visitCount, limitHit) on this group. Returns self.
+	"Template method: perform the BFS walk from the configured roots, building a
+	tree of lean nodes rooted at rootNode. Records run metadata (timestamp,
+	duration, visitCount, limitHit). Returns self.
 
-	roots may be a list of Associations (label -> object) or bare objects.
+	The same skeleton drives both the live-heap walk (SWASpaceTally) and the
+	simulated-image walk (SWASimSpaceTally); subclasses customize the steps via
+	these hooks:
+	  #checkWalkPreconditions   -- raise if we can't walk (e.g. no simulator)
+	  #defaultRootsForWalk      -- the roots to use when none were configured
+	  #captureUniverse          -- snapshot the closed `deepUniverse`
+	  #newSeenOfSize:           -- the dedup map (identity vs oop-keyed)
+	  #seedSeenWithWalkerState  -- register our own scaffolding as already-seen
+	  #makeRootNode             -- create + configure the synthetic root node
+	  #seedRoots                -- enqueue the configured roots
+	  #expandNode:              -- visit one node, enqueue its referents
+	  #progressLabel            -- the progress-bar caption
+	  #findLostObjects          -- the deep sweep (when findDeep)
 
-	TERMINATION: every walk snapshots a closed `deepUniverse` of the heap
-	BEFORE allocating any walker state, and #isTallyable: only admits objects
-	in that universe. The universe is finite and the `seen` set claims each
-	object once, so the BFS always terminates on its own. If the snapshot can't
-	be taken (low memory), #captureDeepUniverse raises and the walk aborts --
-	we never run without the closed-universe guarantee.
+	TERMINATION: every walk snapshots a closed `deepUniverse` of the heap BEFORE
+	allocating any walker state, and #isTallyable: only admits objects in that
+	universe. The universe is finite and the dedup map claims each object once,
+	so the BFS always terminates. If the snapshot can't be taken (low memory),
+	#captureUniverse raises and the walk aborts -- we never run without the
+	closed-universe guarantee.
 
 	maxVisits is OPTIONAL: nil means unlimited (the normal case, relying on the
-	closed universe). Set maxVisits to a positive integer to deliberately bound
-	a walk -- handy for testing / quick partial walks. A bounded walk that stops
-	early records limitHit := #maxVisits and (when findDeep) skips the sweep,
-	since reachability is then unknown.
+	closed universe). A positive integer deliberately bounds the walk (testing /
+	quick partial walks); a bounded walk that stops early records
+	limitHit := #maxVisits and (when findDeep) skips the sweep, since
+	reachability is then unknown.
 
-	Self-exclusion: pre-seed the seen-set with the walker's own infrastructure
-	(this group, seen, queue, classInfo) and structurally reject any
-	SWASpaceTally / SWASpaceTallyNode instance reached via the active process.
-	Each node's children collection is seeded in #newChildNodeFor:parent:edge:
-	once it actually exists (children are lazily allocated).
-
-	When findDeep is set and the walk completed (no limit hit), a whole-heap
-	sweep then buckets unreached objects under a LostAndFound node (see
-	#findLostObjects).
-
-	CRITICAL: the universe is snapshotted HERE, at the very top, BEFORE we
-	allocate seen/queue/classInfo/rootNode or any tree node, so the snapshot
-	contains only objects that pre-existed the walk -- none of the walker's own
-	scaffolding can ever be mistaken for a 'lost' object or be re-tallied."
+	CRITICAL: the universe is snapshotted at the very top, BEFORE we allocate
+	seen/queue/rootNode or any tree node, so it contains only objects that
+	pre-existed the walk -- none of the walker's own scaffolding can ever be
+	mistaken for a 'lost' object or be re-tallied."
 
 	| progressStep nextProgress startMs universeSize |
-	roots ifNil: [roots := self class defaultRoots asArray].
+	self checkWalkPreconditions.
+	roots ifNil: [roots := self defaultRootsForWalk].
 	findDeepSkipped := false.
 
-	"Snapshot the closed universe first, before allocating anything.
-	Raises (aborting the walk) if the heap can't be snapshotted."
-	self captureDeepUniverse.
+	"Snapshot the closed universe first, before allocating anything."
+	self captureUniverse.
 	universeSize := deepUniverse size.
 
 	startMs := Time millisecondClockValue.
 	startedAt := DateAndTime now.
 	"reached objects are a subset of the universe, so universeSize is the exact
-	upper bound for `seen` -- size it exactly, no rehashing, no arbitrary cap."
-	seen := IdentityDictionary new: universeSize.
+	upper bound for the dedup map -- size it exactly, no rehashing, no cap."
+	seen := self newSeenOfSize: universeSize.
 	queue := OrderedCollection new.
-	classInfo := IdentityDictionary new: 2000.
 	visitCount := 0.
 	limitHit := nil.
 	compacted := false.
 
-	rootNode := SWASpaceTallyNode new.
-	rootNode setClassName: 'SWASpaceTally root' selfSize: 0 totalSize: 0.
-
-	seen at: self put: self.
-	seen at: rootNode put: self.
-	seen at: seen put: self.
-	seen at: queue put: self.
-	seen at: classInfo put: self.
-	seen at: roots put: self.
-
-	roots do: [:each |
-		| label rootObj |
-		(each isKindOf: Association)
-			ifTrue: [label := each key. rootObj := each value]
-			ifFalse: [label := nil. rootObj := each].
-		(self isTallyable: rootObj) ifTrue: [
-			(seen includesKey: rootObj) ifFalse: [
-				| childNode |
-				childNode := self newChildNodeFor: rootObj parent: rootNode edge: label.
-				seen at: rootObj put: childNode.
-				queue addLast: childNode]]].
+	rootNode := self makeRootNode.
+	self seedSeenWithWalkerState.
+	self seedRoots.
 
 	progressStep := (universeSize // 200) max: 1000.
 	nextProgress := progressStep.
-	'Walking heap...' displayProgressFrom: 0 to: universeSize during: [:bar |
+	self progressLabel displayProgressFrom: 0 to: universeSize during: [:bar |
 		[queue notEmpty and: [self visitBudgetRemains]] whileTrue: [
 				self expandNode: queue removeFirst.
 				visitCount >= nextProgress ifTrue: [
