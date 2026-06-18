@@ -278,7 +278,7 @@ SWASimSpaceTally >> defaultRootsForWalk [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:42'
 }
 SWASimSpaceTally >> enqueueGroupRoot: oopCollection label: aLabel [
 	"A root whose value is a host collection of oops (e.g. all Process
@@ -288,9 +288,23 @@ SWASimSpaceTally >> enqueueGroupRoot: oopCollection label: aLabel [
 
 	The synthetic node holds no simulated oop (selfSize 0) and is never itself a
 	referent, so it needs no dedup-map entry. Its children are the real
-	instances, deduped via `seen` like any other node."
+	instances, deduped via `seen` like any other node.
 
-	| groupNode |
+	CONTRACT: oopCollection must be a FLAT collection of simulated oops, i.e.
+	SmallIntegers (encoded addresses). A member that is itself a collection
+	means a mis-shaped root such as `'Stuff' -> { anOopCollection }` (a group
+	wrapping a collection instead of listing its oops). Validate BEFORE building
+	any node and fail loudly -- it is a caller bug, silently skipping it would
+	hide a root that contributes nothing, and erroring after node creation would
+	leave a stray empty group node behind."
+
+	| groupNode badMember |
+	badMember := oopCollection detect: [:oop | oop isCollection] ifNone: [nil].
+	badMember ifNotNil: [
+		self error: 'Malformed group root ', (aLabel ifNil: ['(unlabelled)']) printString,
+			': member is a ', badMember class name, ', expected a simulated oop.',
+			' A group root must list oops directly, not wrap a collection.'].
+
 	groupNode := SWASimSpaceTallyNode new.
 	groupNode setSimulator: sim.
 	groupNode setParent: rootNode depth: rootNode depth + 1.
@@ -537,15 +551,20 @@ SWASimSpaceTally >> isClassOop: anOop [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:41'
 }
 SWASimSpaceTally >> isTallyableOop: anOop [
 	"True if anOop is a real, enumerable heap object worth recording:
 	non-immediate, non-nil, not free, not a forwarder target that resolves
-	to free. Immediates carry no heap footprint."
+	to free. Immediates carry no heap footprint.
+
+	anOop MUST be a simulated oop (an encoded address, i.e. a SmallInteger).
+	Callers are responsible for that contract; a malformed root that smuggles
+	in a host object is a caller bug and should fail loudly at its source
+	(see #enqueueGroupRoot:label:), not be silently swallowed here."
 	| om followed |
-	om := sim objectMemory.
 	anOop ifNil: [^ false].
+	om := sim objectMemory.
 	(om isImmediate: anOop) ifTrue: [^ false].
 	anOop = om nilObject ifTrue: [^ false].
 	followed := self followOop: anOop.
