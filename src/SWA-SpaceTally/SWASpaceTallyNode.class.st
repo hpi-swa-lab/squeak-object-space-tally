@@ -1123,6 +1123,154 @@ SWASpaceTallyNode >> prunedChildCount [
 ]
 
 {
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 14:01'
+}
+SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
+	"Answer the strong-retention ancestry of the receiver as a compact DAG,
+	favouring the SHORTEST paths to each DISTINCT GC root rather than the
+	nearest maxNodes ancestors in BFS-discovery order (which buries the
+	interesting retainers).
+
+	Every edge produced by the walker is already a STRONG ownership edge
+	(weak slots are not followed), so any path here is a genuine reason the
+	object is retained.
+
+	Strategy:
+	  1. Backward BFS from self over predecessor edges (parent + otherParents),
+	     deduplicated by OBJECT IDENTITY, recording each reached node's distance
+	     to self (shortest, since BFS).
+	  2. Roots = reached nodes with parent isNil, nearest first.
+	  3. For each root, enumerate up to kPerRoot shortest paths down to self by
+	     repeatedly walking from the root toward self along strictly decreasing
+	     distance, and union the nodes/edges, stopping at maxNodes.
+
+	Answer { unionNodes. unionEdges (child -> parent Associations). truncated }."
+
+	| dist reachedByObj queue roots unionNodes unionEdges emittedEdges truncated |
+	dist := IdentityDictionary new.
+	reachedByObj := IdentityDictionary new.
+	queue := OrderedCollection new.
+
+	dist at: self put: 0.
+	reachedByObj at: (self object ifNil: [self]) put: self.
+	queue addLast: self.
+
+	"1. Backward BFS, deduplicating predecessors by object identity."
+	[queue isEmpty] whileFalse: [
+		| cur d preds |
+		cur := queue removeFirst.
+		d := dist at: cur.
+		preds := OrderedCollection new.
+		cur parent ifNotNil: [:p | preds add: p].
+		cur otherParents ifNotNil: [:ops | preds addAll: ops].
+		preds do: [:pred | | canon |
+			canon := reachedByObj at: (pred object ifNil: [pred]) ifAbsentPut: [pred].
+			(dist includesKey: canon) ifFalse: [
+				dist at: canon put: d + 1.
+				queue addLast: canon]]].
+
+	"2. Roots, nearest first."
+	roots := (dist keys select: [:n | n parent isNil])
+		asSortedCollection: [:a :b | (dist at: a) <= (dist at: b)].
+
+	"3. Enumerate shortest paths from each root down to self."
+	unionNodes := OrderedCollection new.
+	unionEdges := OrderedCollection new.
+	emittedEdges := Set new.        "'childId->parentId' tokens, by node identityHash"
+	truncated := false.
+
+	roots do: [:root |
+		| paths |
+		paths := self
+			shortestPathsFrom: root toward: self
+			dist: dist reachedByObj: reachedByObj
+			limit: kPerRoot.
+		paths do: [:path |
+			"path is root..self as a sequence of nodes; add as child->parent edges."
+			1 to: path size do: [:i | | node |
+				node := path at: i.
+				(unionNodes includes: node) ifFalse: [
+					unionNodes size >= maxNodes
+						ifTrue: [truncated := true]
+						ifFalse: [unionNodes add: node]]].
+			"edges: deeper(child) -> shallower(parent). path is root->self order,
+			so child is the later element."
+			1 to: path size - 1 do: [:i | | parentNode childNode token |
+				parentNode := path at: i.
+				childNode := path at: i + 1.
+				((unionNodes includes: parentNode) and: [unionNodes includes: childNode]) ifTrue: [
+					token := childNode identityHash printString, '->', parentNode identityHash printString.
+					(emittedEdges includes: token) ifFalse: [
+						emittedEdges add: token.
+						unionEdges add: childNode -> parentNode]]]]].
+
+	^ { unionNodes. unionEdges. truncated }
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 14:04'
+}
+SWASpaceTallyNode >> retentionGraphMax: maxNodes pathsPerRoot: kPerRoot [
+	"Build a Graphviz DOT graph of the receiver's strong-retention ancestry,
+	keeping the shortest paths to each distinct GC root (see
+	#retentionAncestryMax:pathsPerRoot:). Answer { dotString. ids. truncated }
+	where ids is an IdentityDictionary node -> dot-id string for click mapping.
+
+	Edges point child -> parent (toward roots); rankdir=BT renders roots at
+	the top. Roots are filled green, the target yellow, branch points (nodes
+	with more than one outgoing parent edge in the union) light blue so the
+	divergent retainers stand out."
+
+	| ancestry nodes edges truncated ids dot outDegree |
+	ancestry := self retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot.
+	nodes := ancestry first.
+	edges := ancestry second.
+	truncated := ancestry third.
+
+	"Assign dot ids."
+	ids := IdentityDictionary new.
+	nodes doWithIndex: [:n :i | ids at: n put: 'n', i printString].
+
+	"Count outgoing (child->parent) edges per child to flag branch points."
+	outDegree := IdentityDictionary new.
+	edges do: [:e | outDegree at: e key put: (outDegree at: e key ifAbsent: [0]) + 1].
+
+	dot := WriteStream on: String new.
+	dot nextPutAll: 'digraph retention {'; nextPut: Character lf.
+	dot nextPutAll: '  rankdir=BT;'; nextPut: Character lf.
+	dot nextPutAll: '  node [shape=box, fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
+
+	nodes do: [:n | | id label attrs |
+		id := ids at: n.
+		label := (SWASpaceTallyNode dotEscape: n name), '\n',
+			(SWASpaceTallyNode dotEscape: (SWASpaceTally formatBytes: n totalSize)).
+		attrs := n parent isNil
+			ifTrue: [', style=filled, fillcolor="#cde8cd"']            "root: green"
+			ifFalse: [n == self
+				ifTrue: [', style=filled, fillcolor="#ffe8a0"']          "target: yellow"
+				ifFalse: [(outDegree at: n ifAbsent: [0]) > 1
+					ifTrue: [', style=filled, fillcolor="#cfe2ff"']      "branch point: blue"
+					ifFalse: ['']]].
+		dot
+			nextPutAll: '  ', id, ' [label="'; nextPutAll: label;
+			nextPutAll: '"'; nextPutAll: attrs; nextPutAll: '];'; nextPut: Character lf].
+
+	edges do: [:e | | childId parentId lbl |
+		childId := ids at: e key.
+		parentId := ids at: e value.
+		dot nextPutAll: '  ', childId, ' -> ', parentId.
+		lbl := e key edgeLabel.
+		lbl ifNotNil: [
+			dot nextPutAll: ' [label="', (SWASpaceTallyNode dotEscape: lbl asString), '", fontsize=8]'].
+		dot nextPutAll: ';'; nextPut: Character lf].
+
+	dot nextPutAll: '}'; nextPut: Character lf.
+	^ { dot contents. ids. truncated }
+]
+
+{
 	#category : #walking,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:10'
 }
@@ -1206,6 +1354,48 @@ SWASpaceTallyNode >> setTotalSize: anInteger [
 }
 SWASpaceTallyNode >> setTruncated: aBoolean [
 	truncated := aBoolean
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 14:02'
+}
+SWASpaceTallyNode >> shortestPathsFrom: root toward: target dist: dist reachedByObj: reachedByObj limit: limit [
+	"Enumerate up to 'limit' shortest paths between target (distance 0) and
+	root, returned as sequences ordered root -> ... -> target.
+
+	We walk UP from target via predecessor edges (parent + otherParents),
+	always stepping to a canonical predecessor whose distance is exactly one
+	GREATER (i.e. one step closer to the roots), until we arrive at 'root'.
+	Because BFS assigned shortest distances, any such monotone walk is a
+	shortest path. A bounded DFS collects up to 'limit' of them."
+
+	| results stack rootDist |
+	results := OrderedCollection new.
+	rootDist := dist at: root.
+	"DFS stack of partial paths (target-first); each is an OrderedCollection."
+	stack := OrderedCollection new.
+	stack addLast: (OrderedCollection with: target).
+	[stack isEmpty or: [results size >= limit]] whileFalse: [
+		| path tip tipDist preds |
+		path := stack removeLast.
+		tip := path last.
+		tipDist := dist at: tip.
+		tip == root
+			ifTrue: [results add: path reversed]   "root -> ... -> target"
+			ifFalse: [
+				preds := OrderedCollection new.
+				tip parent ifNotNil: [:p | preds add: p].
+				tip otherParents ifNotNil: [:ops | preds addAll: ops].
+				preds do: [:pred | | canon |
+					canon := reachedByObj at: (pred object ifNil: [pred]) ifAbsent: [pred].
+					"Step only toward roots along a shortest path, and never past
+					a node farther than root (keeps us on root's branch)."
+					((dist at: canon ifAbsent: [-1]) = (tipDist + 1)
+						and: [(dist at: canon) <= rootDist]
+						and: [(path includes: canon) not])
+						ifTrue: [stack addLast: (path copyWith: canon)]]]].
+	^ results
 ]
 
 {
