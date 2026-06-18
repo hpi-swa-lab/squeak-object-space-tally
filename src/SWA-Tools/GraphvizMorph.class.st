@@ -22,7 +22,8 @@ Class {
 		'nodeRects',
 		'graphScale',
 		'graphSize',
-		'nodeAction'
+		'nodeAction',
+		'panHandler'
 	],
 	#category : #'SWA-Tools',
 	#'squeak_changestamp' : '<historical>'
@@ -47,17 +48,39 @@ GraphvizMorph >> handlesMouseDown: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'SqueakXR 6/18/2026 10:56'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:22'
 }
 GraphvizMorph >> mouseDown: evt [
 	"Hit-test the click against node rectangles; if a node is hit, fire the
-	node action. Otherwise fall back to default behavior (e.g. dragging via halo)."
+	node action. Otherwise, if a panHandler is set, let it pan; else fall
+	back to default behavior (e.g. dragging via halo)."
 	| node |
 
 	node := self nodeAt: evt cursorPoint.
 	(node notNil and: [nodeAction notNil])
 		ifTrue: [^ nodeAction value: node].
+	panHandler ifNotNil: [^ panHandler panBackgroundDown: evt from: self].
 	super mouseDown: evt
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:23'
+}
+GraphvizMorph >> mouseMove: evt [
+	"Forward drags to the panHandler (for background panning)."
+	panHandler ifNotNil: [^ panHandler panBackgroundMove: evt from: self].
+	super mouseMove: evt
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:23'
+}
+GraphvizMorph >> mouseUp: evt [
+	"Forward drag end to the panHandler (for background panning)."
+	panHandler ifNotNil: [^ panHandler panBackgroundUp: evt from: self].
+	super mouseUp: evt
 ]
 
 {
@@ -77,11 +100,32 @@ GraphvizMorph >> nodeAt: aWorldPoint [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:18'
+}
+GraphvizMorph >> nodeRectsAvailable [
+	"Answer whether node rectangles have been parsed (a graph is loaded)."
+	^ nodeRects notNil
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'SqueakXR 6/18/2026 10:54'
 }
 GraphvizMorph >> onNodeClick: aBlock [
 	"Set a one-argument block to be evaluated with the clicked node's name (a String)."
 	nodeAction := aBlock
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:22'
+}
+GraphvizMorph >> panHandler: anObject [
+	"Optional object notified of background (non-node) mouse drags so an
+	enclosing pane can implement panning. It must understand
+	#panBackgroundDown:from:, #panBackgroundMove:from:, #panBackgroundUp:from:.
+	When nil, background clicks fall back to default Morph behavior."
+	panHandler := anObject
 ]
 
 {
