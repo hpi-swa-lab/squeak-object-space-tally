@@ -648,15 +648,22 @@ SWASpaceTally >> children [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:09'
 }
 SWASpaceTally >> classInfoFor: aClass [
 	"Return a cached Array describing aClass:
-		#(instSize instSpec isVariable isImmediate isCompiledCodeClass instVarNames byteSizeIfFixed isWeak)
-	The cache (classInfo) is built lazily and reused for the lifetime of the walk."
+		#(instSize instSpec isVariable isImmediate isCompiledCodeClass instVarNames byteSizeIfFixed isWeak storeSlotIndex)
+	The cache (classInfo) is built lazily and reused for the lifetime of the walk.
+
+	storeSlotIndex (slot 9): the 1-based instVar index of a Collection's private
+	backing-store Array (the `array` instVar of OrderedCollection /
+	HashedCollection & subclasses), or 0 if this class is not a Collection with
+	such a slot. The walker follows that slot WITHOUT the universe gate, because
+	a live collection reallocates its store as it grows/shrinks, so the store
+	Array at traversal time may post-date the deepUniverse snapshot."
 
 	^ classInfo at: aClass ifAbsentPut: [
-		| spec isImm isVar size instVarNames byteSizeFixed isCompiled isWeak |
+		| spec isImm isVar size instVarNames byteSizeFixed isCompiled isWeak storeIdx |
 		spec := aClass instSpec.
 		isImm := aClass isImmediateClass.
 		isVar := aClass isVariable.
@@ -665,7 +672,10 @@ SWASpaceTally >> classInfoFor: aClass [
 		byteSizeFixed := (isVar or: [isImm]) ifTrue: [nil] ifFalse: [aClass byteSizeOfInstance].
 		isCompiled := aClass includesBehavior: CompiledCode.
 		isWeak := aClass isWeak.
-		{ size. spec. isVar. isImm. isCompiled. instVarNames. byteSizeFixed. isWeak }]
+		storeIdx := (aClass includesBehavior: Collection)
+			ifTrue: [instVarNames indexOf: 'array']
+			ifFalse: [0].
+		{ size. spec. isVar. isImm. isCompiled. instVarNames. byteSizeFixed. isWeak. storeIdx }]
 ]
 
 {
@@ -785,7 +795,7 @@ SWASpaceTally >> durationMs [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:17'
 }
 SWASpaceTally >> expandNode: aNode [
 	"Visit one node: enumerate its referents and enqueue first-time ones.
@@ -796,7 +806,20 @@ SWASpaceTally >> expandNode: aNode [
 
 	Skips referents that are SWASpaceTally or SWASpaceTallyNode instances so
 	the walker's own tree is never tallied. No depth cap is needed: the closed
-	universe + seen-set make the BFS finite regardless of structure depth."
+	universe + seen-set make the BFS finite regardless of structure depth.
+
+	UNIVERSE-BYPASS FOR ARRAYS. A plain Array referent (and a Collection's
+	#store backing array) bypasses the closed-universe membership gate via
+	#isTallyableStore:. Reason: many objects hold an Array in an instVar and
+	REPLACE it on mutation rather than mutating in place -- Morph>>submorphs
+	(copyWith:/copyWithout:), collection backing stores, etc. So the Array
+	referenced at traversal time often post-dates the deepUniverse snapshot;
+	gating it would dead-end the BFS and dump the whole subtree (e.g. every
+	world submorph) into LostAndFound. Letting Arrays through stays finite: an
+	out-of-universe Array is only reached when an in-universe / already-reached
+	object points at it, the seen-set dedupes, and our own tree nodes are still
+	excluded by the refClass guards below. All other reject rules (immediates,
+	ignore-list) still apply."
 
 	| obj |
 	visitCount := visitCount + 1.
@@ -804,9 +827,12 @@ SWASpaceTally >> expandNode: aNode [
 	obj ifNil: [^ self].
 
 	self referentsOf: obj do: [:referent :slotKind :slotIndex |
-		| refClass |
+		| refClass tallyable |
 		refClass := thisContext objectClass: referent.
-		((self isTallyable: referent)
+		tallyable := (slotKind == #store or: [refClass == Array])
+			ifTrue: [self isTallyableStore: referent]
+			ifFalse: [self isTallyable: referent].
+		(tallyable
 			and: [refClass ~~ SWASpaceTally and: [refClass ~~ SWASpaceTallyNode]])
 		ifTrue: [
 			| existingNode |
@@ -1048,8 +1074,48 @@ SWASpaceTally >> isTallyable: anObject [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:09'
+}
+SWASpaceTally >> isTallyableStore: anObject [
+	"Like #isTallyable: but WITHOUT the closed-universe membership gate.
+
+	Used only for a collection's private backing store (the `array` instVar
+	of OrderedCollection / SortedCollection / HashedCollection & friends).
+	That Array is an implementation detail: a live collection reallocates it
+	when it grows or shrinks, so the Array referenced at TRAVERSAL time is
+	frequently NOT the same identity that existed when deepUniverse was
+	snapshotted. Gating it through the universe would dead-end the BFS right
+	at the collection, dropping every element (and the whole subtree below
+	them) into LostAndFound. We therefore let the store Array through even if
+	it post-dates the snapshot.
+
+	We still apply every OTHER reject rule (immediates, ignore-list,
+	instances-mode Behavior skip) so this stays safe: the bypass is narrow
+	(only the universe check) and only reached for a genuine collection
+	storage slot, never for arbitrary Arrays -- which protects the walk's own
+	freshly-allocated scaffolding."
+
+	| cls info |
+	anObject ifNil: [^ false].
+	cls := thisContext objectClass: anObject.
+	(classInfo notNil and: [classInfo includesKey: cls])
+		ifTrue: [
+			info := classInfo at: cls.
+			(info at: 4) ifTrue: [^ false]]  "isImmediate"
+		ifFalse: [
+			cls isImmediateClass ifTrue: [^ false]].
+	ignoreSet ifNotNil: [
+		(ignoreSet includes: anObject) ifTrue: [^ false].
+		(cls includesBehavior: Behavior) ifTrue: [^ false]].
+	ignoreClasses ifNotNil: [
+		(ignoreClasses includes: cls) ifTrue: [^ false]].
+	^ true
+]
+
+{
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 19:52'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:10'
 }
 SWASpaceTally >> labelForKind: slotKind index: slotIndex ownerObject: ownerObject [
 	"Build the human-readable edge label for a slot. Called only when a child
@@ -1071,13 +1137,15 @@ SWASpaceTally >> labelForKind: slotKind index: slotIndex ownerObject: ownerObjec
 			^ '[' , slotIndex printString , '] ' , keyStr].
 		^ '[' , slotIndex printString , ']'].
 	slotKind == #literal ifTrue: [^ '#literals[' , slotIndex printString , ']'].
-	"slotKind == #instVar"
+	"#instVar or #store -- look up the instVar name; mark a #store edge."
 	ownerClass := thisContext objectClass: ownerObject.
 	info := self classInfoFor: ownerClass.
 	names := info at: 6.
-	^ slotIndex <= names size
-		ifTrue: [names at: slotIndex]
-		ifFalse: ['instVar' , slotIndex printString]
+	^ slotKind == #store
+		ifTrue: [(slotIndex <= names size ifTrue: [names at: slotIndex] ifFalse: ['array']) , ' <store>']
+		ifFalse: [slotIndex <= names size
+			ifTrue: [names at: slotIndex]
+			ifFalse: ['instVar' , slotIndex printString]]
 ]
 
 {
@@ -1368,12 +1436,12 @@ SWASpaceTally >> progressLabel [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:52'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:09'
 }
 SWASpaceTally >> referentsOf: anObject do: aBlock [
 	"Enumerate the heap-object referents of anObject, calling
 		aBlock value: referent value: slotKind value: slotIndex
-	for each slot. slotKind is one of #instVar / #index / #literal / #class.
+	for each slot. slotKind is one of #instVar / #index / #literal / #class / #store.
 	slotIndex is the 1-based index (used to look up instVar names or printed
 	as '[N]' / '#literals[N]'). Callers that don't need labels can simply
 	ignore the kind/index args.
@@ -1386,6 +1454,14 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	the indexed enumeration for weak classes (their named instVars stay strong
 	and ARE followed). Anything reachable only through a weak slot will be
 	claimed later via a strong path, or land in LostAndFound -- which is fine.
+
+	COLLECTION BACKING STORE (slotKind #store): a Collection's private `array`
+	instVar is yielded with kind #store instead of #instVar. The walker follows
+	a #store referent WITHOUT the closed-universe gate, because a live
+	collection reallocates that Array when it grows/shrinks -- so the store
+	referenced at traversal time often post-dates the deepUniverse snapshot.
+	Gating it would dead-end the BFS at the collection and drop all its elements
+	(and their subtrees) into LostAndFound.
 
 	Special case: for a class or metaclass we ALSO follow its class pointer
 	(its class), since that header field is not an instVar/index/literal slot
@@ -1400,7 +1476,7 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	misleadingly (or fault on) -- that once sent the walk off into a remote
 	image. Testing the class reflectively never touches the object."
 
-	| ctx class info instSize spec isVar instVarNames isCompiled basicSize isWeak |
+	| ctx class info instSize spec isVar instVarNames isCompiled basicSize isWeak storeIdx |
 	ctx := thisContext.
 	class := ctx objectClass: anObject.
 
@@ -1414,6 +1490,7 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	isVar := info at: 3.
 	isCompiled := info at: 5.
 	isWeak := info at: 8.
+	storeIdx := info at: 9.
 
 	isCompiled ifTrue: [
 		| i |
@@ -1435,7 +1512,7 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 		1 to: instSize do: [:i |
 			aBlock
 				value: (ctx object: anObject instVarAt: i)
-				value: #instVar
+				value: (i = storeIdx ifTrue: [#store] ifFalse: [#instVar])
 				value: i]]
 ]
 
