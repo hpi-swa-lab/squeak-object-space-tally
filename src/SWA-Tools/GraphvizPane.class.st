@@ -176,13 +176,18 @@ GraphvizPane >> handlesMouseWheel: evt [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:34'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:46'
 }
 GraphvizPane >> initialize [
 	super initialize.
 	zoom := 1.0.
 	self color: Color white.
 	scroller color: Color transparent.
+	"Anti-alias the scaled graph bitmap: smoothing 2 = bilinear (2x2 cell)
+	sampling via WarpBlt, instead of the default nearest-neighbour (1).
+	This softens the blockiness when zoomed in and the aliased edges when
+	zoomed out."
+	scroller smoothing: 2.
 	"Always show scroll bars. The #whenNeeded policy makes the bars hide/show
 	as the offset nears an edge during a drag, which thrashes the layout and
 	flickers the viewport. A stable layout keeps panning smooth."

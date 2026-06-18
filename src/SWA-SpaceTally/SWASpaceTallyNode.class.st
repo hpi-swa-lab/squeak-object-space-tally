@@ -773,27 +773,28 @@ SWASpaceTallyNode >> openExplorerWindow [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:41'
 }
 SWASpaceTallyNode >> openParentsGraph [
 	"Build (capped at 100 nodes) and open a Graphviz view of this node's
-	ancestry up to the roots. Clicking a graph node re-opens an explorer
-	rooted at the topmost collected ancestor, selecting the clicked node."
+	ancestry up to the roots, inside a zoomable/pannable GraphvizPane.
+	Clicking a graph node re-opens an explorer rooted at the topmost
+	collected ancestor, selecting the clicked node."
 
-	| result dotString ids truncated morph byId title scroller |
+	| result dotString ids truncated pane byId title |
 	result := self parentsToRootsGraphMax: 100.
 	dotString := result first.
 	ids := result second.
 	truncated := result third.
 
-	morph := GraphvizMorph fromDot: dotString.
+	pane := GraphvizPane fromDot: dotString.
 
 	"Invert the id map so a click (which yields the dot id string) maps back
 	to the tally node."
 	byId := Dictionary new.
 	ids keysAndValuesDo: [:tallyNode :id | byId at: id asString put: tallyNode].
 
-	morph onNodeClick: [:id | | clicked top |
+	pane onNodeClick: [:id | | clicked top |
 		clicked := byId at: id asString ifAbsent: [nil].
 		clicked ifNotNil: [
 			top := clicked.
@@ -804,10 +805,9 @@ SWASpaceTallyNode >> openParentsGraph [
 	title := 'Parents to roots (', ids size printString, ' nodes',
 		(truncated ifTrue: [', truncated at 100'] ifFalse: ['']), ')'.
 
-	scroller := ScrollPane new.
-	scroller scroller addMorph: morph.
-	scroller openInWindowLabeled: title.
-	^ morph
+	pane extent: 700 @ 500.
+	pane openInWindowLabeled: title.
+	^ pane
 ]
 
 {
