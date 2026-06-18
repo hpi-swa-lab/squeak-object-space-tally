@@ -80,6 +80,26 @@ SWASpaceTallyNode class >> bucketize: aCollectionOfWrappers model: aModel [
 ]
 
 {
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
+}
+SWASpaceTallyNode class >> dotEscape: aString [
+	"Escape a string for inclusion in a DOT double-quoted label. Backslashes
+	and double quotes are escaped; literal CR/LF become the DOT newline tag \n."
+
+	| out |
+	out := WriteStream on: String new.
+	aString do: [:c |
+		(c = $\ or: [c = $"])
+			ifTrue: [out nextPut: $\; nextPut: c]
+			ifFalse: [
+				(c = Character lf or: [c = Character cr])
+					ifTrue: [out nextPutAll: '\n']
+					ifFalse: [out nextPut: c]]].
+	^ out contents
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/17/2026 12:04'
 }
@@ -752,6 +772,45 @@ SWASpaceTallyNode >> openExplorerWindow [
 ]
 
 {
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
+}
+SWASpaceTallyNode >> openParentsGraph [
+	"Build (capped at 100 nodes) and open a Graphviz view of this node's
+	ancestry up to the roots. Clicking a graph node re-opens an explorer
+	rooted at the topmost collected ancestor, selecting the clicked node."
+
+	| result dotString ids truncated morph byId title scroller |
+	result := self parentsToRootsGraphMax: 100.
+	dotString := result first.
+	ids := result second.
+	truncated := result third.
+
+	morph := GraphvizMorph fromDot: dotString.
+
+	"Invert the id map so a click (which yields the dot id string) maps back
+	to the tally node."
+	byId := Dictionary new.
+	ids keysAndValuesDo: [:tallyNode :id | byId at: id asString put: tallyNode].
+
+	morph onNodeClick: [:id | | clicked top |
+		clicked := byId at: id asString ifAbsent: [nil].
+		clicked ifNotNil: [
+			top := clicked.
+			[top parent notNil and: [ids includesKey: top parent]]
+				whileTrue: [top := top parent].
+			top openExplorerSelecting: clicked]].
+
+	title := 'Parents to roots (', ids size printString, ' nodes',
+		(truncated ifTrue: [', truncated at 100'] ifFalse: ['']), ')'.
+
+	scroller := ScrollPane new.
+	scroller scroller addMorph: morph.
+	scroller openInWindowLabeled: title.
+	^ morph
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:10'
 }
@@ -781,6 +840,80 @@ SWASpaceTallyNode >> owner: aMorph isUnderAnyOf: aMorphSet [
 }
 SWASpaceTallyNode >> parent [
 	^ parent
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
+}
+SWASpaceTallyNode >> parentsToRootsGraphMax: maxNodes [
+	"Build a Graphviz DOT graph of this node's ancestry: BFS upward via #parent
+	and #otherParents until the roots (parent isNil), collecting at most
+	maxNodes nodes. Answer an Array { dotString. ids. truncated } where ids is
+	an IdentityDictionary node -> dot-id string (for click mapping).
+
+	Edges are capped to the node set too: 'dot' implicitly creates a node for
+	any edge endpoint, so an edge to an uncollected parent would resurrect
+	phantom nodes past the cap. We emit an edge only when BOTH endpoints made
+	it into the collected set. Shape is the node default (box); per-node attrs
+	only add fill style/colour (selected = yellow, root = green)."
+
+	| ids order parentsOf queue visited dot truncated rootOf |
+	ids := IdentityDictionary new.       "node -> dot id string"
+	order := OrderedCollection new.        "collected nodes, in discovery order"
+	parentsOf := IdentityDictionary new.  "collected node -> its parent nodes"
+	visited := IdentitySet new.
+	queue := OrderedCollection new.
+	truncated := false.
+	rootOf := [:n | n parent isNil].
+
+	queue addLast: self.
+	visited add: self.
+	[queue isEmpty] whileFalse: [
+		| cur parents |
+		cur := queue removeFirst.
+		(ids includesKey: cur) ifFalse: [
+			ids size >= maxNodes
+				ifTrue: [truncated := true]
+				ifFalse: [
+					ids at: cur put: 'n', ids size printString.
+					order addLast: cur.
+					parents := OrderedCollection new.
+					cur parent ifNotNil: [:p | parents add: p].
+					cur otherParents ifNotNil: [:ops | parents addAll: ops].
+					parentsOf at: cur put: parents.
+					parents do: [:p |
+						(visited includes: p) ifFalse: [
+							visited add: p.
+							queue addLast: p]]]]].
+
+	dot := WriteStream on: String new.
+	dot nextPutAll: 'digraph parents {'; nextPut: Character lf.
+	dot nextPutAll: '  rankdir=BT;'; nextPut: Character lf.
+	dot nextPutAll: '  node [shape=box, fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
+	order do: [:n | | id label attrs |
+		id := ids at: n.
+		label := (self class dotEscape: n name), '\n', (self class dotEscape: (SWASpaceTally formatBytes: n totalSize)).
+		attrs := (rootOf value: n)
+			ifTrue: [', style=filled, fillcolor="#cde8cd"']
+			ifFalse: [n == self
+				ifTrue: [', style=filled, fillcolor="#ffe8a0"']
+				ifFalse: ['']].
+		dot
+			nextPutAll: '  ', id, ' [label="'; nextPutAll: label;
+			nextPutAll: '"'; nextPutAll: attrs; nextPutAll: '];'; nextPut: Character lf].
+	order do: [:child | | childId |
+		childId := ids at: child.
+		(parentsOf at: child ifAbsent: [#()]) do: [:p |
+			(ids includesKey: p) ifTrue: [ | lbl |
+				dot nextPutAll: '  ', childId, ' -> ', (ids at: p).
+				lbl := child edgeLabel.
+				lbl ifNotNil: [
+					dot nextPutAll: ' [label="', (self class dotEscape: lbl asString), '", fontsize=8]'].
+				dot nextPutAll: ';'; nextPut: Character lf]]].
+	dot nextPutAll: '}'; nextPut: Character lf.
+
+	^ { dot contents. ids. truncated }
 ]
 
 {

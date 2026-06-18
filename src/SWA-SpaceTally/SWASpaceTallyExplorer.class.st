@@ -231,6 +231,20 @@ SWASpaceTallyExplorer >> currentSelection: anObject [
 
 {
 	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
+}
+SWASpaceTallyExplorer >> graphParentsToRoots [
+	"Open a Graphviz view of the selected node's ancestry up to the roots
+	(capped at 100 nodes). Delegates to SWASpaceTallyNode>>openParentsGraph."
+
+	| node |
+	node := self selectedNode.
+	node ifNil: [^ self inform: 'No node selected.'].
+	node openParentsGraph
+]
+
+{
+	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:57'
 }
 SWASpaceTallyExplorer >> hideAllHighlights [
@@ -322,14 +336,15 @@ SWASpaceTallyExplorer >> jumpToOriginal [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 13:56'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 11:37'
 }
 SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
 	"Add diff-related items: jump back to the baseline (diff trees only) and
 	two 'ignore in diffs' commands for the selected node, with labels showing
 	the concrete tokens they will add to the ignore preference. Plus a
 	'copy subtree to clipboard' item (selection only) that pretty-prints the
-	selected subtree as a nested bullet list."
+	selected subtree as a nested bullet list, and a 'graph parents to roots'
+	item that opens a Graphviz view of the selected node's ancestry."
 
 	<treeListMenu>
 	| node child parent |
@@ -349,6 +364,11 @@ SWASpaceTallyExplorer >> mainTreeListMenu: aMenu [
 			add: 'copy subtree to clipboard'
 			target: self
 			selector: #copySelectedSubtree
+			argument: nil.
+		aMenu
+			add: 'graph parents to roots'
+			target: self
+			selector: #graphParentsToRoots
 			argument: nil.
 
 		child := node edgeLabel ifNil: [node className].

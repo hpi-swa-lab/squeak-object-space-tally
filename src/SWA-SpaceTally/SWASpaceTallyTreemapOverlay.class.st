@@ -104,6 +104,17 @@ SWASpaceTallyTreemapOverlay >> exploreObject: anObject [
 
 {
 	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:30'
+}
+SWASpaceTallyTreemapOverlay >> graphParentsToRoots: aNode [
+	"Open a Graphviz view of aNode's ancestry up to the roots (capped at 100
+	nodes). Same as the explorer's menu item; delegates to the node."
+
+	aNode openParentsGraph
+]
+
+{
+	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 11:25'
 }
 SWASpaceTallyTreemapOverlay >> handlesMouseDown: evt [
@@ -223,7 +234,7 @@ SWASpaceTallyTreemapOverlay >> setColorMode: aSymbol [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:04'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
 }
 SWASpaceTallyTreemapOverlay >> showMenuFor: aNode event: evt [
 	"Show a context menu for the given tally node."
@@ -235,6 +246,7 @@ SWASpaceTallyTreemapOverlay >> showMenuFor: aNode event: evt [
 	menu addLine.
 	menu add: 'open in SpaceTally Explorer' selector: #openExplorerOn: argument: aNode.
 	menu add: 'copy subtree to clipboard' selector: #copySubtreeToClipboard: argument: aNode.
+	menu add: 'graph parents to roots' selector: #graphParentsToRoots: argument: aNode.
 	menu addLine.
 	obj := aNode object.
 	obj
