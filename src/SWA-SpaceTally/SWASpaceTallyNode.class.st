@@ -773,16 +773,23 @@ SWASpaceTallyNode >> openExplorerWindow [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:41'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:25'
 }
 SWASpaceTallyNode >> openParentsGraph [
-	"Build (capped at 100 nodes) and open a Graphviz view of this node's
-	ancestry up to the roots, inside a zoomable/pannable GraphvizPane.
-	Clicking a graph node re-opens an explorer rooted at the topmost
-	collected ancestor, selecting the clicked node."
+	"Open a Graphviz view of WHY this object is retained: the upward strong-
+	reference DAG of its retainers (see #retentionGraphMax:pathsPerRoot:),
+	inside a zoomable/pannable GraphvizPane.
 
-	| result dotString ids truncated pane byId title |
-	result := self parentsToRootsGraphMax: 100.
+	GREEN = a GC root, YELLOW = this object, BLUE = a convergence chokepoint
+	(many routes pass through it). Nodes labelled 'xN' with a doubled border
+	stand for N merged same-class retainers. Clicking a graph node re-opens an
+	explorer rooted at the topmost collected ancestor, selecting it.
+
+	Bounded: same-class predecessors are grouped and the DAG is capped at a
+	node budget, so it returns quickly. Use zoom/pan to read the structure."
+
+	| result dotString ids truncated pane byId title rootCount |
+	result := self retentionGraphMax: 1000 pathsPerRoot: 3.
 	dotString := result first.
 	ids := result second.
 	truncated := result third.
@@ -802,8 +809,10 @@ SWASpaceTallyNode >> openParentsGraph [
 				whileTrue: [top := top parent].
 			top openExplorerSelecting: clicked]].
 
-	title := 'Parents to roots (', ids size printString, ' nodes',
-		(truncated ifTrue: [', truncated at 100'] ifFalse: ['']), ')'.
+	rootCount := ids keys count: [:n | n parent isNil].
+	title := 'Retention DAG (', ids size printString, ' nodes, ',
+		rootCount printString, ' root', (rootCount = 1 ifTrue: [''] ifFalse: ['s']),
+		(truncated ifTrue: [', bounded'] ifFalse: ['']), ')'.
 
 	pane extent: 700 @ 500.
 	pane openInWindowLabeled: title.
@@ -1124,135 +1133,176 @@ SWASpaceTallyNode >> prunedChildCount [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 14:01'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:23'
 }
 SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
-	"Answer the strong-retention ancestry of the receiver as a compact DAG,
-	favouring the SHORTEST paths to each DISTINCT GC root rather than the
-	nearest maxNodes ancestors in BFS-discovery order (which buries the
-	interesting retainers).
+	"Answer the strong-retention ancestry of the receiver as a DAG, expanded
+	breadth-first upward (nearest first) over immediate predecessors.
 
-	Every edge produced by the walker is already a STRONG ownership edge
-	(weak slots are not followed), so any path here is a genuine reason the
-	object is retained.
+	CLASS GROUPING: when a single node has more than 'groupThreshold'
+	predecessors OF THE SAME CLASS, those same-class predecessors are merged
+	into ONE representative node (the first one seen). This collapses the
+	width of fan-heavy nodes -- you see WHAT KINDS of things retain X (e.g.
+	'Association x9') rather than nine identical-looking boxes -- while
+	predecessors of distinct classes stay separate. Only the representative is
+	expanded further, so the budget is spent on distinct retainer types.
 
-	Strategy:
-	  1. Backward BFS from self over predecessor edges (parent + otherParents),
-	     deduplicated by OBJECT IDENTITY, recording each reached node's distance
-	     to self (shortest, since BFS).
-	  2. Roots = reached nodes with parent isNil, nearest first.
-	  3. For each root, enumerate up to kPerRoot shortest paths down to self by
-	     repeatedly walking from the root toward self along strictly decreasing
-	     distance, and union the nodes/edges, stopping at maxNodes.
+	Every edge produced by the walker is a STRONG ownership edge (weak slots
+	are not followed), so each is a genuine reason X is retained. Nodes are
+	deduplicated by OBJECT IDENTITY; convergence (chokepoints) and divergence
+	(distinct retainers) are therefore visible directly.
 
-	Answer { unionNodes. unionEdges (child -> parent Associations). truncated }."
+	HARD LIMITS (always terminates fast):
+	  - maxNodes: cap on distinct nodes admitted to the DAG.
+	  - maxDistance: never follow predecessors farther than this from self.
+	kPerRoot is accepted for API compatibility but unused.
 
-	| dist reachedByObj queue roots unionNodes unionEdges emittedEdges truncated |
-	dist := IdentityDictionary new.
+	Answer { unionNodes. unionEdges (child -> parent Associations).
+	truncated. groupCounts (IdentityDictionary node -> merged-sibling count) }.
+	groupCounts is empty for ungrouped nodes; a value of N means that node
+	represents N same-class predecessors of its child."
+
+	| maxDistance groupThreshold reachedByObj dist queue unionNodes unionEdges
+	  emittedEdges truncated inUnion groupCounts |
+	maxDistance := 200.
+	groupThreshold := 3.
+
 	reachedByObj := IdentityDictionary new.
+	dist := IdentityDictionary new.
+	inUnion := IdentitySet new.
+	groupCounts := IdentityDictionary new.
 	queue := OrderedCollection new.
 
-	dist at: self put: 0.
-	reachedByObj at: (self object ifNil: [self]) put: self.
-	queue addLast: self.
-
-	"1. Backward BFS, deduplicating predecessors by object identity."
-	[queue isEmpty] whileFalse: [
-		| cur d preds |
-		cur := queue removeFirst.
-		d := dist at: cur.
-		preds := OrderedCollection new.
-		cur parent ifNotNil: [:p | preds add: p].
-		cur otherParents ifNotNil: [:ops | preds addAll: ops].
-		preds do: [:pred | | canon |
-			canon := reachedByObj at: (pred object ifNil: [pred]) ifAbsentPut: [pred].
-			(dist includesKey: canon) ifFalse: [
-				dist at: canon put: d + 1.
-				queue addLast: canon]]].
-
-	"2. Roots, nearest first."
-	roots := (dist keys select: [:n | n parent isNil])
-		asSortedCollection: [:a :b | (dist at: a) <= (dist at: b)].
-
-	"3. Enumerate shortest paths from each root down to self."
 	unionNodes := OrderedCollection new.
 	unionEdges := OrderedCollection new.
-	emittedEdges := Set new.        "'childId->parentId' tokens, by node identityHash"
+	emittedEdges := Set new.
 	truncated := false.
 
-	roots do: [:root |
-		| paths |
-		paths := self
-			shortestPathsFrom: root toward: self
-			dist: dist reachedByObj: reachedByObj
-			limit: kPerRoot.
-		paths do: [:path |
-			"path is root..self as a sequence of nodes; add as child->parent edges."
-			1 to: path size do: [:i | | node |
-				node := path at: i.
-				(unionNodes includes: node) ifFalse: [
-					unionNodes size >= maxNodes
-						ifTrue: [truncated := true]
-						ifFalse: [unionNodes add: node]]].
-			"edges: deeper(child) -> shallower(parent). path is root->self order,
-			so child is the later element."
-			1 to: path size - 1 do: [:i | | parentNode childNode token |
-				parentNode := path at: i.
-				childNode := path at: i + 1.
-				((unionNodes includes: parentNode) and: [unionNodes includes: childNode]) ifTrue: [
-					token := childNode identityHash printString, '->', parentNode identityHash printString.
-					(emittedEdges includes: token) ifFalse: [
-						emittedEdges add: token.
-						unionEdges add: childNode -> parentNode]]]]].
+	reachedByObj at: (self object ifNil: [self]) put: self.
+	dist at: self put: 0.
+	inUnion add: self.
+	unionNodes add: self.
+	queue addLast: self.
 
-	^ { unionNodes. unionEdges. truncated }
+	[queue isEmpty] whileFalse: [
+		| cur d preds repByClass |
+		cur := queue removeFirst.
+		d := dist at: cur.
+		d < maxDistance ifTrue: [
+			"Collect immediate predecessors."
+			preds := OrderedCollection new.
+			cur parent ifNotNil: [:p | preds add: p].
+			cur otherParents ifNotNil: [:ops | preds addAll: ops].
+
+			"Group predecessors by class name; choose a representative per class
+			and count the rest. Classes with <= groupThreshold members are kept
+			individually (representative-per-member by making each its own key)."
+			repByClass := Dictionary new.   "className -> { representative node. count }"
+			preds do: [:pred | | canon cname entry |
+				canon := reachedByObj at: (pred object ifNil: [pred]) ifAbsentPut: [pred].
+				cname := canon className ifNil: ['?'].
+				entry := repByClass at: cname ifAbsentPut: [Array with: canon with: 0].
+				entry at: 2 put: (entry at: 2) + 1].
+
+			"Decide grouping per class and emit nodes/edges."
+			repByClass keysAndValuesDo: [:cname :entry | | rep count grouped |
+				rep := entry first.
+				count := entry second.
+				grouped := count > groupThreshold.
+				grouped
+					ifTrue: [
+						"One representative stands for 'count' same-class preds."
+						(inUnion includes: rep) ifFalse: [
+							unionNodes size >= maxNodes
+								ifTrue: [truncated := true]
+								ifFalse: [
+									inUnion add: rep.
+									unionNodes add: rep.
+									dist at: rep put: d + 1.
+									groupCounts at: rep put: count.
+									queue addLast: rep]].
+						(inUnion includes: rep) ifTrue: [ | token |
+							token := cur identityHash printString, '->', rep identityHash printString.
+							(emittedEdges includes: token) ifFalse: [
+								emittedEdges add: token.
+								unionEdges add: cur -> rep]]]
+					ifFalse: [
+						"Few same-class preds: keep each individually. Re-scan preds
+						of this class to admit them all."
+						preds do: [:pred2 | | canon2 |
+							canon2 := reachedByObj at: (pred2 object ifNil: [pred2]) ifAbsent: [pred2].
+							(canon2 className ifNil: ['?']) = cname ifTrue: [
+								(inUnion includes: canon2) ifFalse: [
+									unionNodes size >= maxNodes
+										ifTrue: [truncated := true]
+										ifFalse: [
+											inUnion add: canon2.
+											unionNodes add: canon2.
+											dist at: canon2 put: d + 1.
+											queue addLast: canon2]].
+								(inUnion includes: canon2) ifTrue: [ | token |
+									token := cur identityHash printString, '->', canon2 identityHash printString.
+									(emittedEdges includes: token) ifFalse: [
+										emittedEdges add: token.
+										unionEdges add: cur -> canon2]]]]]]]
+			ifFalse: [truncated := true]].
+
+	^ { unionNodes. unionEdges. truncated. groupCounts }
 ]
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 14:04'
+	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:25'
 }
 SWASpaceTallyNode >> retentionGraphMax: maxNodes pathsPerRoot: kPerRoot [
-	"Build a Graphviz DOT graph of the receiver's strong-retention ancestry,
-	keeping the shortest paths to each distinct GC root (see
-	#retentionAncestryMax:pathsPerRoot:). Answer { dotString. ids. truncated }
-	where ids is an IdentityDictionary node -> dot-id string for click mapping.
+	"Build a Graphviz DOT graph of the receiver's strong-retention ancestry as
+	a DAG (see #retentionAncestryMax:pathsPerRoot:). Answer { dotString. ids.
+	truncated } where ids is an IdentityDictionary node -> dot-id string for
+	click mapping.
 
 	Edges point child -> parent (toward roots); rankdir=BT renders roots at
-	the top. Roots are filled green, the target yellow, branch points (nodes
-	with more than one outgoing parent edge in the union) light blue so the
-	divergent retainers stand out."
+	the top. Colours:
+	  - GREEN  : a GC root (parent isNil)
+	  - YELLOW : the target object itself
+	  - BLUE   : a convergence chokepoint (high in-degree)
+	A node that stands for several merged same-class predecessors is labelled
+	with a 'xN' multiplier and drawn with a doubled border."
 
-	| ancestry nodes edges truncated ids dot outDegree |
+	| ancestry nodes edges truncated groupCounts ids dot inDegree chokeThreshold |
 	ancestry := self retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot.
 	nodes := ancestry first.
 	edges := ancestry second.
 	truncated := ancestry third.
+	groupCounts := ancestry fourth.
 
-	"Assign dot ids."
 	ids := IdentityDictionary new.
 	nodes doWithIndex: [:n :i | ids at: n put: 'n', i printString].
 
-	"Count outgoing (child->parent) edges per child to flag branch points."
-	outDegree := IdentityDictionary new.
-	edges do: [:e | outDegree at: e key put: (outDegree at: e key ifAbsent: [0]) + 1].
+	"In-degree = how many child->parent edges point AT this node, i.e. how many
+	retained things route through it. High in-degree = chokepoint."
+	inDegree := IdentityDictionary new.
+	edges do: [:e | inDegree at: e value put: (inDegree at: e value ifAbsent: [0]) + 1].
+	chokeThreshold := 3.
 
 	dot := WriteStream on: String new.
 	dot nextPutAll: 'digraph retention {'; nextPut: Character lf.
 	dot nextPutAll: '  rankdir=BT;'; nextPut: Character lf.
 	dot nextPutAll: '  node [shape=box, fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
 
-	nodes do: [:n | | id label attrs |
+	nodes do: [:n | | id label attrs count |
 		id := ids at: n.
-		label := (SWASpaceTallyNode dotEscape: n name), '\n',
-			(SWASpaceTallyNode dotEscape: (SWASpaceTally formatBytes: n totalSize)).
+		count := groupCounts at: n ifAbsent: [1].
+		label := (SWASpaceTallyNode dotEscape: n name).
+		count > 1 ifTrue: [label := label, ' x', count printString].
+		label := label, '\n', (SWASpaceTallyNode dotEscape: (SWASpaceTally formatBytes: n totalSize)).
 		attrs := n parent isNil
-			ifTrue: [', style=filled, fillcolor="#cde8cd"']            "root: green"
+			ifTrue: [', style=filled, fillcolor="#cde8cd"']                "root: green"
 			ifFalse: [n == self
-				ifTrue: [', style=filled, fillcolor="#ffe8a0"']          "target: yellow"
-				ifFalse: [(outDegree at: n ifAbsent: [0]) > 1
-					ifTrue: [', style=filled, fillcolor="#cfe2ff"']      "branch point: blue"
+				ifTrue: [', style=filled, fillcolor="#ffe8a0"']             "target: yellow"
+				ifFalse: [(inDegree at: n ifAbsent: [0]) >= chokeThreshold
+					ifTrue: [', style=filled, fillcolor="#cfe2ff"']         "chokepoint: blue"
 					ifFalse: ['']]].
+		count > 1 ifTrue: [attrs := attrs, ', peripheries=2'].          "merged group"
 		dot
 			nextPutAll: '  ', id, ' [label="'; nextPutAll: label;
 			nextPutAll: '"'; nextPutAll: attrs; nextPutAll: '];'; nextPut: Character lf].
@@ -1354,48 +1404,6 @@ SWASpaceTallyNode >> setTotalSize: anInteger [
 }
 SWASpaceTallyNode >> setTruncated: aBoolean [
 	truncated := aBoolean
-]
-
-{
-	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 14:02'
-}
-SWASpaceTallyNode >> shortestPathsFrom: root toward: target dist: dist reachedByObj: reachedByObj limit: limit [
-	"Enumerate up to 'limit' shortest paths between target (distance 0) and
-	root, returned as sequences ordered root -> ... -> target.
-
-	We walk UP from target via predecessor edges (parent + otherParents),
-	always stepping to a canonical predecessor whose distance is exactly one
-	GREATER (i.e. one step closer to the roots), until we arrive at 'root'.
-	Because BFS assigned shortest distances, any such monotone walk is a
-	shortest path. A bounded DFS collects up to 'limit' of them."
-
-	| results stack rootDist |
-	results := OrderedCollection new.
-	rootDist := dist at: root.
-	"DFS stack of partial paths (target-first); each is an OrderedCollection."
-	stack := OrderedCollection new.
-	stack addLast: (OrderedCollection with: target).
-	[stack isEmpty or: [results size >= limit]] whileFalse: [
-		| path tip tipDist preds |
-		path := stack removeLast.
-		tip := path last.
-		tipDist := dist at: tip.
-		tip == root
-			ifTrue: [results add: path reversed]   "root -> ... -> target"
-			ifFalse: [
-				preds := OrderedCollection new.
-				tip parent ifNotNil: [:p | preds add: p].
-				tip otherParents ifNotNil: [:ops | preds addAll: ops].
-				preds do: [:pred | | canon |
-					canon := reachedByObj at: (pred object ifNil: [pred]) ifAbsent: [pred].
-					"Step only toward roots along a shortest path, and never past
-					a node farther than root (keeps us on root's branch)."
-					((dist at: canon ifAbsent: [-1]) = (tipDist + 1)
-						and: [(dist at: canon) <= rootDist]
-						and: [(path includes: canon) not])
-						ifTrue: [stack addLast: (path copyWith: canon)]]]].
-	^ results
 ]
 
 {
