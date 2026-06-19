@@ -661,45 +661,6 @@ SWASpaceTallyNode >> object [
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:35'
-}
-SWASpaceTallyNode >> objectRef: anObject classInfo: classInfo [
-	"Record anObject (strong reference) and capture class name + self-size up
-	front so the info survives even if the analyzed object is later mutated.
-
-	For classes and metaclasses, className stores the behavior's own name
-	rather than the generic 'Metaclass'/'Class'.
-
-	classInfo (an IdentityDictionary class->info-array, or nil) lets the walk
-	avoid repeated metadata lookups; nil falls back to direct lookup."
-
-	| ctx cls info basicSize byteSizeFixed |
-	ctx := thisContext.
-	obj := anObject.
-	cls := ctx objectClass: anObject.
-	className := (cls includesBehavior: Behavior)
-		ifTrue: [anObject name asString]
-		ifFalse: [cls name].
-	(classInfo notNil and: [classInfo includesKey: cls])
-		ifTrue: [
-			info := classInfo at: cls.
-			byteSizeFixed := info at: 7.
-			byteSizeFixed
-				ifNotNil: [selfSize := byteSizeFixed]
-				ifNil: [
-					basicSize := ctx objectSize: anObject.
-					selfSize := (info at: 4) "isImmediate"
-						ifTrue: [0]
-						ifFalse: [cls byteSizeOfInstanceOfSize: basicSize]]]
-		ifFalse: [
-			basicSize := ctx objectSize: anObject.
-			selfSize := cls isVariable
-				ifTrue: [cls byteSizeOfInstanceOfSize: basicSize]
-				ifFalse: [cls byteSizeOfInstance]]
-]
-
-{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:01'
 }
@@ -1371,6 +1332,21 @@ SWASpaceTallyNode >> setObject: anObject [
 	"Set the analyzed object reference directly (used by diff subtree copying)."
 
 	obj := anObject
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:30'
+}
+SWASpaceTallyNode >> setObject: anObject className: aName selfSize: aSelfSize [
+	"Plain storage: record the held object and its precomputed class name and
+	self-size. No reflection here -- the walker computes className/selfSize
+	through its mirror and hands us the finished values, keeping nodes lean and
+	free of any mirror dependency."
+
+	obj := anObject.
+	className := aName.
+	selfSize := aSelfSize
 ]
 
 {

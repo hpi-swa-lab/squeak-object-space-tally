@@ -118,7 +118,8 @@ Class {
 		'paramsSnapshot',
 		'findDeep',
 		'findDeepSkipped',
-		'deepUniverse'
+		'deepUniverse',
+		'mirror'
 	],
 	#classVars : [
 		'DiffIgnoreSet'
@@ -573,6 +574,46 @@ SWASpaceTally >> baseTally: aTally [
 ]
 
 {
+	#category : #private,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:30'
+}
+SWASpaceTally >> captureClassNameAndSelfSizeOf: anObject [
+	"Reflectively compute { className. selfSize } for anObject through the
+	walker's `mirror`, so all structural access stays centralized in the walker
+	(the node does no reflection of its own). Captures the values up front so
+	they survive even if anObject is later mutated.
+
+	For classes and metaclasses, className is the behavior's own name rather
+	than the generic 'Metaclass'/'Class'. Uses the classInfo cache when present
+	to avoid repeated metadata lookups; nil falls back to direct lookup.
+
+	Returns an Array { className <String>. selfSize <Integer> }."
+
+	| cls info basicSize byteSizeFixed name size |
+	cls := mirror objectClass: anObject.
+	name := (cls includesBehavior: Behavior)
+		ifTrue: [anObject name asString]
+		ifFalse: [cls name].
+	(classInfo notNil and: [classInfo includesKey: cls])
+		ifTrue: [
+			info := classInfo at: cls.
+			byteSizeFixed := info at: 7.
+			byteSizeFixed
+				ifNotNil: [size := byteSizeFixed]
+				ifNil: [
+					basicSize := mirror objectSize: anObject.
+					size := (info at: 4) "isImmediate"
+						ifTrue: [0]
+						ifFalse: [cls byteSizeOfInstanceOfSize: basicSize]]]
+		ifFalse: [
+			basicSize := mirror objectSize: anObject.
+			size := cls isVariable
+				ifTrue: [cls byteSizeOfInstanceOfSize: basicSize]
+				ifFalse: [cls byteSizeOfInstance]].
+	^ { name. size }
+]
+
+{
 	#category : #walking,
 	#'squeak_changestamp' : 'MCPServer 6/17/2026 10:40'
 }
@@ -795,7 +836,7 @@ SWASpaceTally >> durationMs [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:17'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:24'
 }
 SWASpaceTally >> expandNode: aNode [
 	"Visit one node: enumerate its referents and enqueue first-time ones.
@@ -828,7 +869,7 @@ SWASpaceTally >> expandNode: aNode [
 
 	self referentsOf: obj do: [:referent :slotKind :slotIndex |
 		| refClass tallyable |
-		refClass := thisContext objectClass: referent.
+		refClass := mirror objectClass: referent.
 		tallyable := (slotKind == #store or: [refClass == Array])
 			ifTrue: [self isTallyableStore: referent]
 			ifFalse: [self isTallyable: referent].
@@ -904,8 +945,8 @@ SWASpaceTally >> findDeepSkipped [
 ]
 
 {
-	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
+	#category : #private,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:24'
 }
 SWASpaceTally >> findLostObjects [
 	"Deep sweep: after a *complete* walk, find every heap object no root
@@ -944,7 +985,7 @@ SWASpaceTally >> findLostObjects [
 					limitHit isNil ifTrue: [limitHit := #maxVisits].
 					^ self finishLost: lostRoot].
 				(i \\ 50000 = 0) ifTrue: [bar value: i].
-				cls := thisContext objectClass: obj.
+				cls := mirror objectClass: obj.
 				((self isTallyable: obj)
 					and: [cls ~~ SWASpaceTally and: [cls ~~ SWASpaceTallyNode]]
 					and: [(seen includesKey: obj) not])
@@ -1001,10 +1042,11 @@ SWASpaceTally >> ignoreSet: anIdentitySet [
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:43'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:24'
 }
 SWASpaceTally >> initialize [
 	super initialize.
+	mirror := Context newForMethod: CompiledMethod toReturnSelf. "avoid dangling references to the current context or stack"
 	maxVisits := nil. "nil = unlimited; the closed universe guarantees termination. Set a value to bound a walk for testing."
 	visitCount := 0.
 	limitHit := nil.
@@ -1030,7 +1072,7 @@ SWASpaceTally >> isDiff [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:46'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:24'
 }
 SWASpaceTally >> isTallyable: anObject [
 	"Return true if anObject is a real heap object we want to record.
@@ -1054,7 +1096,7 @@ SWASpaceTally >> isTallyable: anObject [
 	anObject ifNil: [^ false].
 	(deepUniverse notNil and: [(deepUniverse includesKey: anObject) not])
 		ifTrue: [^ false].
-	cls := thisContext objectClass: anObject.
+	cls := mirror objectClass: anObject.
 	(classInfo notNil and: [classInfo includesKey: cls])
 		ifTrue: [
 			info := classInfo at: cls.
@@ -1074,8 +1116,8 @@ SWASpaceTally >> isTallyable: anObject [
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:09'
+	#category : #private,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:24'
 }
 SWASpaceTally >> isTallyableStore: anObject [
 	"Like #isTallyable: but WITHOUT the closed-universe membership gate.
@@ -1098,7 +1140,7 @@ SWASpaceTally >> isTallyableStore: anObject [
 
 	| cls info |
 	anObject ifNil: [^ false].
-	cls := thisContext objectClass: anObject.
+	cls := mirror objectClass: anObject.
 	(classInfo notNil and: [classInfo includesKey: cls])
 		ifTrue: [
 			info := classInfo at: cls.
@@ -1115,7 +1157,7 @@ SWASpaceTally >> isTallyableStore: anObject [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:10'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:24'
 }
 SWASpaceTally >> labelForKind: slotKind index: slotIndex ownerObject: ownerObject [
 	"Build the human-readable edge label for a slot. Called only when a child
@@ -1127,18 +1169,18 @@ SWASpaceTally >> labelForKind: slotKind index: slotIndex ownerObject: ownerObjec
 		"For indexed slots, try to show a meaningful key when the
 		 referent is an Association (e.g. inside a Dictionary's array)."
 		| referent refClass |
-		referent := thisContext object: ownerObject basicAt: slotIndex.
-		refClass := thisContext objectClass: referent.
+		referent := mirror object: ownerObject basicAt: slotIndex.
+		refClass := mirror objectClass: referent.
 		(refClass includesBehavior: Association) ifTrue: [
 			| key keyStr |
-			key := thisContext object: referent instVarAt: 1. "key"
+			key := mirror object: referent instVarAt: 1. "key"
 			keyStr := [key printString] ifError: ['?'].
 			keyStr size > 50 ifTrue: [keyStr := (keyStr copyFrom: 1 to: 47) , '...'].
 			^ '[' , slotIndex printString , '] ' , keyStr].
 		^ '[' , slotIndex printString , ']'].
 	slotKind == #literal ifTrue: [^ '#literals[' , slotIndex printString , ']'].
 	"#instVar or #store -- look up the instVar name; mark a #store edge."
-	ownerClass := thisContext objectClass: ownerObject.
+	ownerClass := mirror objectClass: ownerObject.
 	info := self classInfoFor: ownerClass.
 	names := info at: 6.
 	^ slotKind == #store
@@ -1198,20 +1240,25 @@ SWASpaceTally >> maxVisits: anInteger [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:35'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:30'
 }
 SWASpaceTally >> newChildNodeFor: anObject parent: parentNode edge: aLabel [
 	"Create a new lean node and hook it into the tree. Mark the node and (now
 	that it exists) the parent's children collection as already-seen, so BFS
 	skips our own tree if it reaches it via the active process's stack.
 
-	Objects are held strongly now, so there is no per-node WeakArray to seed."
+	Objects are held strongly now, so there is no per-node WeakArray to seed.
 
-	| node |
+	Reflection is done HERE, by the walker, through its `mirror`: we compute the
+	child's className + selfSize and hand the node finished values. The node
+	itself does no reflection and holds no mirror, staying lean."
+
+	| node nameAndSize |
 	node := SWASpaceTallyNode new.
 	node setParent: parentNode depth: parentNode depth + 1.
 	node edgeLabel: aLabel.
-	node objectRef: anObject classInfo: classInfo.
+	nameAndSize := self captureClassNameAndSelfSizeOf: anObject.
+	node setObject: anObject className: (nameAndSize at: 1) selfSize: (nameAndSize at: 2).
 	parentNode addChild: node.
 	seen at: node put: self.
 	seen at: parentNode children put: self.
@@ -1436,7 +1483,7 @@ SWASpaceTally >> progressLabel [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 17:09'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:25'
 }
 SWASpaceTally >> referentsOf: anObject do: aBlock [
 	"Enumerate the heap-object referents of anObject, calling
@@ -1446,7 +1493,8 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	as '[N]' / '#literals[N]'). Callers that don't need labels can simply
 	ignore the kind/index args.
 
-	Uses cached per-class metadata (#classInfoFor:) and Context mirror primitives.
+	Uses cached per-class metadata (#classInfoFor:) and the cached `mirror`
+	reflection primitives (captured once into `ctx`).
 
 	WEAK SLOTS ARE NOT FOLLOWED. For a weak class, the *indexed* (variable)
 	part holds weak references; a weak slot does not express ownership, so
@@ -1477,7 +1525,7 @@ SWASpaceTally >> referentsOf: anObject do: aBlock [
 	image. Testing the class reflectively never touches the object."
 
 	| ctx class info instSize spec isVar instVarNames isCompiled basicSize isWeak storeIdx |
-	ctx := thisContext.
+	ctx := mirror.
 	class := ctx objectClass: anObject.
 
 	"Follow the class pointer for classes/metaclasses only (proxy-safe test)."
