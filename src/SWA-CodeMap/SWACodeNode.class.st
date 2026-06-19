@@ -96,6 +96,16 @@ SWACodeNode >> children [
 ]
 
 {
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:04'
+}
+SWACodeNode >> className [
+	"Used by the treemap's label/color strategies. We answer nil so it falls back
+	to #name; the code treemap brings its own coloring anyway."
+	^ nil
+]
+
+{
 	#category : #tree,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
@@ -213,6 +223,15 @@ SWACodeNode >> dotShape [
 ]
 
 {
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:05'
+}
+SWACodeNode >> edgeLabel [
+	"No edge labels in the code treemap."
+	^ nil
+]
+
+{
 	#category : #tree,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
@@ -311,6 +330,80 @@ SWACodeNode >> openGraph: aGraphTuple engine: engineString label: aLabel [
 ]
 
 {
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:24'
+}
+SWACodeNode >> openTreemap [
+	"Open a squarified treemap of this code subtree (tiles sized by LOC), reusing
+	the shared treemap morph + window chrome (breadcrumb, back button, hover
+	overlay, zoom). Uses the code-specific morph and interaction overlay."
+	| treemap overlay breadcrumb selectionPath panel window headerRow backButton |
+	treemap := SWACodeTreemapMorph on: self.
+	backButton := SimpleButtonMorph new
+		label: 'Back';
+		color: (Color gray: 0.3);
+		target: treemap;
+		actionSelector: #zoomOut;
+		yourself.
+	breadcrumb := StringMorph new
+		contents: treemap breadcrumbString;
+		font: Preferences standardSystemFont;
+		color: Color white;
+		yourself.
+	treemap breadcrumbMorph: breadcrumb.
+	selectionPath := StringMorph new
+		contents: '';
+		font: Preferences standardSystemFont;
+		color: (Color gray: 0.7);
+		yourself.
+	treemap selectionPathMorph: selectionPath.
+	headerRow := Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellPositioning: #leftCenter;
+		cellInset: 6;
+		hResizing: #spaceFill;
+		vResizing: #shrinkWrap;
+		yourself.
+	backButton hResizing: #rigid; vResizing: #rigid.
+	breadcrumb hResizing: #spaceFill; vResizing: #rigid.
+	headerRow addMorph: backButton; addMorph: breadcrumb.
+	overlay := SWACodeTreemapOverlay new.
+	overlay treemapMorph: treemap.
+	overlay extent: treemap extent.
+	treemap overlayMorph: overlay.
+	treemap addMorph: overlay.
+	panel := Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		cellPositioning: #topLeft;
+		hResizing: #spaceFill;
+		vResizing: #spaceFill;
+		yourself.
+	selectionPath hResizing: #spaceFill; vResizing: #rigid.
+	treemap hResizing: #spaceFill; vResizing: #spaceFill.
+	panel addMorph: headerRow; addMorph: selectionPath; addMorph: treemap.
+	window := panel openInWindow.
+	window setLabel: 'Code Treemap: ', self name, '  (LOC)'.
+	window extent: (Display extent * 0.7) rounded.
+	window center: Display center.
+	^ window
+]
+
+{
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:20'
+}
+SWACodeNode >> otherParents [
+	"Code nodes form a strict tree (single parent), so there are no 'other parents'
+	the way the SpaceTally object-graph treemap has. The treemap overlay guards on
+	nil, so answering nil disables that decoration."
+	^ nil
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
@@ -327,11 +420,32 @@ SWACodeNode >> parent: aNode [
 ]
 
 {
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:05'
+}
+SWACodeNode >> pathString [
+	"Slash-separated path from the root to the receiver (for balloon help)."
+	^ parent isNil
+		ifTrue: [self name]
+		ifFalse: [parent pathString, ' / ', self name]
+]
+
+{
 	#category : #printing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
 SWACodeNode >> printOn: aStream [
 	aStream nextPutAll: self class name; nextPut: $(; nextPutAll: self name; nextPut: $)
+]
+
+{
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:04'
+}
+SWACodeNode >> selfSize [
+	"LOC owned directly by this node (non-leaf nodes own none; method leaves own
+	their lines)."
+	^ self isLeaf ifTrue: [self loc] ifFalse: [0]
 ]
 
 {
@@ -348,6 +462,16 @@ SWACodeNode >> subject [
 }
 SWACodeNode >> subject: anObject [
 	subject := anObject
+]
+
+{
+	#category : #treemap,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:04'
+}
+SWACodeNode >> totalSize [
+	"Treemap weight: rolled-up LOC over the subtree. (The treemap squarifies by
+	this value, so packages/classes/categories are sized by total lines of code.)"
+	^ self loc max: 1
 ]
 
 {
