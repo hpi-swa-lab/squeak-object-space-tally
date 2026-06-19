@@ -34,6 +34,20 @@ SWAStSpyNode >> addSelfTime: micros [
 ]
 
 {
+	#category : #browsing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
+}
+SWAStSpyNode >> browse [
+	"Open a system browser on this frame's method, if it resolves to one. Returns
+	true if a browser was opened, false for native/unresolvable frames."
+	| ref |
+	ref := self methodReference.
+	ref ifNil: [^ false].
+	ToolSet browse: ref first selector: ref second.
+	^ true
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:00'
 }
@@ -180,6 +194,44 @@ SWAStSpyNode >> initialize [
 	selfCount := 0.
 	totalCount := 0.
 	children := nil   "lazily allocated on first addChild"
+]
+
+{
+	#category : #browsing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
+}
+SWAStSpyNode >> isSmalltalkFrame [
+	"True if this frame names a resolvable Smalltalk method we can browse."
+	^ self methodReference notNil
+]
+
+{
+	#category : #browsing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
+}
+SWAStSpyNode >> methodReference [
+	"If this frame's name looks like a Smalltalk method -- 'Class>>selector' or
+	'Class class>>selector' -- answer { theClass. selectorSymbol }, else nil.
+	Native/VM frames (epoll_wait, copyBits, 0x7858..., poll) answer nil."
+	| nm idx classPart selPart cls meta |
+	nm := self name.
+	nm ifNil: [^ nil].
+	idx := nm indexOfSubCollection: '>>'.
+	idx = 0 ifTrue: [^ nil].
+	classPart := (nm copyFrom: 1 to: idx - 1) withBlanksTrimmed.
+	selPart := (nm copyFrom: idx + 2 to: nm size) withBlanksTrimmed.
+	(classPart isEmpty or: [selPart isEmpty]) ifTrue: [^ nil].
+
+	"Handle metaclass: 'Foo class>>bar'."
+	meta := false.
+	(classPart endsWith: ' class')
+		ifTrue: [meta := true.
+			classPart := (classPart copyFrom: 1 to: classPart size - 6) withBlanksTrimmed].
+
+	cls := Smalltalk classNamed: classPart.
+	cls ifNil: [^ nil].
+	meta ifTrue: [cls := cls class].
+	^ { cls. selPart asSymbol }
 ]
 
 {

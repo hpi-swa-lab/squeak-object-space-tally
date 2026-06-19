@@ -236,15 +236,16 @@ SWAStSpy >> openExplorer [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
 }
 SWAStSpy >> openFlamegraph [
 	"Open a flamegraph on the call tree (same SWAStSpyNode tree the treemap uses),
-	with the same window chrome as the treemap: a Back button + breadcrumb header
-	and a selection-path line. Single click selects a frame (highlight + path);
-	clicking the same frame again zooms in; Back zooms out; right-click explores.
-	Returns the window."
-	| flame breadcrumb selectionPath panel window headerRow backButton |
+	with the same window chrome as the treemap: Back + Browse buttons + breadcrumb
+	header and a selection-path line. Single click selects a frame (highlight +
+	path); clicking the same frame again zooms in; Back zooms out; Browse opens a
+	system browser on the selected Smalltalk method; right-click explores. Returns
+	the window."
+	| flame breadcrumb selectionPath panel window headerRow backButton browseButton |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
 	flame := SWAStSpyFlamegraphMorph on: rootNode.
 
@@ -253,6 +254,12 @@ SWAStSpy >> openFlamegraph [
 		color: (Color gray: 0.3);
 		target: flame;
 		actionSelector: #zoomOut;
+		yourself.
+	browseButton := SimpleButtonMorph new
+		label: 'Browse';
+		color: (Color gray: 0.3);
+		target: flame;
+		actionSelector: #browseSelected;
 		yourself.
 	breadcrumb := StringMorph new
 		contents: flame breadcrumbString;
@@ -277,8 +284,9 @@ SWAStSpy >> openFlamegraph [
 		vResizing: #shrinkWrap;
 		yourself.
 	backButton hResizing: #rigid; vResizing: #rigid.
+	browseButton hResizing: #rigid; vResizing: #rigid.
 	breadcrumb hResizing: #spaceFill; vResizing: #rigid.
-	headerRow addMorph: backButton; addMorph: breadcrumb.
+	headerRow addMorph: backButton; addMorph: browseButton; addMorph: breadcrumb.
 
 	panel := Morph new
 		color: (Color gray: 0.15);

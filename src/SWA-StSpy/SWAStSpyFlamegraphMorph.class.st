@@ -83,6 +83,19 @@ SWAStSpyFlamegraphMorph >> breadcrumbString [
 ]
 
 {
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
+}
+SWAStSpyFlamegraphMorph >> browseSelected [
+	"Open a system browser on the selected frame's method, if it is a resolvable
+	Smalltalk frame. Wired to the Browse button via actionSelector: #browseSelected.
+	Beeps for native/VM frames or when nothing is selected."
+	(selectedNode notNil and: [selectedNode isSmalltalkFrame])
+		ifTrue: [selectedNode browse]
+		ifFalse: [Beeper beep]
+]
+
+{
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:53'
 }
