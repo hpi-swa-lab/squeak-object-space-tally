@@ -26,7 +26,9 @@ Class {
 		'history',
 		'breadcrumbMorph',
 		'selectedNode',
-		'selectionPathMorph'
+		'selectionPathMorph',
+		'sourceMorph',
+		'panelMorph'
 	],
 	#category : #'SWA-StSpy',
 	#'squeak_changestamp' : '<historical>'
@@ -39,6 +41,31 @@ Class {
 SWAStSpyFlamegraphMorph class >> on: aNode [
 	"Create a flamegraph rooted at the given SWAStSpyNode (duck-typed)."
 	^ self new setRoot: aNode
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:53'
+}
+SWAStSpyFlamegraphMorph >> aboutToStyle: aStyler [
+	"Shout styling hook (called because we are the source pane's model). Configure
+	the styler with the selected frame's class so ivars/selectors highlight in
+	context, and allow styling to proceed."
+	| ref |
+	ref := selectedNode ifNotNil: [:n | n methodReference].
+	(ref notNil and: [aStyler respondsTo: #classOrMetaClass:])
+		ifTrue: [aStyler classOrMetaClass: ref first].
+	^ true
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:53'
+}
+SWAStSpyFlamegraphMorph >> aboutToStyle: aStyler requestor: anObject [
+	"Shout styling hook (2-arg form the styler actually sends). Delegates to the
+	1-arg #aboutToStyle:, mirroring Model>>aboutToStyle:requestor:."
+	^ self aboutToStyle: aStyler
 ]
 
 {
@@ -64,22 +91,20 @@ SWAStSpyFlamegraphMorph >> breadcrumbMorph: aMorph [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:22'
 }
 SWAStSpyFlamegraphMorph >> breadcrumbString [
-	"Breadcrumb of the zoom focus (root .. focusNode) + total time, with control
-	hints. Mirrors SWATreemapMorph>>breadcrumbString."
-	| parts node total |
+	"Compact breadcrumb of the zoom focus (root .. focusNode), elided from the
+	HEAD so the deepest (most relevant) frames stay visible, plus the focus total."
+	| parts node path |
 	parts := OrderedCollection new.
 	node := focusNode.
 	[node notNil] whileTrue: [
 		parts addFirst: (node name ifNil: ['?']).
 		node := node parent].
-	total := focusNode ifNil: [0] ifNotNil: [:n | n totalSize].
-	^ (parts inject: '' into: [:s :p | s isEmpty ifTrue: [p] ifFalse: [s , ' / ' , p]])
-		, '   '
-		, (rootNode formatMicros: total) , ' total'
-		, '   [click: zoom in, Back: zoom out, right-click: explore]'
+	path := parts inject: '' into: [:s :p | s isEmpty ifTrue: [p] ifFalse: [s , ' / ' , p]].
+	path := self elideHead: path to: 90.
+	^ path, '   ', (rootNode formatMicros: (focusNode ifNil: [0] ifNotNil: [:n | n totalSize])), ' total'
 ]
 
 {
@@ -112,57 +137,72 @@ SWAStSpyFlamegraphMorph >> colorForNode: aNode [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:58'
 }
 SWAStSpyFlamegraphMorph >> computeFrames [
 	"Build `frames` -- a flat list of {node. rect. depth. isAncestor} -- in LOCAL
 	coordinates (origin 0@0), so the layout can be rendered into a cached Form and
 	blitted at #position on every draw. Width is proportional to totalSize;
-	children pack left-to-right under their parent. Ancestors of the focus are
-	full-width dimmed strips above. Records the extent it laid out for so a resize
-	triggers a recompute."
-	| ancestors topRows width focusTotal |
+	children pack left-to-right under their parent.
+
+	When zoomed in, the ancestors of the focus are NOT given a row each (that wastes
+	vertical space). Instead they are collapsed into a SINGLE strip at the very top
+	(one full row tall, so it is easy to read and click) -- the full path is in the
+	breadcrumb -- and the focus subtree gets the rest of the height."
+	| ancestors width focusTotal startY |
 	frames := OrderedCollection new.
 	framesBounds := self bounds.
 	(focusNode isNil or: [focusNode totalSize <= 0]) ifTrue: [^ frames].
 	width := self width.
 	ancestors := self ancestorChain.
+	startY := 0.
 
-	"Ancestor strips: one full-width row each, root at the very top."
-	topRows := ancestors size.
-	ancestors doWithIndex: [:anc :i |
+	"One collapsed strip for ALL ancestors (only when zoomed in)."
+	ancestors notEmpty ifTrue: [
 		frames add: {
-			anc.
-			(0 @ ((i - 1) * rowHeight) extent: width @ rowHeight).
-			i - 1.
-			true }].
+			focusNode parent.
+			(0 @ 0 extent: width @ rowHeight).
+			0.
+			true }.
+		startY := rowHeight].
 
-	"Focus subtree, starting on the row just below the ancestor strip."
+	"Focus subtree fills the rest, starting just below the ancestor strip."
 	focusTotal := focusNode totalSize.
-	self layoutNode: focusNode x: 0 width: width row: topRows scaleTotal: focusTotal.
+	self layoutNode: focusNode x: 0 width: width top: startY scaleTotal: focusTotal.
 	^ frames
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:57'
 }
 SWAStSpyFlamegraphMorph >> drawLabelFor: aNode in: r on: aCanvas font: font [
 	"Draw aNode's name inside rect r, clipped, only if there is room."
-	| label charW maxChars text |
+	self
+		drawLabelString: (aNode name ifNil: ['?'])
+		in: r on: aCanvas font: font color: (Color gray: 0.1)
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:57'
+}
+SWAStSpyFlamegraphMorph >> drawLabelString: aString in: r on: aCanvas font: font color: aColor [
+	"Draw aString inside rect r, clipped + tilde-truncated to fit, in aColor.
+	Only when there is room."
+	| charW maxChars text |
 	r width < 24 ifTrue: [^ self].
-	label := aNode name ifNil: ['?'].
 	charW := (font widthOf: $m) max: 1.
 	maxChars := (r width - 6) // charW max: 0.
 	maxChars < 2 ifTrue: [^ self].
-	text := label size > maxChars
-		ifTrue: [(label first: (maxChars - 1 max: 1)), '~']
-		ifFalse: [label].
+	text := aString size > maxChars
+		ifTrue: [(aString first: (maxChars - 1 max: 1)), '~']
+		ifFalse: [aString].
 	aCanvas
 		drawString: text
 		in: (r insetBy: (3 @ 1))
 		font: font
-		color: (Color gray: 0.1)
+		color: aColor
 ]
 
 {
@@ -180,6 +220,17 @@ SWAStSpyFlamegraphMorph >> drawOn: aCanvas [
 		at: self position
 		sourceRect: form boundingBox
 		rule: Form over
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:22'
+}
+SWAStSpyFlamegraphMorph >> elideHead: aString to: maxChars [
+	"Truncate aString to maxChars, dropping characters from the FRONT and prefixing
+	an ellipsis, so the tail (end) is always visible."
+	aString size <= maxChars ifTrue: [^ aString].
+	^ '...', (aString last: (maxChars - 3 max: 1))
 ]
 
 {
@@ -318,33 +369,33 @@ SWAStSpyFlamegraphMorph >> initialize [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:57'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:37'
 }
 SWAStSpyFlamegraphMorph >> labelFont [
-	"A compact font for frame labels. The image's TTC default font is ~25px tall,
-	far too big for thin flamegraph rows, so prefer a small bitmap StrikeFont and
-	fall back to the default only if unavailable."
-	^ (StrikeFont familyName: 'Atlanta' size: 8)
-		ifNil: [TextStyle defaultFont]
+	"Font for frame labels. BitstreamVeraSans (~21px) is ~50% bigger than the old
+	compact Atlanta, crisp and readable; rows grow to fit (see #initialize). Falls
+	back to a small bitmap font, then the default, if unavailable."
+	^ (StrikeFont familyName: 'BitstreamVeraSans' size: 9)
+		ifNil: [(StrikeFont familyName: 'Atlanta' size: 8)
+			ifNil: [TextStyle defaultFont]]
 ]
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:56'
 }
-SWAStSpyFlamegraphMorph >> layoutNode: aNode x: x width: w row: row scaleTotal: scaleTotal [
-	"Emit a LOCAL-coordinate frame for aNode at the given x/width on the given row,
-	then lay out its children left-to-right beneath it, each sized in proportion to
-	its totalSize. Stops recursing into frames narrower than minFrameWidth or rows
-	that fall below the morph height."
-	| top childX kids |
+SWAStSpyFlamegraphMorph >> layoutNode: aNode x: x width: w top: top scaleTotal: scaleTotal [
+	"Emit a LOCAL-coordinate frame for aNode at the given x/width with its top at
+	the given pixel y, then lay out its children left-to-right one rowHeight below.
+	Stops recursing into frames narrower than minFrameWidth or that fall below the
+	morph height."
+	| childX kids |
 	w < minFrameWidth ifTrue: [^ self].
-	top := row * rowHeight.
 	top + rowHeight > self height ifTrue: [^ self].
 	frames add: {
 		aNode.
 		(x @ top extent: w @ rowHeight).
-		row.
+		top.
 		false }.
 	"children packed under us, scaled to OUR pixel width by OUR totalSize"
 	kids := aNode children asSortedCollection: [:a :b | a totalSize >= b totalSize].
@@ -352,18 +403,18 @@ SWAStSpyFlamegraphMorph >> layoutNode: aNode x: x width: w row: row scaleTotal: 
 	childX := x.
 	kids do: [:kid | | kw |
 		kw := w * kid totalSize / aNode totalSize.
-		self layoutNode: kid x: childX width: kw row: row + 1 scaleTotal: scaleTotal.
+		self layoutNode: kid x: childX width: kw top: top + rowHeight scaleTotal: scaleTotal.
 		childX := childX + kw]
 ]
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:56'
 }
 SWAStSpyFlamegraphMorph >> mouseDown: evt [
-	"Left-click a frame: select it (highlight + show its path). Click the SAME
-	frame again: zoom into it. Right-click: explore the node. Ancestor strips
-	always zoom out to that ancestor. Mirrors SWATreemapOverlay>>mouseDown:."
+	"Left-click a frame: select it (highlight + detail line + source). Click the
+	SAME frame again: zoom into it. Click the collapsed ancestor strip at the top:
+	zoom out one level. Right-click: explore the node."
 	| f node |
 	f := self frameAt: evt position.
 	f isNil ifTrue: [^ self].
@@ -372,11 +423,8 @@ SWAStSpyFlamegraphMorph >> mouseDown: evt [
 	"Right-click: explore."
 	evt yellowButtonPressed ifTrue: [^ ToolSet explore: node].
 
-	"Ancestor strip: zoom out to that ancestor directly."
-	(f at: 4) ifTrue: [
-		selectedNode := node.
-		self updateSelectionPath: node.
-		^ self zoomInto: node].
+	"Collapsed ancestor strip: zoom out one level."
+	(f at: 4) ifTrue: [^ self zoomOut].
 
 	"Same frame clicked twice -> zoom in."
 	(selectedNode notNil and: [selectedNode == node])
@@ -385,31 +433,70 @@ SWAStSpyFlamegraphMorph >> mouseDown: evt [
 	"Otherwise: select this frame."
 	selectedNode := node.
 	self flushCache.
-	self updateSelectionPath: node
+	self updateSelectionPath: node.
+	self updateSource: node
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:52'
+}
+SWAStSpyFlamegraphMorph >> newSourceMorph [
+	"A read-only, syntax-highlighted code pane (PluggableTextMorphPlus + the
+	Smalltalk Shout styler) for showing the selected method's source. Fixed-height
+	strip at the bottom of the panel."
+	| tm |
+	tm := PluggableTextMorphPlus on: self text: nil accept: nil.
+	tm useDefaultStyler.
+	tm
+		hResizing: #spaceFill;
+		vResizing: #rigid;
+		height: 220;
+		setText: 'select a Smalltalk frame to see its source'.
+	^ tm
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:41'
+}
+SWAStSpyFlamegraphMorph >> panelMorph: aMorph [
+	"The top-to-bottom container panel; used to add/remove the source pane."
+	panelMorph := aMorph
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:57'
 }
 SWAStSpyFlamegraphMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	"Paint background and every frame into aCanvas, offset by anOrigin (local
-	coords + anOrigin). The selected frame is brightened with a white border."
+	coords + anOrigin). The collapsed ancestor strip is drawn as a thin dark
+	'zoom out' bar; the selected frame is brightened with a white border."
 	| font |
 	aCanvas fillRectangle: (anOrigin extent: self extent) color: self color.
 	font := self labelFont.
 	frames do: [:f | | node r screenR isAnc fill isSel |
 		node := f at: 1. r := f at: 2. isAnc := f at: 4.
 		screenR := r translateBy: anOrigin.
-		isSel := selectedNode notNil and: [selectedNode == node and: [isAnc not]].
-		fill := self colorForNode: node.
-		isAnc ifTrue: [fill := fill alpha: 0.35].
-		isSel ifTrue: [fill := fill lighter lighter].
-		aCanvas fillRectangle: (screenR insetBy: (0.5 @ 0.5)) color: fill.
-		isSel
-			ifTrue: [aCanvas frameRectangle: screenR width: 2 color: Color white]
-			ifFalse: [aCanvas frameRectangle: screenR width: 1 color: (Color gray: 0.12)].
-		self drawLabelFor: node in: screenR on: aCanvas font: font]
+		isAnc
+			ifTrue: [
+				"Collapsed ancestor strip: thin dark bar with a 'zoom out' hint + path."
+				aCanvas fillRectangle: screenR color: (Color gray: 0.28).
+				aCanvas frameRectangle: screenR width: 1 color: (Color gray: 0.12).
+				self
+					drawLabelString: ('zoom out  -  ',
+						(focusNode ifNil: [''] ifNotNil: [:n | n pathString]))
+					in: screenR on: aCanvas font: font color: (Color gray: 0.85)]
+			ifFalse: [
+				isSel := selectedNode notNil and: [selectedNode == node].
+				fill := self colorForNode: node.
+				isSel ifTrue: [fill := fill lighter lighter].
+				aCanvas fillRectangle: (screenR insetBy: (0.5 @ 0.5)) color: fill.
+				isSel
+					ifTrue: [aCanvas frameRectangle: screenR width: 2 color: Color white]
+					ifFalse: [aCanvas frameRectangle: screenR width: 1 color: (Color gray: 0.12)].
+				self drawLabelFor: node in: screenR on: aCanvas font: font]]
 ]
 
 {
@@ -459,6 +546,35 @@ SWAStSpyFlamegraphMorph >> setRoot: aNode [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:40'
+}
+SWAStSpyFlamegraphMorph >> sourceMorph: aPluggableTextMorph [
+	sourceMorph := aPluggableTextMorph
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:41'
+}
+SWAStSpyFlamegraphMorph >> toggleSource [
+	"Show/hide a source-code pane at the bottom of the panel. When shown, it is
+	loaded with the currently selected frame's method source. Wired to the Show
+	button via actionSelector: #toggleSource."
+	panelMorph ifNil: [^ self].
+	(sourceMorph notNil and: [sourceMorph owner notNil])
+		ifTrue: [
+			"Hide it."
+			sourceMorph delete]
+		ifFalse: [
+			"Show it: build (or reuse) the pane, add at the bottom, load source."
+			sourceMorph ifNil: [sourceMorph := self newSourceMorph].
+			panelMorph addMorphBack: sourceMorph.
+			self updateSource: selectedNode].
+	panelMorph layoutChanged
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
 }
 SWAStSpyFlamegraphMorph >> updateBreadcrumb [
@@ -468,17 +584,36 @@ SWAStSpyFlamegraphMorph >> updateBreadcrumb [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:28'
 }
 SWAStSpyFlamegraphMorph >> updateSelectionPath: aNodeOrNil [
-	"Update the selection path label to show the full path + time of aNodeOrNil.
-	Mirrors SWATreemapMorph>>updateSelectionPath:."
+	"Update the big detail line to show ONLY the currently selected frame:
+	name, time, percent of the whole tree, and self time. Empty when nothing is
+	selected."
+	| rootTotal pct |
 	selectionPathMorph ifNil: [^ self].
+	aNodeOrNil ifNil: [^ selectionPathMorph contents: ''].
+	rootTotal := rootNode totalSize max: 1.
+	pct := (aNodeOrNil totalSize * 100.0 / rootTotal) roundTo: 0.1.
+	selectionPathMorph contents:
+		aNodeOrNil name,
+		'   ', (rootNode formatMicros: aNodeOrNil totalSize),
+		' (', pct printString, '%)',
+		'   self ', (rootNode formatMicros: aNodeOrNil selfSize)
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:53'
+}
+SWAStSpyFlamegraphMorph >> updateSource: aNodeOrNil [
+	"If the source pane is showing, load aNode's method source (or a native-frame
+	placeholder) into it. Shout highlighting is applied via #aboutToStyle:, which
+	picks up the selected frame's class context. No-op when the pane is hidden."
+	sourceMorph ifNil: [^ self].
 	aNodeOrNil
-		ifNil: [selectionPathMorph contents: '']
-		ifNotNil: [selectionPathMorph contents:
-			aNodeOrNil pathString, '   (',
-			(rootNode formatMicros: aNodeOrNil totalSize), ')']
+		ifNil: [sourceMorph setText: '']
+		ifNotNil: [sourceMorph setText: aNodeOrNil sourceString]
 ]
 
 {

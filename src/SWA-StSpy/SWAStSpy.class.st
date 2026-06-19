@@ -236,18 +236,21 @@ SWAStSpy >> openExplorer [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:41'
 }
 SWAStSpy >> openFlamegraph [
 	"Open a flamegraph on the call tree (same SWAStSpyNode tree the treemap uses),
-	with the same window chrome as the treemap: Back + Browse buttons + breadcrumb
-	header and a selection-path line. Single click selects a frame (highlight +
-	path); clicking the same frame again zooms in; Back zooms out; Browse opens a
-	system browser on the selected Smalltalk method; right-click explores. Returns
-	the window."
-	| flame breadcrumb selectionPath panel window headerRow backButton browseButton |
+	with the same window chrome as the treemap: Back + Browse + Show buttons +
+	breadcrumb header and a selection-detail line. Single click selects a frame
+	(highlight + details + source if shown); clicking the same frame again zooms
+	in; Back zooms out; Browse opens a system browser on the selected Smalltalk
+	method; Show toggles an embedded source pane at the bottom; right-click
+	explores. Returns the window."
+	| flame breadcrumb selectionPath panel window headerRow backButton browseButton showButton crumbFont detailFont |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
 	flame := SWAStSpyFlamegraphMorph on: rootNode.
+	crumbFont := TextStyle default fontOfPointSize: 12.
+	detailFont := (TextStyle default fontOfPointSize: 15) emphasized: 1.
 
 	backButton := SimpleButtonMorph new
 		label: 'Back';
@@ -261,16 +264,22 @@ SWAStSpy >> openFlamegraph [
 		target: flame;
 		actionSelector: #browseSelected;
 		yourself.
+	showButton := SimpleButtonMorph new
+		label: 'Show';
+		color: (Color gray: 0.3);
+		target: flame;
+		actionSelector: #toggleSource;
+		yourself.
 	breadcrumb := StringMorph new
 		contents: flame breadcrumbString;
-		font: Preferences standardSystemFont;
+		font: crumbFont;
 		color: Color white;
 		yourself.
 	flame breadcrumbMorph: breadcrumb.
 	selectionPath := StringMorph new
-		contents: '';
-		font: Preferences standardSystemFont;
-		color: (Color gray: 0.7);
+		contents: 'click a frame to select it';
+		font: detailFont;
+		color: (Color gray: 0.95);
 		yourself.
 	flame selectionPathMorph: selectionPath.
 
@@ -285,8 +294,10 @@ SWAStSpy >> openFlamegraph [
 		yourself.
 	backButton hResizing: #rigid; vResizing: #rigid.
 	browseButton hResizing: #rigid; vResizing: #rigid.
+	showButton hResizing: #rigid; vResizing: #rigid.
 	breadcrumb hResizing: #spaceFill; vResizing: #rigid.
-	headerRow addMorph: backButton; addMorph: browseButton; addMorph: breadcrumb.
+	headerRow addMorphBack: backButton; addMorphBack: browseButton;
+		addMorphBack: showButton; addMorphBack: breadcrumb.
 
 	panel := Morph new
 		color: (Color gray: 0.15);
@@ -298,7 +309,8 @@ SWAStSpy >> openFlamegraph [
 		yourself.
 	selectionPath hResizing: #spaceFill; vResizing: #rigid.
 	flame hResizing: #spaceFill; vResizing: #spaceFill.
-	panel addMorph: headerRow; addMorph: selectionPath; addMorph: flame.
+	panel addMorphBack: headerRow; addMorphBack: selectionPath; addMorphBack: flame.
+	flame panelMorph: panel.
 
 	window := panel openInWindow.
 	window setLabel: 'st-spy Flamegraph  ', (rootNode formatMicros: sampleCount),

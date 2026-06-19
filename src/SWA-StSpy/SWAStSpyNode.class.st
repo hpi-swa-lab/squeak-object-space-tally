@@ -101,6 +101,20 @@ SWAStSpyNode >> children [
 ]
 
 {
+	#category : #browsing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:40'
+}
+SWAStSpyNode >> compiledMethod [
+	"The CompiledMethod this frame names, or nil for native/unresolvable frames."
+	| ref |
+	ref := self methodReference.
+	ref ifNil: [^ nil].
+	^ (ref first includesSelector: ref second)
+		ifTrue: [ref first >> ref second]
+		ifFalse: [nil]
+]
+
+{
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
@@ -342,6 +356,22 @@ SWAStSpyNode >> selfCount [
 SWAStSpyNode >> selfSize [
 	"Samples owned directly by this frame (it was the innermost frame)."
 	^ selfCount
+]
+
+{
+	#category : #browsing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 16:00'
+}
+SWAStSpyNode >> sourceString [
+	"The source code of this frame's method, or -- for native/VM or missing frames
+	-- a note wrapped as a single Smalltalk comment so the Shout styler renders it
+	cleanly (as comment text) instead of choking on non-Smalltalk."
+	| ref m |
+	ref := self methodReference.
+	ref ifNil: [^ '"', self name, ' is a native / VM frame -- no Smalltalk source."'].
+	m := self compiledMethod.
+	m ifNil: [^ '"', ref first name, ' >> ', ref second, ' is not present in this image."'].
+	^ m getSource asString
 ]
 
 {
