@@ -232,6 +232,18 @@ SWACodeNode >> edgeLabel [
 ]
 
 {
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:31'
+}
+SWACodeNode >> estimatedNodeCount [
+	"A cheap up-front estimate of how many nodes the full subtree will have, used
+	to scale a build progress bar. For a package this is classes + their methods
+	(+ category nodes), computed WITHOUT forcing source/LOC. Subclasses refine;
+	default falls back to counting already-built children."
+	^ 1 + (self children inject: 0 into: [:s :c | s + c estimatedNodeCount])
+]
+
+{
 	#category : #tree,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
@@ -291,39 +303,53 @@ SWACodeNode >> name [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:03'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
 SWACodeNode >> openContainmentGraph [
 	"Open the Package -> Class -> Category -> Method containment graph."
 	^ self
-		openGraph: self containmentGraph
+		openGraph: [self containmentGraph]
 		engine: 'dot'
 		label: 'Code Map: ', self name, '  (containment)'
 ]
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:03'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
-SWACodeNode >> openGraph: aGraphTuple engine: engineString label: aLabel [
-	"Open a GraphvizPane on a { dotString. ids. truncated } tuple, wiring node
-	clicks to #browse on the corresponding SWACodeNode. 'ids' maps node -> dot-id;
-	we invert it so a clicked dot-id finds its node."
-	| dot ids gm pane win byDotId |
-	dot := aGraphTuple first.
-	ids := aGraphTuple second.
-	byDotId := Dictionary new.
-	ids keysAndValuesDo: [:node :dotId | byDotId at: dotId put: node].
+SWACodeNode >> openGraph: aTupleOrBlock engine: engineString label: aLabel [
+	"Open a GraphvizPane on a { dotString. ids. truncated } tuple. The first arg
+	may be the tuple itself or a 0-arg block that produces it (preferred, so the
+	potentially slow DOT generation runs inside the progress region). Node clicks
+	-> #browse on the matching SWACodeNode. The DOT-build and the external layout
+	run are wrapped in a progress bar whose label reflects the current phase."
+	| tuple dot ids gm pane win byDotId |
 	gm := GraphvizMorph new.
 	gm engine: engineString.
-	gm setDot: dot.
-	pane := GraphvizPane new graph: gm.
-	pane onNodeClick: [:dotId | | node |
-		node := byDotId at: dotId ifAbsent: [nil].
-		node ifNotNil: [
-			Transcript showln: 'Browse: ', node name.
-			WorldState addDeferredUIMessage: [node browse]]].
-	pane extent: 820 @ 600.
+	pane := nil.
+	('Code map: ', self name)
+		displayProgressFrom: 0 to: 3 during: [:bar |
+			bar value: 'Generating DOT...'.
+			tuple := aTupleOrBlock isBlock
+				ifTrue: [aTupleOrBlock value]
+				ifFalse: [aTupleOrBlock].
+			bar value: 1.
+			dot := tuple first.
+			ids := tuple second.
+			byDotId := Dictionary new.
+			ids keysAndValuesDo: [:node :dotId | byDotId at: dotId put: node].
+			bar value: 'Running ', engineString, ' layout (', byDotId size printString, ' nodes)...'.
+			gm setDot: dot.
+			bar value: 2.
+			bar value: 'Building window...'.
+			pane := GraphvizPane new graph: gm.
+			pane onNodeClick: [:dotId | | node |
+				node := byDotId at: dotId ifAbsent: [nil].
+				node ifNotNil: [
+					Transcript showln: 'Browse: ', node name.
+					WorldState addDeferredUIMessage: [node browse]]].
+			pane extent: 820 @ 600.
+			bar value: 3].
 	win := pane openInWindowLabeled: aLabel.
 	win center: World center.
 	^ win
@@ -331,14 +357,34 @@ SWACodeNode >> openGraph: aGraphTuple engine: engineString label: aLabel [
 
 {
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:24'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:38'
 }
 SWACodeNode >> openTreemap [
 	"Open a squarified treemap of this code subtree (tiles sized by LOC), reusing
-	the shared treemap morph + window chrome (breadcrumb, back button, hover
-	overlay, zoom). Uses the code-specific morph and interaction overlay."
-	| treemap overlay breadcrumb selectionPath panel window headerRow backButton |
+	the shared treemap morph + window chrome. A single progress bar covers both the
+	node/LOC build phase and the squarify layout phase, with the label updated to
+	reflect the current phase."
+	| treemap overlay breadcrumb selectionPath panel window headerRow backButton total |
+	total := (self estimatedNodeCount max: 1) * 2.   "build pass + layout pass"
 	treemap := SWACodeTreemapMorph on: self.
+	treemap extent: (Display extent * 0.7) rounded - (0 @ 60).
+	('Code map: ', self name)
+		displayProgressFrom: 0 to: total during: [:bar |
+			| done |
+			"Phase 1: build nodes + LOC."
+			bar value: 'Building nodes + counting LOC...'.
+			done := 0.
+			self prewarmDo: [:n |
+				done := done + 1.
+				(done \\ 64 = 0) ifTrue: [bar value: done]].
+			"Phase 2: squarify layout."
+			bar value: 'Laying out treemap...'.
+			treemap layoutProgress: [:n |
+				done := done + 1.
+				(done \\ 64 = 0) ifTrue: [bar value: (done min: total)]].
+			treemap ensureLayout.
+			treemap layoutProgress: nil.
+			bar value: total].
 	backButton := SimpleButtonMorph new
 		label: 'Back';
 		color: (Color gray: 0.3);
@@ -428,6 +474,19 @@ SWACodeNode >> pathString [
 	^ parent isNil
 		ifTrue: [self name]
 		ifFalse: [parent pathString, ' / ', self name]
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:31'
+}
+SWACodeNode >> prewarmDo: aBlock [
+	"Depth-first walk that forces each node's children to be built and its LOC to
+	be computed (the expensive source-fetching step), evaluating aBlock once per
+	node visited. Use this to drive a progress bar before layout."
+	self loc.
+	aBlock value: self.
+	self children do: [:c | c prewarmDo: aBlock]
 ]
 
 {

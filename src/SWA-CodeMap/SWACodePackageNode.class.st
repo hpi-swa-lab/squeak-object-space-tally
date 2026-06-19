@@ -183,38 +183,38 @@ SWACodePackageNode >> name [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:09'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
 SWACodePackageNode >> openClusterGraph [
 	"UML-ish class diagram with subgraph clusters (each method is its own box
 	inside a class cluster). Click a method box -> browse that method."
 	^ self
-		openGraph: self clusterGraph
+		openGraph: [self clusterGraph]
 		engine: 'dot'
 		label: 'Code Map: ', self name, '  (UML clusters)'
 ]
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:03'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
 SWACodePackageNode >> openInheritanceGraph [
 	"Open the class inheritance graph (child -> superclass arrows, roots on top)."
 	^ self
-		openGraph: self inheritanceGraph
+		openGraph: [self inheritanceGraph]
 		engine: 'dot'
 		label: 'Code Map: ', self name, '  (inheritance)'
 ]
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:09'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
 SWACodePackageNode >> openRecordGraph [
 	"UML class diagram with record boxes (methods inside one box per class).
 	Click a class box -> browse the class."
 	^ self
-		openGraph: self recordGraph
+		openGraph: [self recordGraph]
 		engine: 'dot'
 		label: 'Code Map: ', self name, '  (UML records)'
 ]

@@ -35,7 +35,8 @@ Class {
 		'overlayMorph',
 		'history',
 		'selectionPathMorph',
-		'colorMode'
+		'colorMode',
+		'layoutProgress'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -408,7 +409,7 @@ SWATreemapMorph >> labelFor: aNode inWidth: maxPixels [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:32'
 }
 SWATreemapMorph >> layoutChildrenOf: aNode in: aRectangle [
 	"Squarify aNode's children into aRectangle; for each child tile, recurse if
@@ -416,6 +417,7 @@ SWATreemapMorph >> layoutChildrenOf: aNode in: aRectangle [
 	 draw order: parent tile, then child tiles inside it."
 
 	| kids total area scales |
+	layoutProgress ifNotNil: [:p | p value: aNode].
 	(aRectangle width < minRecurseExtent or: [aRectangle height < minRecurseExtent])
 		ifTrue: [^ self].
 	kids := aNode children ifNil: [^ self].
@@ -428,6 +430,16 @@ SWATreemapMorph >> layoutChildrenOf: aNode in: aRectangle [
 	area := aRectangle width * aRectangle height.
 	scales := kids collect: [:k | k totalSize * area / total].
 	self squarify: kids asArray scales: scales into: aRectangle
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:32'
+}
+SWATreemapMorph >> layoutProgress: aBlockOrNil [
+	"Optional one-arg block invoked once per laid-out parent node during layout,
+	for driving a progress bar. nil (default) means no reporting and zero overhead."
+	layoutProgress := aBlockOrNil
 ]
 
 {
