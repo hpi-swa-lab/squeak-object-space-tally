@@ -63,6 +63,63 @@ GraphvizPane class >> example [
 ]
 
 {
+	#category : #examples,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:32'
+}
+GraphvizPane class >> exampleMorphTree [
+	"Open a GraphvizPane showing the tree of all open morphs (World + 2 levels deep),
+	laid out with the 'neato' force-directed engine. Clicking a node opens a halo on the
+	corresponding live morph. Node ids are identity hashes; labels stay human-readable.
+
+		GraphvizPane exampleMorphTree
+	"
+	| ws walk nodeId label gm pane win map |
+	ws := WriteStream on: String new.
+	map := IdentityDictionary new.
+	ws nextPutAll: 'digraph Morphs {'; cr.
+	ws nextPutAll: '  overlap=false;'; cr.
+	ws nextPutAll: '  splines=true;'; cr.
+	ws nextPutAll: '  node [shape=box, style="rounded,filled", fillcolor=lightyellow, fontname="Helvetica", fontsize=10];'; cr.
+	nodeId := [:m | 'm', m identityHash printString].
+	label := [:m | | s |
+		s := m class name.
+		(m isKindOf: SystemWindow) ifTrue: [s := s, '\n', ((m label ifNil: ['']) copyReplaceAll: '"' with: '')].
+		s].
+	walk := nil.
+	walk := [:m :depth | | id |
+		id := nodeId value: m.
+		map at: id asSymbol put: m.
+		ws nextPutAll: '  '; nextPutAll: id;
+			nextPutAll: ' [label="'; nextPutAll: (label value: m); nextPutAll: '"];'; cr.
+		depth < 2 ifTrue: [
+			m submorphs do: [:c |
+				ws nextPutAll: '  '; nextPutAll: id;
+					nextPutAll: ' -> '; nextPutAll: (nodeId value: c); nextPutAll: ';'; cr.
+				walk value: c value: depth + 1]]].
+	ws nextPutAll: '  World [label="World", fillcolor=lightblue];'; cr.
+	map at: #World put: World.
+	World submorphs do: [:c |
+		ws nextPutAll: '  World -> '; nextPutAll: (nodeId value: c); nextPutAll: ';'; cr.
+		walk value: c value: 1].
+	ws nextPutAll: '}'; cr.
+	gm := GraphvizMorph new.
+	gm engine: 'neato'.
+	gm setDot: ws contents.
+	pane := self new graph: gm.
+	pane onNodeClick: [:nm | | morph |
+		morph := map at: nm asSymbol ifAbsent: [nil].
+		morph
+			ifNil: [Transcript showln: 'No morph for: ', nm]
+			ifNotNil: [
+				Transcript showln: 'Halo on: ', morph class name.
+				WorldState addDeferredUIMessage: [morph addHalo]]].
+	pane extent: 800 @ 600.
+	win := pane openInWindowLabeled: 'Open Morphs Tree (neato)  -  click a node for a halo'.
+	win center: World center.
+	^ win
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:10'
 }

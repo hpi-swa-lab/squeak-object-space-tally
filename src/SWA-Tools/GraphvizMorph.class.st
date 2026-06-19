@@ -23,7 +23,8 @@ Class {
 		'graphScale',
 		'graphSize',
 		'nodeAction',
-		'panHandler'
+		'panHandler',
+		'engine'
 	],
 	#category : #'SWA-Tools',
 	#'squeak_changestamp' : '<historical>'
@@ -36,6 +37,85 @@ Class {
 GraphvizMorph class >> fromDot: aDotString [
 	"Create a GraphvizMorph rendering the given DOT source string."
 	^ self new setDot: aDotString
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+}
+GraphvizMorph >> addCustomMenuItems: aCustomMenu hand: aHandMorph [
+	"Add Graphviz-specific items to the halo / control menu."
+	super addCustomMenuItems: aCustomMenu hand: aHandMorph.
+	aCustomMenu addLine.
+	aCustomMenu add: 'choose engine... (' , self engine , ')'
+		target: self selector: #chooseEngine.
+	aCustomMenu add: 'show DOT source' target: self selector: #showDotSource.
+	aCustomMenu add: 'edit DOT source...' target: self selector: #editDotSource.
+	aCustomMenu add: 'rerender' target: self selector: #render
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+}
+GraphvizMorph >> availableEngines [
+	"The Graphviz layout engines offered in the halo menu."
+	^ #('dot' 'neato' 'fdp' 'sfdp' 'circo' 'twopi' 'osage' 'patchwork')
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+}
+GraphvizMorph >> chooseEngine [
+	"Let the user pick a layout engine, then re-render."
+	| choice |
+	choice := UIManager default
+		chooseFrom: self availableEngines
+		values: self availableEngines
+		title: 'Layout engine (current: ' , self engine , ')'.
+	choice ifNil: [^ self].
+	self engine: choice.
+	self render
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+}
+GraphvizMorph >> dotSource [
+	"The current DOT source string."
+	^ dotSource
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+}
+GraphvizMorph >> editDotSource [
+	"Open an editor on the DOT source; accepting (cmd-s) re-renders the graph."
+	UIManager default
+		edit: (self dotSource ifNil: [''])
+		label: 'Edit DOT source - accept (cmd-s) to rerender'
+		accept: [:newText | self setDot: newText asString]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:21'
+}
+GraphvizMorph >> engine [
+	"The Graphviz layout engine to use (e.g. 'dot', 'neato', 'fdp', 'sfdp', 'circo', 'twopi'). Defaults to 'dot'."
+	^ engine ifNil: [engine := 'dot']
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:21'
+}
+GraphvizMorph >> engine: aString [
+	"Set the Graphviz layout engine (e.g. 'dot', 'neato', 'fdp', 'sfdp', 'circo', 'twopi')."
+	engine := aString
 ]
 
 {
@@ -144,22 +224,23 @@ GraphvizMorph >> parsePlain: plainText withForm: form [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 10:50'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:21'
 }
 GraphvizMorph >> render [
-	"Run the external 'dot' command to produce a PNG and a -Tplain layout.
-	Load the PNG as our image and parse the plain output into node rectangles.
-	The .dot file is written with LF line endings since 'dot' rejects bare CRs."
-	| dir dotFile pngFile plainFile form plainText |
+	"Run the external layout command (self engine, e.g. 'dot' or 'neato') to produce a PNG
+	and a -Tplain layout. Load the PNG as our image and parse the plain output into node
+	rectangles. The .dot file is written with LF line endings since the engine rejects bare CRs."
+	| dir dotFile pngFile plainFile form plainText eng |
+	eng := self engine.
 	dir := FileDirectory default fullNameFor: 'graphvizmorph'.
 	dotFile := dir, '.dot'.
 	pngFile := dir, '.png'.
 	plainFile := dir, '.plain'.
 	(FileStream forceNewFileNamed: dotFile) nextPutAll: dotSource withUnixLineEndings; close.
-	(OSProcess waitForCommand: 'dot -Tpng ', dotFile, ' -o ', pngFile) exitStatus = 0
-		ifFalse: [^ self error: 'dot -Tpng failed'].
-	(OSProcess waitForCommand: 'dot -Tplain ', dotFile, ' -o ', plainFile) exitStatus = 0
-		ifFalse: [^ self error: 'dot -Tplain failed'].
+	(OSProcess waitForCommand: eng, ' -Tpng ', dotFile, ' -o ', pngFile) exitStatus = 0
+		ifFalse: [^ self error: eng, ' -Tpng failed'].
+	(OSProcess waitForCommand: eng, ' -Tplain ', dotFile, ' -o ', plainFile) exitStatus = 0
+		ifFalse: [^ self error: eng, ' -Tplain failed'].
 	form := PNGReadWriter formFromFileNamed: pngFile.
 	self image: form.
 	plainText := (FileStream fileNamed: plainFile) contentsOfEntireFile.
@@ -175,4 +256,15 @@ GraphvizMorph >> setDot: aDotString [
 	dotSource := aDotString.
 	self render.
 	^ self
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+}
+GraphvizMorph >> showDotSource [
+	"Open a read-only-ish editor window displaying the current DOT source."
+	UIManager default
+		edit: (self dotSource ifNil: [''])
+		label: 'DOT source (', self engine, ')'
 ]

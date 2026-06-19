@@ -42,22 +42,27 @@ SWASpaceTallyTreemapOverlay >> copySubtreeToClipboard: aNode [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/12/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 10:58'
 }
 SWASpaceTallyTreemapOverlay >> drawOn: aCanvas [
 	"Draw a white border on the selected tile, fading borders on all
-	 ancestor tiles, and colored borders on other-parent tiles."
+	 ancestor tiles, and lines pointing to other-parent tiles: gray if the
+	 other parent is a descendant of the selected node, red otherwise.
+	 If an other-parent tile is too small to be rendered, draw the line to
+	 the nearest visible ancestor instead."
 
-	| origin screenR node r alpha parentColor otherParentSeen |
+	| origin screenR node r alpha parentColor selectedCenter otherParentSeen selectedNode lineColor anc target |
 	hoveredTile ifNil: [^ self].
 	origin := self position.
+	selectedNode := hoveredTile key.
 
 	"--- Selected tile: white border ---"
 	screenR := hoveredTile value translateBy: origin.
 	aCanvas frameRectangle: screenR width: 2 color: Color white.
+	selectedCenter := screenR center.
 
 	"--- Walk parent chain upward, fading from bright cyan to dim ---"
-	node := hoveredTile key parent.
+	node := selectedNode parent.
 	alpha := 0.7.
 	[node notNil and: [node parent notNil "stop at synthetic root"]] whileTrue: [
 		r := treemapMorph rectForNode: node.
@@ -68,30 +73,31 @@ SWASpaceTallyTreemapOverlay >> drawOn: aCanvas [
 		alpha := (alpha - 0.15) max: 0.15.
 		node := node parent].
 
-	"--- Other parents: orange borders ---"
+	"--- Other parents: gray line if under the selected node, else red ---"
 	otherParentSeen := IdentitySet new.
-	hoveredTile key otherParents ifNotNil: [:ops |
+	selectedNode otherParents ifNotNil: [:ops |
 		ops do: [:otherNode |
-			"Highlight the other parent node itself"
 			(otherParentSeen includes: otherNode) ifFalse: [
 				otherParentSeen add: otherNode.
-				r := treemapMorph rectForNode: otherNode.
-				r ifNotNil: [
+				"Find the nearest visible tile, climbing parents if too small."
+				target := otherNode.
+				r := treemapMorph rectForNode: target.
+				[r isNil and: [target notNil and: [target parent notNil]]] whileTrue: [
+					target := target parent.
+					r := treemapMorph rectForNode: target].
+				(r notNil and: [target ~~ selectedNode]) ifTrue: [
+					"Is target a descendant of the selected node?"
+					anc := target.
+					[anc notNil and: [anc ~~ selectedNode]] whileTrue: [anc := anc parent].
+					lineColor := anc == selectedNode
+						ifTrue: [Color gray alpha: 0.8]
+						ifFalse: [Color red alpha: 0.8].
 					screenR := r translateBy: origin.
-					aCanvas frameRectangle: screenR width: 2 color: (Color orange alpha: 0.8)]].
-			"Walk up that other parent's ancestor chain too"
-			node := otherNode parent.
-			alpha := 0.5.
-			[node notNil and: [node parent notNil]] whileTrue: [
-				(otherParentSeen includes: node) ifFalse: [
-					otherParentSeen add: node.
-					r := treemapMorph rectForNode: node.
-					r ifNotNil: [
-						parentColor := Color orange alpha: alpha.
-						screenR := r translateBy: origin.
-						aCanvas frameRectangle: screenR width: 2 color: parentColor]].
-				alpha := (alpha - 0.12) max: 0.1.
-				node := node parent]]]
+					aCanvas
+						line: selectedCenter
+						to: screenR center
+						width: 2
+						color: lineColor]]]]
 ]
 
 {
