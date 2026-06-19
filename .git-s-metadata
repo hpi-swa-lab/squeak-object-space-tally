@@ -43,6 +43,15 @@ GSMetadata {
 				#name : 'SWA-Treemap'
 			},
 			#path : @14
+		},
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'SWA-StSpy'
+			},
+			#path : FSAbsolutePath [
+				'src'
+			]
 		}
 	],
 	#name : 'squeak-object-space-tally'
