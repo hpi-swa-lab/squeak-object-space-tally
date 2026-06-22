@@ -1384,51 +1384,14 @@ SWASpaceTally >> openExplorerWindow [
 
 {
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:15'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
 }
 SWASpaceTally >> openTreemap [
-	"Open a treemap morph on the node tree, with breadcrumb header, selection
-	path, back button, and hover overlay."
-
-	| treemap overlay breadcrumb selectionPath panel window headerRow backButton desiredExtent |
+	"Open a treemap morph on the node tree, using the shared SWANavPanel window
+	chrome (Back/Browse/Show + breadcrumb + selection-path + meta-info line +
+	hover overlay)."
+	| treemap overlay panel window desiredExtent |
 	treemap := SWASpaceTallyTreemapMorph on: rootNode.
-
-	backButton := SimpleButtonMorph new
-		label: 'Back';
-		color: (Color gray: 0.3);
-		target: treemap;
-		actionSelector: #zoomOut;
-		yourself.
-
-	breadcrumb := StringMorph new
-		contents: treemap breadcrumbString;
-		font: Preferences standardSystemFont;
-		color: Color white;
-		yourself.
-	treemap breadcrumbMorph: breadcrumb.
-
-	selectionPath := StringMorph new
-		contents: '';
-		font: Preferences standardSystemFont;
-		color: (Color gray: 0.7);
-		yourself.
-	treemap selectionPathMorph: selectionPath.
-
-	headerRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		cellPositioning: #leftCenter;
-		cellInset: 6;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	backButton hResizing: #rigid.
-	backButton vResizing: #rigid.
-	breadcrumb hResizing: #spaceFill.
-	breadcrumb vResizing: #rigid.
-	headerRow addMorph: backButton.
-	headerRow addMorph: breadcrumb.
 
 	overlay := SWASpaceTallyTreemapOverlay new.
 	overlay treemapMorph: treemap.
@@ -1436,25 +1399,10 @@ SWASpaceTally >> openTreemap [
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
 
-	panel := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #topToBottom;
-		cellPositioning: #topLeft;
-		hResizing: #spaceFill;
-		vResizing: #spaceFill;
-		yourself.
-	selectionPath hResizing: #spaceFill.
-	selectionPath vResizing: #rigid.
-	treemap hResizing: #spaceFill.
-	treemap vResizing: #spaceFill.
-	panel addMorph: headerRow.
-	panel addMorph: selectionPath.
-	panel addMorph: treemap.
+	panel := SWANavPanel on: treemap.
 
 	window := panel openInWindow.
 	window setLabel: (self isDiff ifTrue: ['Space Treemap  DIFF'] ifFalse: ['Space Treemap']).
-
 	desiredExtent := (Display extent * 0.75) rounded.
 	window extent: desiredExtent.
 	window center: Display center.

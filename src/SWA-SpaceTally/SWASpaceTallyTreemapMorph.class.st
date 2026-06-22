@@ -250,3 +250,18 @@ SWASpaceTallyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 	maxPixels < 80 ifTrue: [^ core].
 	^ core , '  ' , bytes
 ]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
+}
+SWASpaceTallyTreemapMorph >> metaInfoString [
+	"Meta line: focused subtree's total bytes + immediate child count.
+	(SWANavPanel content protocol.)"
+	| focus kids |
+	focus := currentNode ifNil: [rootNode].
+	focus ifNil: [^ ''].
+	kids := focus children ifNil: [#()].
+	^ focus name, '   ', (focus formatBytes: focus totalSize),
+		'   ', kids size printString, ' children'
+]

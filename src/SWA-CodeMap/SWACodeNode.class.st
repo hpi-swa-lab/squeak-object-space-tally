@@ -271,6 +271,23 @@ SWACodeNode >> kind [
 
 {
 	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:29'
+}
+SWACodeNode >> lastAuthor [
+	"Author initials of the most recently changed leaf over the subtree, or nil.
+	Tracks lastChanged so author color and recency color agree. Method leaves override."
+	| best bestAuthor |
+	best := nil.
+	bestAuthor := nil.
+	self children do: [:c | | t |
+		t := c lastChanged.
+		(t notNil and: [best isNil or: [t > best]])
+			ifTrue: [best := t. bestAuthor := c lastAuthor]].
+	^ bestAuthor
+]
+
+{
+	#category : #metrics,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
 SWACodeNode >> lastChanged [
@@ -356,28 +373,26 @@ SWACodeNode >> openGraph: aTupleOrBlock engine: engineString label: aLabel [
 ]
 
 {
-	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:38'
+	#category : #jump,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
 }
 SWACodeNode >> openTreemap [
-	"Open a squarified treemap of this code subtree (tiles sized by LOC), reusing
-	the shared treemap morph + window chrome. A single progress bar covers both the
-	node/LOC build phase and the squarify layout phase, with the label updated to
-	reflect the current phase."
-	| treemap overlay breadcrumb selectionPath panel window headerRow backButton total |
+	"Open a squarified treemap of this code subtree (tiles sized by LOC). The shared
+	SWANavPanel supplies the window chrome: Back/Browse/Show buttons, breadcrumb,
+	selection-path line, a meta-info line (LOC/nodes/authors), and a toggleable
+	source pane. A single progress bar covers the build + layout phases."
+	| treemap overlay panel window total |
 	total := (self estimatedNodeCount max: 1) * 2.   "build pass + layout pass"
 	treemap := SWACodeTreemapMorph on: self.
 	treemap extent: (Display extent * 0.7) rounded - (0 @ 60).
 	('Code map: ', self name)
 		displayProgressFrom: 0 to: total during: [:bar |
 			| done |
-			"Phase 1: build nodes + LOC."
 			bar value: 'Building nodes + counting LOC...'.
 			done := 0.
 			self prewarmDo: [:n |
 				done := done + 1.
 				(done \\ 64 = 0) ifTrue: [bar value: done]].
-			"Phase 2: squarify layout."
 			bar value: 'Laying out treemap...'.
 			treemap layoutProgress: [:n |
 				done := done + 1.
@@ -385,52 +400,15 @@ SWACodeNode >> openTreemap [
 			treemap ensureLayout.
 			treemap layoutProgress: nil.
 			bar value: total].
-	backButton := SimpleButtonMorph new
-		label: 'Back';
-		color: (Color gray: 0.3);
-		target: treemap;
-		actionSelector: #zoomOut;
-		yourself.
-	breadcrumb := StringMorph new
-		contents: treemap breadcrumbString;
-		font: Preferences standardSystemFont;
-		color: Color white;
-		yourself.
-	treemap breadcrumbMorph: breadcrumb.
-	selectionPath := StringMorph new
-		contents: '';
-		font: Preferences standardSystemFont;
-		color: (Color gray: 0.7);
-		yourself.
-	treemap selectionPathMorph: selectionPath.
-	headerRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		cellPositioning: #leftCenter;
-		cellInset: 6;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	backButton hResizing: #rigid; vResizing: #rigid.
-	breadcrumb hResizing: #spaceFill; vResizing: #rigid.
-	headerRow addMorph: backButton; addMorph: breadcrumb.
+
 	overlay := SWACodeTreemapOverlay new.
 	overlay treemapMorph: treemap.
 	overlay extent: treemap extent.
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
-	panel := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #topToBottom;
-		cellPositioning: #topLeft;
-		hResizing: #spaceFill;
-		vResizing: #spaceFill;
-		yourself.
-	selectionPath hResizing: #spaceFill; vResizing: #rigid.
-	treemap hResizing: #spaceFill; vResizing: #spaceFill.
-	panel addMorph: headerRow; addMorph: selectionPath; addMorph: treemap.
+
+	panel := SWANavPanel on: treemap.
+
 	window := panel openInWindow.
 	window setLabel: 'Code Treemap: ', self name, '  (LOC)'.
 	window extent: (Display extent * 0.7) rounded.
@@ -505,6 +483,27 @@ SWACodeNode >> selfSize [
 	"LOC owned directly by this node (non-leaf nodes own none; method leaves own
 	their lines)."
 	^ self isLeaf ifTrue: [self loc] ifFalse: [0]
+]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:43'
+}
+SWACodeNode >> sourceString [
+	"Text to show in the embedded source pane. Non-method nodes have no single
+	source, so describe the node instead. Method leaves override with real source."
+	^ self kind asString, ': ', self name, String cr, String cr,
+		'(', self loc printString, ' lines of code over the subtree)'
+]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:43'
+}
+SWACodeNode >> styleClassOrNil [
+	"Class (or metaclass) to use as Shout styling context for the source pane,
+	or nil when not applicable. Method leaves override."
+	^ nil
 ]
 
 {

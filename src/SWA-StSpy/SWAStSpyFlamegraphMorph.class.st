@@ -24,11 +24,9 @@ Class {
 		'framesBounds',
 		'cachedForm',
 		'history',
-		'breadcrumbMorph',
 		'selectedNode',
-		'selectionPathMorph',
-		'sourceMorph',
-		'panelMorph'
+		'navPanel',
+		'metaInfo'
 	],
 	#category : #'SWA-StSpy',
 	#'squeak_changestamp' : '<historical>'
@@ -79,14 +77,6 @@ SWAStSpyFlamegraphMorph >> ancestorChain [
 	n := focusNode parent.
 	[n notNil] whileTrue: [chain addFirst: n. n := n parent].
 	^ chain
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
-}
-SWAStSpyFlamegraphMorph >> breadcrumbMorph: aMorph [
-	breadcrumbMorph := aMorph
 ]
 
 {
@@ -408,8 +398,26 @@ SWAStSpyFlamegraphMorph >> layoutNode: aNode x: x width: w top: top scaleTotal: 
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
+}
+SWAStSpyFlamegraphMorph >> metaInfo: aString [
+	"Static run-level meta line (pid / duration / samples / rate), set by the opener."
+	metaInfo := aString
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
+}
+SWAStSpyFlamegraphMorph >> metaInfoString [
+	"Run-level meta line for the panel. (SWANavPanel content protocol.)"
+	^ metaInfo ifNil: ['']
+]
+
+{
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:56'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
 SWAStSpyFlamegraphMorph >> mouseDown: evt [
 	"Left-click a frame: select it (highlight + detail line + source). Click the
@@ -433,36 +441,34 @@ SWAStSpyFlamegraphMorph >> mouseDown: evt [
 	"Otherwise: select this frame."
 	selectedNode := node.
 	self flushCache.
-	self updateSelectionPath: node.
-	self updateSource: node
-]
-
-{
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:52'
-}
-SWAStSpyFlamegraphMorph >> newSourceMorph [
-	"A read-only, syntax-highlighted code pane (PluggableTextMorphPlus + the
-	Smalltalk Shout styler) for showing the selected method's source. Fixed-height
-	strip at the bottom of the panel."
-	| tm |
-	tm := PluggableTextMorphPlus on: self text: nil accept: nil.
-	tm useDefaultStyler.
-	tm
-		hResizing: #spaceFill;
-		vResizing: #rigid;
-		height: 220;
-		setText: 'select a Smalltalk frame to see its source'.
-	^ tm
+	self refreshChrome
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:41'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
-SWAStSpyFlamegraphMorph >> panelMorph: aMorph [
-	"The top-to-bottom container panel; used to add/remove the source pane."
-	panelMorph := aMorph
+SWAStSpyFlamegraphMorph >> navPanel [
+	^ navPanel
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+}
+SWAStSpyFlamegraphMorph >> navPanel: aSWANavPanel [
+	"The chrome panel that owns my breadcrumb/selection/meta labels + source pane."
+	navPanel := aSWANavPanel
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:56'
+}
+SWAStSpyFlamegraphMorph >> refreshChrome [
+	"Refresh the nav-panel chrome (breadcrumb, selection, meta) + source pane.
+	No-op when used standalone without a panel."
+	navPanel ifNotNil: [:p | p refresh]
 ]
 
 {
@@ -525,10 +531,30 @@ SWAStSpyFlamegraphMorph >> selectedNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
-SWAStSpyFlamegraphMorph >> selectionPathMorph: aMorph [
-	selectionPathMorph := aMorph
+SWAStSpyFlamegraphMorph >> selectedSourceString [
+	"Source text for the Show pane: the selected frame's method source, or a
+	placeholder for native/VM frames. (SWANavPanel content protocol.)"
+	selectedNode ifNil: [^ ''].
+	^ selectedNode sourceString
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+}
+SWAStSpyFlamegraphMorph >> selectionPathString [
+	"Detail line for the SELECTED frame: name, time, percent of the whole tree, and
+	self time. Empty when nothing is selected. (SWANavPanel content protocol.)"
+	| rootTotal pct |
+	selectedNode ifNil: [^ ''].
+	rootTotal := rootNode totalSize max: 1.
+	pct := (selectedNode totalSize * 100.0 / rootTotal) roundTo: 0.1.
+	^ selectedNode name,
+		'   ', (rootNode formatMicros: selectedNode totalSize),
+		' (', pct printString, '%)',
+		'   self ', (rootNode formatMicros: selectedNode selfSize)
 ]
 
 {
@@ -545,106 +571,30 @@ SWAStSpyFlamegraphMorph >> setRoot: aNode [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:40'
-}
-SWAStSpyFlamegraphMorph >> sourceMorph: aPluggableTextMorph [
-	sourceMorph := aPluggableTextMorph
-]
-
-{
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:41'
-}
-SWAStSpyFlamegraphMorph >> toggleSource [
-	"Show/hide a source-code pane at the bottom of the panel. When shown, it is
-	loaded with the currently selected frame's method source. Wired to the Show
-	button via actionSelector: #toggleSource."
-	panelMorph ifNil: [^ self].
-	(sourceMorph notNil and: [sourceMorph owner notNil])
-		ifTrue: [
-			"Hide it."
-			sourceMorph delete]
-		ifFalse: [
-			"Show it: build (or reuse) the pane, add at the bottom, load source."
-			sourceMorph ifNil: [sourceMorph := self newSourceMorph].
-			panelMorph addMorphBack: sourceMorph.
-			self updateSource: selectedNode].
-	panelMorph layoutChanged
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
-}
-SWAStSpyFlamegraphMorph >> updateBreadcrumb [
-	breadcrumbMorph ifNotNil: [
-		breadcrumbMorph contents: self breadcrumbString]
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:28'
-}
-SWAStSpyFlamegraphMorph >> updateSelectionPath: aNodeOrNil [
-	"Update the big detail line to show ONLY the currently selected frame:
-	name, time, percent of the whole tree, and self time. Empty when nothing is
-	selected."
-	| rootTotal pct |
-	selectionPathMorph ifNil: [^ self].
-	aNodeOrNil ifNil: [^ selectionPathMorph contents: ''].
-	rootTotal := rootNode totalSize max: 1.
-	pct := (aNodeOrNil totalSize * 100.0 / rootTotal) roundTo: 0.1.
-	selectionPathMorph contents:
-		aNodeOrNil name,
-		'   ', (rootNode formatMicros: aNodeOrNil totalSize),
-		' (', pct printString, '%)',
-		'   self ', (rootNode formatMicros: aNodeOrNil selfSize)
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:53'
-}
-SWAStSpyFlamegraphMorph >> updateSource: aNodeOrNil [
-	"If the source pane is showing, load aNode's method source (or a native-frame
-	placeholder) into it. Shout highlighting is applied via #aboutToStyle:, which
-	picks up the selected frame's class context. No-op when the pane is hidden."
-	sourceMorph ifNil: [^ self].
-	aNodeOrNil
-		ifNil: [sourceMorph setText: '']
-		ifNotNil: [sourceMorph setText: aNodeOrNil sourceString]
-]
-
-{
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
 SWAStSpyFlamegraphMorph >> zoomInto: aNode [
 	"Make aNode the new focus, if it has children. Push the current focus onto the
-	history so Back can return, and clear the selection. Mirrors
-	SWATreemapMorph>>zoomInto:."
+	history so Back can return, and clear the selection."
 	| kids |
 	(aNode isNil or: [aNode == focusNode]) ifTrue: [^ self].
 	kids := aNode children.
 	(kids isNil or: [kids isEmpty]) ifTrue: [^ self].
 	history addLast: focusNode.
 	selectedNode := nil.
-	self updateSelectionPath: nil.
 	self focusNode: aNode.
-	self updateBreadcrumb
+	self refreshChrome
 ]
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
 SWAStSpyFlamegraphMorph >> zoomOut [
-	"Go back to the previous focus from history, clearing the selection. Mirrors
-	SWATreemapMorph>>zoomOut. Wired to the Back button via actionSelector: #zoomOut."
+	"Go back to the previous focus from history, clearing the selection."
 	history isEmpty ifTrue: [^ self].
 	selectedNode := nil.
-	self updateSelectionPath: nil.
 	self focusNode: history removeLast.
-	self updateBreadcrumb
+	self refreshChrome
 ]

@@ -60,3 +60,18 @@ SWAStSpyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 	maxPixels < 110 ifTrue: [^ name].
 	^ name, '  ', (rootNode formatMicros: aNode totalSize)
 ]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
+}
+SWAStSpyTreemapMorph >> metaInfoString [
+	"Meta line: focused subtree's total time + immediate child count.
+	(SWANavPanel content protocol.)"
+	| focus kids |
+	focus := currentNode ifNil: [rootNode].
+	focus ifNil: [^ ''].
+	kids := focus children ifNil: [#()].
+	^ focus name, '   ', (focus formatMicros: focus totalSize),
+		'   ', kids size printString, ' children'
+]

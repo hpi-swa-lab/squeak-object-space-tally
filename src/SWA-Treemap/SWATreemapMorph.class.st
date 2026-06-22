@@ -36,7 +36,9 @@ Class {
 		'history',
 		'selectionPathMorph',
 		'colorMode',
-		'layoutProgress'
+		'layoutProgress',
+		'navPanel',
+		'selectedNode'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -49,6 +51,32 @@ Class {
 SWATreemapMorph class >> on: aNode [
 	"Create a treemap morph rooted at the given duck-typed node."
 	^ self new setRoot: aNode
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
+}
+SWATreemapMorph >> aboutToStyle: aStyler [
+	"Shout styling hook (this morph is the source pane's model). If the selected
+	node can supply a class context (#styleClassOrNil), configure the styler so
+	ivars/selectors highlight correctly. Allow styling to proceed."
+	| cls |
+	cls := (selectedNode notNil and: [selectedNode respondsTo: #styleClassOrNil])
+		ifTrue: [selectedNode styleClassOrNil]
+		ifFalse: [nil].
+	(cls notNil and: [aStyler respondsTo: #classOrMetaClass:])
+		ifTrue: [aStyler classOrMetaClass: cls].
+	^ true
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
+}
+SWATreemapMorph >> aboutToStyle: aStyler requestor: anObject [
+	"2-arg Shout hook the styler actually sends; delegates to #aboutToStyle:."
+	^ self aboutToStyle: aStyler
 ]
 
 {
@@ -89,6 +117,18 @@ SWATreemapMorph >> breadcrumbString [
 		, '   '
 		, (self formatWeight: total) , ' total'
 		, '   [left: zoom in, right: zoom out, shift: explore]'
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
+}
+SWATreemapMorph >> browseSelected [
+	"Open a system browser on the selected node, if it understands #browse.
+	Beeps when nothing is selected or it cannot be browsed."
+	(selectedNode notNil and: [selectedNode respondsTo: #browse])
+		ifTrue: [selectedNode browse]
+		ifFalse: [Beeper beep]
 ]
 
 {
@@ -444,10 +484,36 @@ SWATreemapMorph >> layoutProgress: aBlockOrNil [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> metaInfoString [
+	"Per-view meta-info line for the panel. Default none; subclasses override."
+	^ nil
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }
 SWATreemapMorph >> minTileForLabel [
 	^ minTileForLabel
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> navPanel [
+	^ navPanel
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> navPanel: aSWANavPanel [
+	"The chrome panel that owns my breadcrumb/selection/meta labels + source pane."
+	navPanel := aSWANavPanel
 ]
 
 {
@@ -469,6 +535,16 @@ SWATreemapMorph >> rectForNode: aNode [
 	tiles do: [:assoc |
 		assoc key == aNode ifTrue: [^ assoc value]].
 	^ nil
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> refreshChrome [
+	"Refresh all chrome labels (breadcrumb, selection, meta) + source pane via the
+	nav panel, if one is attached. No-op otherwise (legacy standalone use)."
+	navPanel ifNotNil: [:p | p refresh]
 ]
 
 {
@@ -510,11 +586,62 @@ SWATreemapMorph >> rootNode [
 ]
 
 {
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> selectTileNode: aNodeOrNil [
+	"A tile was single-clicked (selected). Record it and refresh the chrome."
+	self selectedNode: aNodeOrNil
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> selectedNode [
+	"The currently selected node (single-click), or nil."
+	^ selectedNode
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> selectedNode: aNodeOrNil [
+	"Set the selected node and refresh the chrome (selection line, meta, source)."
+	selectedNode := aNodeOrNil.
+	self refreshChrome
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
+}
+SWATreemapMorph >> selectedSourceString [
+	"Source text for the Show pane. Default: the selected node's #sourceString if it
+	has one, else empty. (SWANavPanel content protocol.)"
+	(selectedNode notNil and: [selectedNode respondsTo: #sourceString])
+		ifTrue: [^ selectedNode sourceString].
+	^ ''
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }
 SWATreemapMorph >> selectionPathMorph: aMorph [
 	selectionPathMorph := aMorph
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+}
+SWATreemapMorph >> selectionPathString [
+	"Selection-path string for the panel: full path to the selected node, or empty."
+	^ selectedNode
+		ifNil: ['']
+		ifNotNil: [:n | n pathString]
 ]
 
 {
@@ -630,24 +757,29 @@ SWATreemapMorph >> tiles [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
 }
 SWATreemapMorph >> updateBreadcrumb [
-	breadcrumbMorph ifNotNil: [
-		breadcrumbMorph contents: self breadcrumbString]
+	"Update the breadcrumb label. Routes through the nav panel when present, else
+	falls back to the legacy standalone label morph."
+	navPanel
+		ifNotNil: [:p | p refresh]
+		ifNil: [breadcrumbMorph ifNotNil: [breadcrumbMorph contents: self breadcrumbString]]
 ]
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
 }
 SWATreemapMorph >> updateSelectionPath: aNodeOrNil [
-	"Update the selection path label to show the full path to aNodeOrNil."
-
-	selectionPathMorph ifNil: [^ self].
-	aNodeOrNil
-		ifNil: [selectionPathMorph contents: '']
-		ifNotNil: [selectionPathMorph contents: aNodeOrNil pathString]
+	"Update the selection-path label to show the path to aNodeOrNil. Used for live
+	hover feedback from the overlay. Routes through the nav panel when present,
+	else falls back to the legacy standalone label morph."
+	| str |
+	str := aNodeOrNil ifNil: [''] ifNotNil: [:n | n pathString].
+	navPanel
+		ifNotNil: [:p | p showSelectionPath: str]
+		ifNil: [selectionPathMorph ifNotNil: [selectionPathMorph contents: str]]
 ]
 
 {
@@ -674,7 +806,7 @@ SWATreemapMorph >> worstAspectRatio: indexRow areas: areaArray sum: rowSum side:
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
 }
 SWATreemapMorph >> zoomInto: aNode [
 	"Make aNode the new focus, if it has children. Push current view onto history."
@@ -684,25 +816,27 @@ SWATreemapMorph >> zoomInto: aNode [
 	(kids isNil or: [kids isEmpty]) ifTrue: [^ self].
 	history addLast: currentNode.
 	currentNode := aNode.
+	selectedNode := nil.
 	layoutValid := false.
 	cachedForm := nil.
 	overlayMorph ifNotNil: [overlayMorph clearHover].
-	self updateBreadcrumb.
+	self refreshChrome.
 	self changed
 ]
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
 }
 SWATreemapMorph >> zoomOut [
-	"Go back to the previous view from history."
+	"Go back to the previous view from history, clearing the selection."
 
 	history isEmpty ifTrue: [^ self].
 	currentNode := history removeLast.
+	selectedNode := nil.
 	layoutValid := false.
 	cachedForm := nil.
 	overlayMorph ifNotNil: [overlayMorph clearHover].
-	self updateBreadcrumb.
+	self refreshChrome.
 	self changed
 ]

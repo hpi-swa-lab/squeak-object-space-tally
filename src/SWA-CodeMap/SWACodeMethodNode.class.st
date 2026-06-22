@@ -143,3 +143,21 @@ SWACodeMethodNode >> source [
 	"The method source string. The MethodReference knows how to fetch it."
 	^ [subject source asString] on: Error do: [:e | '']
 ]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:43'
+}
+SWACodeMethodNode >> sourceString [
+	"The method source string for display in the source pane."
+	^ self source
+]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:43'
+}
+SWACodeMethodNode >> styleClassOrNil [
+	"The method's class (or metaclass) so Shout highlights ivars/selectors in context."
+	^ [subject actualClass] on: Error do: [:e | nil]
+]

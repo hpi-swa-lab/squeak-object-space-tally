@@ -28,6 +28,20 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:29'
+}
+SWACodeTreemapMorph >> colorByAuthor: aNode [
+	"Color by last author: each author's initials map to a stable hue.
+	Unknown author = gray."
+	| author hue |
+	author := aNode lastAuthor.
+	(author isNil or: [author isEmpty]) ifTrue: [^ Color gray: 0.45].
+	hue := (author hash \\ 360).
+	^ Color h: hue s: 0.5 v: 0.8
+]
+
+{
+	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:23'
 }
 SWACodeTreemapMorph >> colorByKind: aNode [
@@ -75,12 +89,13 @@ SWACodeTreemapMorph >> colorByRecency: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:29'
 }
 SWACodeTreemapMorph >> colorForNode: aNode [
 	"Dispatch on the active color mode."
 	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
 	colorMode == #recency ifTrue: [^ self colorByRecency: aNode].
+	colorMode == #author ifTrue: [^ self colorByAuthor: aNode].
 	^ self colorByKind: aNode
 ]
 
@@ -122,4 +137,53 @@ SWACodeTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 	name := aNode name ifNil: ['?'].
 	maxPixels < 80 ifTrue: [^ name].
 	^ name, '  ', aNode loc printString, ' LOC'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 17:27'
+}
+SWACodeTreemapMorph >> metaInfoString [
+	"Per-view meta line for the code treemap. When a node is SELECTED, describe it
+	(author / last changed / LOC); otherwise summarise the focused subtree
+	(LOC / nodes / distinct authors). (SWANavPanel content protocol.)"
+	selectedNode ifNotNil: [:n | ^ self metaInfoStringForNode: n].
+	^ self metaInfoStringForSubtree: (currentNode ifNil: [rootNode])
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 17:27'
+}
+SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
+	"Meta line for a single SELECTED node: kind, author, last-changed date, LOC."
+	| author when whenStr |
+	author := aNode lastAuthor ifNil: ['?'].
+	when := aNode lastChanged.
+	whenStr := when
+		ifNil: ['?']
+		ifNotNil: [:t | t asDate printString, ' ', (t asTime print24)].
+	^ aNode kind asString, ' ', aNode name,
+		'   author: ', author,
+		'   changed: ', whenStr,
+		'   ', aNode loc printString, ' LOC'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 17:27'
+}
+SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
+	"Meta line summarising a focused subtree: LOC, node count, distinct authors."
+	| authors nodeCount |
+	aNode ifNil: [^ ''].
+	authors := Set new.
+	nodeCount := 0.
+	aNode withAllChildrenDo: [:n |
+		nodeCount := nodeCount + 1.
+		n lastAuthor ifNotNil: [:a | authors add: a]].
+	^ aNode kind asString, ' ', aNode name,
+		'   ', aNode loc printString, ' LOC',
+		'   ', nodeCount printString, ' nodes',
+		'   ', authors size printString, ' authors'
 ]

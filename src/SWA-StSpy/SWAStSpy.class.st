@@ -69,13 +69,25 @@ SWAStSpy class >> open [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 14:03'
 }
 SWAStSpy class >> recordSelfFor: seconds [
-	"Convenience, NON-BLOCKING: profile THIS image for `seconds` and auto-open
-	both views when the trace is ready. Returns the SWAStSpy immediately (its
+	"Convenience, NON-BLOCKING: profile THIS image for `seconds` at the default
+	100 Hz, then auto-open the flamegraph. Returns the SWAStSpy immediately (its
 	rootNode is nil until recording completes)."
-	^ self new duration: seconds; recordThenOpen; yourself
+	^ self recordSelfFor: seconds atRate: 100
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 14:03'
+}
+SWAStSpy class >> recordSelfFor: seconds atRate: hz [
+	"Convenience, NON-BLOCKING: profile THIS image for `seconds` at `hz` samples
+	per second, then auto-open the flamegraph. Each sample pauses the VM ~0.5 ms,
+	so e.g. 500 Hz ~= 25% pause time; the ceiling is ~2000 Hz. Returns the SWAStSpy
+	immediately (its rootNode is nil until recording completes)."
+	^ self new duration: seconds; rate: hz; recordThenOpen; yourself
 ]
 
 {
@@ -295,81 +307,24 @@ SWAStSpy >> openExplorer [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:41'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:56'
 }
 SWAStSpy >> openFlamegraph [
-	"Open a flamegraph on the call tree (same SWAStSpyNode tree the treemap uses),
-	with the same window chrome as the treemap: Back + Browse + Show buttons +
-	breadcrumb header and a selection-detail line. Single click selects a frame
-	(highlight + details + source if shown); clicking the same frame again zooms
-	in; Back zooms out; Browse opens a system browser on the selected Smalltalk
-	method; Show toggles an embedded source pane at the bottom; right-click
-	explores. Returns the window."
-	| flame breadcrumb selectionPath panel window headerRow backButton browseButton showButton crumbFont detailFont |
+	"Open a flamegraph on the call tree (same SWAStSpyNode tree the treemap uses).
+	The shared SWANavPanel supplies the window chrome (Back/Browse/Show + breadcrumb
+	+ selection-detail line + meta-info line + toggleable source pane). Single click
+	selects a frame; clicking it again zooms in; Back zooms out; Browse opens a
+	system browser on the selected Smalltalk method; Show toggles the source pane;
+	right-click explores. Returns the window."
+	| flame panel window |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
 	flame := SWAStSpyFlamegraphMorph on: rootNode.
-	crumbFont := TextStyle default fontOfPointSize: 12.
-	detailFont := (TextStyle default fontOfPointSize: 15) emphasized: 1.
+	flame metaInfo: 'pid ', pid printString,
+		'   ', (rootNode formatMicros: sampleCount), ' total',
+		'   ', sampleCount printString, ' samples',
+		'   ', rate printString, ' Hz'.
 
-	backButton := SimpleButtonMorph new
-		label: 'Back';
-		color: (Color gray: 0.3);
-		target: flame;
-		actionSelector: #zoomOut;
-		yourself.
-	browseButton := SimpleButtonMorph new
-		label: 'Browse';
-		color: (Color gray: 0.3);
-		target: flame;
-		actionSelector: #browseSelected;
-		yourself.
-	showButton := SimpleButtonMorph new
-		label: 'Show';
-		color: (Color gray: 0.3);
-		target: flame;
-		actionSelector: #toggleSource;
-		yourself.
-	breadcrumb := StringMorph new
-		contents: flame breadcrumbString;
-		font: crumbFont;
-		color: Color white;
-		yourself.
-	flame breadcrumbMorph: breadcrumb.
-	selectionPath := StringMorph new
-		contents: 'click a frame to select it';
-		font: detailFont;
-		color: (Color gray: 0.95);
-		yourself.
-	flame selectionPathMorph: selectionPath.
-
-	headerRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		cellPositioning: #leftCenter;
-		cellInset: 6;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	backButton hResizing: #rigid; vResizing: #rigid.
-	browseButton hResizing: #rigid; vResizing: #rigid.
-	showButton hResizing: #rigid; vResizing: #rigid.
-	breadcrumb hResizing: #spaceFill; vResizing: #rigid.
-	headerRow addMorphBack: backButton; addMorphBack: browseButton;
-		addMorphBack: showButton; addMorphBack: breadcrumb.
-
-	panel := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #topToBottom;
-		cellPositioning: #topLeft;
-		hResizing: #spaceFill;
-		vResizing: #spaceFill;
-		yourself.
-	selectionPath hResizing: #spaceFill; vResizing: #rigid.
-	flame hResizing: #spaceFill; vResizing: #spaceFill.
-	panel addMorphBack: headerRow; addMorphBack: selectionPath; addMorphBack: flame.
-	flame panelMorph: panel.
+	panel := SWANavPanel on: flame.
 
 	window := panel openInWindow.
 	window setLabel: 'st-spy Flamegraph  ', (rootNode formatMicros: sampleCount),
@@ -381,47 +336,16 @@ SWAStSpy >> openFlamegraph [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:02'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
 }
 SWAStSpy >> openTreemap [
-	"Open a squarified treemap of the call tree (tiles sized by wall time),
-	reusing the shared SWA treemap window chrome (breadcrumb, back button,
-	selection path, hover overlay)."
-	| treemap overlay breadcrumb selectionPath panel window headerRow backButton |
+	"Open a squarified treemap of the call tree (tiles sized by wall time), using
+	the shared SWANavPanel window chrome (Back/Browse/Show + breadcrumb +
+	selection-path + meta-info line + hover overlay)."
+	| treemap overlay panel window |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
 	treemap := SWAStSpyTreemapMorph on: rootNode.
 	treemap extent: (Display extent * 0.7) rounded.
-
-	backButton := SimpleButtonMorph new
-		label: 'Back';
-		color: (Color gray: 0.3);
-		target: treemap;
-		actionSelector: #zoomOut;
-		yourself.
-	breadcrumb := StringMorph new
-		contents: treemap breadcrumbString;
-		font: Preferences standardSystemFont;
-		color: Color white;
-		yourself.
-	treemap breadcrumbMorph: breadcrumb.
-	selectionPath := StringMorph new
-		contents: '';
-		font: Preferences standardSystemFont;
-		color: (Color gray: 0.7);
-		yourself.
-	treemap selectionPathMorph: selectionPath.
-	headerRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		cellPositioning: #leftCenter;
-		cellInset: 6;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	backButton hResizing: #rigid; vResizing: #rigid.
-	breadcrumb hResizing: #spaceFill; vResizing: #rigid.
-	headerRow addMorph: backButton; addMorph: breadcrumb.
 
 	overlay := SWAStSpyTreemapOverlay new.
 	overlay treemapMorph: treemap.
@@ -429,17 +353,7 @@ SWAStSpy >> openTreemap [
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
 
-	panel := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #topToBottom;
-		cellPositioning: #topLeft;
-		hResizing: #spaceFill;
-		vResizing: #spaceFill;
-		yourself.
-	selectionPath hResizing: #spaceFill; vResizing: #rigid.
-	treemap hResizing: #spaceFill; vResizing: #spaceFill.
-	panel addMorph: headerRow; addMorph: selectionPath; addMorph: treemap.
+	panel := SWANavPanel on: treemap.
 
 	window := panel openInWindow.
 	window setLabel: 'st-spy Treemap  ', (rootNode formatMicros: sampleCount), '  (pid ', pid printString, ')'.

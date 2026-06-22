@@ -134,7 +134,7 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:21'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:44'
 }
 SWATreemapOverlay >> mouseDown: evt [
 	"Left-click: select tile. Click again on same tile: zoom in.
@@ -161,7 +161,7 @@ SWATreemapOverlay >> mouseDown: evt [
 	"Otherwise select this tile"
 	hoveredTile := hit.
 	self changed.
-	treemapMorph updateSelectionPath: hit key
+	treemapMorph selectTileNode: hit key
 ]
 
 {
