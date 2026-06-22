@@ -40,7 +40,9 @@ Class {
 		'outputFile',
 		'rootNode',
 		'events',
-		'sampleCount'
+		'sampleCount',
+		'launchTime',
+		'showProgress'
 	],
 	#category : #'SWA-StSpy',
 	#'squeak_changestamp' : '<historical>'
@@ -52,6 +54,17 @@ Class {
 }
 SWAStSpy class >> onPid: anInteger duration: seconds [
 	^ self new pid: anInteger; duration: seconds; yourself
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:44'
+}
+SWAStSpy class >> open [
+	"Apps-menu entry point: profile THIS image for 10 seconds (non-blocking, with
+	the morphic progress bar) and auto-open the flamegraph when ready. Mirrors
+	`SWAStSpy recordSelfFor: 10`."
+	^ self recordSelfFor: 10
 ]
 
 {
@@ -168,7 +181,7 @@ SWAStSpy >> errorText [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:29'
 }
 SWAStSpy >> failed [
 	"True if st-spy reported a fatal error (e.g. the target pid does not exist, or
@@ -177,21 +190,56 @@ SWAStSpy >> failed [
 	completed run is never a failure."
 	| log |
 	self isReady ifTrue: [^ false].
+	log := self logContents asLowercase.
+	log isEmpty ifFalse: [
+		"Any of these in the log mean st-spy launched but bailed out fatally."
+		^ (#('error:' 'permission denied' 'a password is required'
+			'no such process' 'operation not permitted' 'failed to'
+			'panicked') anySatisfy: [:needle | log includesSubstring: needle])].
+	"Empty log: st-spy may simply not have started writing yet. Only treat an
+	empty log as a failure once enough time has passed that it SHOULD have written
+	its startup banner -- otherwise it is just 'not ready yet'."
+	^ launchTime notNil
+		and: [DateAndTime now > (launchTime + 8 seconds)]
+]
+
+{
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:29'
+}
+SWAStSpy >> failureReason [
+	"A human-readable explanation for why no trace appeared, for the warning
+	dialog. Distinguishes the three observed failure modes: st-spy launched and
+	logged an error, st-spy never wrote anything (likely sudo/ptrace never ran),
+	or it simply ran out of time while still working."
+	| log |
 	log := self logContents.
-	^ (log includesSubstring: 'Error:')
-		or: [log includesSubstring: 'error:']
+	log withBlanksTrimmed isEmpty ifTrue: [
+		^ 'st-spy wrote NOTHING to its log -- it never started.',
+			String cr,
+			'Likely causes: sudo -n needed a password (no NOPASSWD match for ',
+			self class stSpyBinary, '), the VM cwd is not ',
+			'/home/jens/lively4/squeak, or a prior st-spy still holds ptrace on pid ',
+			pid printString, '.', String cr, String cr,
+			'Command was:', String cr, self recordCommand].
+	(self failed) ifTrue: [
+		^ 'st-spy reported an error:', String cr, String cr, self errorText].
+	^ 'Timed out after ', (duration + 20) printString,
+		's but st-spy was still running (no completion marker).', String cr, String cr,
+		'Log so far:', String cr, self errorText
 ]
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:58'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:33'
 }
 SWAStSpy >> initialize [
 	super initialize.
 	pid := OSProcess thisOSProcess pid.   "default: profile self"
 	duration := 10.
 	rate := 100.
-	sampleCount := 0
+	sampleCount := 0.
+	showProgress := true   "coarse 1s progress ticks (slightly perturbs measurement)"
 ]
 
 {
@@ -206,6 +254,17 @@ SWAStSpy >> isReady [
 	(FileDirectory default fileOrDirectoryExists: log) ifFalse: [^ false].
 	^ ([(FileStream readOnlyFileNamed: log) contentsOfEntireFile]
 		on: Error do: [:e | '']) includesSubstring: 'Wrote chrome trace'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:30'
+}
+SWAStSpy >> launchTime [
+	"When #record last launched st-spy (nil if never launched). Used by #failed to
+	avoid treating a momentarily-empty log as a failure before st-spy has had time
+	to write its startup banner."
+	^ launchTime
 ]
 
 {
@@ -475,7 +534,7 @@ SWAStSpy >> rate: samplesPerSecond [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:05'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:29'
 }
 SWAStSpy >> record [
 	"Launch st-spy detached in the background and return IMMEDIATELY -- this does
@@ -492,6 +551,7 @@ SWAStSpy >> record [
 	self outputFile.
 	rootNode := nil.
 	events := nil.
+	launchTime := DateAndTime now.
 	PipeableOSProcess command: self recordCommand.
 	^ self
 ]
@@ -517,13 +577,13 @@ SWAStSpy >> recordCommand [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:34'
 }
 SWAStSpy >> recordThenOpen [
-	"Non-blocking: start recording and arrange for the Explorer + TreeMap to open
+	"Non-blocking: start recording and arrange for the Flamegraph to open
 	automatically once the trace is ready. Returns immediately."
 	self record.
-	self whenReadyDo: [:spy | spy openExplorer. spy openTreemap].
+	self whenReadyDo: [:spy | spy openFlamegraph].
 	^ self
 ]
 
@@ -546,6 +606,27 @@ SWAStSpy >> sampleCount [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:33'
+}
+SWAStSpy >> showProgress [
+	"Whether #whenReadyDo: emits a coarse 1s progress tick to the Transcript while
+	st-spy records. ON by default; this slightly perturbs the measurement (the
+	poller wakes once a second and writes), so turn it OFF for the most accurate
+	self-profiles."
+	^ showProgress ifNil: [showProgress := true]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:34'
+}
+SWAStSpy >> showProgress: aBoolean [
+	"Set whether to emit coarse 1s progress ticks while recording. Default true."
+	showProgress := aBoolean
+]
+
+{
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:05'
 }
@@ -556,7 +637,7 @@ SWAStSpy >> traceFileReady [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:30'
 }
 SWAStSpy >> waitForTrace [
 	"SYNCHRONOUS: block the calling process until the trace is ready, then build
@@ -564,28 +645,92 @@ SWAStSpy >> waitForTrace [
 	the UI prefer #whenReadyDo: / #recordThenOpen. Returns self."
 	| deadline |
 	deadline := DateAndTime now + (duration + 20) seconds.
-	[self isReady or: [DateAndTime now > deadline]]
+	[self isReady or: [self failed or: [DateAndTime now > deadline]]]
 		whileFalse: [(Delay forMilliseconds: 250) wait].
 	self isReady
-		ifFalse: [^ self error: 'st-spy produced no trace; see ', self outputFile, '.log'].
+		ifFalse: [^ self error: 'st-spy produced no trace. ', self failureReason].
 	self buildTree.
 	^ self
 ]
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:12'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:37'
+}
+SWAStSpy >> waitQuietly [
+	"Block the current (background) process polling until st-spy is ready, has
+	failed, or the deadline passes. No UI. Returns self."
+	| deadline |
+	deadline := DateAndTime now + (duration + 20) seconds.
+	[self isReady or: [self failed or: [DateAndTime now > deadline]]]
+		whileFalse: [(Delay forMilliseconds: 250) wait].
+	^ self
+]
+
+{
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:39'
+}
+SWAStSpy >> waitWithProgress [
+	"Like #waitQuietly, but drive the standard morphic SystemProgressMorph (the bar
+	at the bottom of the World) so recording is visible without touching the
+	Transcript. All Morphic mutation (open / update value / close) is pushed to the
+	UI process via WorldState addDeferredUIMessage:, because SystemProgressMorph
+	adds/deletes submorphs and must not be poked from this background process (that
+	leaves ghost labels). We poll here once a second and forward progress.
+
+	SystemProgressMorph's creation method returns a one-arg BLOCK (`barBlock`):
+	`barBlock value: aNumber` advances the bar, and `SystemProgressMorph close:
+	barBlock` tears the slot down. We keep that block in a holder and only ever
+	#value: / #close: it from the UI process.
+
+	As noted, the once-a-second wake-up slightly perturbs the measurement -- use
+	#showProgress: false for a clean profile. Returns self."
+	| deadline holder lastTick |
+	deadline := DateAndTime now + (duration + 20) seconds.
+	holder := Array with: nil.
+	"Open the bar on the UI process; stash the returned bar-block."
+	WorldState addDeferredUIMessage: [
+		holder at: 1 put:
+			(SystemProgressMorph
+				position: nil
+				label: 'st-spy: profiling pid ', pid printString
+				min: 0
+				max: duration)].
+	lastTick := -1.
+	[self isReady or: [self failed or: [DateAndTime now > deadline]]]
+		whileFalse: [
+			| elapsed barBlock |
+			elapsed := (DateAndTime now - launchTime) asSeconds.
+			elapsed > lastTick ifTrue: [
+				lastTick := elapsed.
+				barBlock := holder at: 1.
+				barBlock ifNotNil: [
+					WorldState addDeferredUIMessage: [
+						barBlock value: (elapsed min: duration)]]].
+			(Delay forMilliseconds: 250) wait].
+	"Close the bar on the UI process."
+	WorldState addDeferredUIMessage: [
+		(holder at: 1) ifNotNil: [:barBlock |
+			SystemProgressMorph close: barBlock]].
+	^ self
+]
+
+{
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:37'
 }
 SWAStSpy >> whenReadyDo: aBlock [
 	"Fork a low-priority background process that waits (without blocking the
 	caller or the UI) until the trace is ready, builds the call tree, then
 	evaluates aBlock with this SWAStSpy on the UI process. If st-spy fails early
 	(bad pid, permission, etc.) or times out, pops up a visible warning instead.
+	While recording, shows a morphic SystemProgressMorph (the standard bar at the
+	bottom of the World) updated once a second, unless #showProgress is false.
 	Returns self immediately."
-	| deadline |
-	deadline := DateAndTime now + (duration + 20) seconds.
-	[[self isReady or: [self failed or: [DateAndTime now > deadline]]]
-		whileFalse: [(Delay forMilliseconds: 500) wait].
+	[self showProgress
+		ifTrue: [self waitWithProgress]
+		ifFalse: [self waitQuietly].
 	self isReady
 		ifTrue: [
 			self buildTree.
@@ -593,10 +738,7 @@ SWAStSpy >> whenReadyDo: aBlock [
 		ifFalse: [
 			WorldState addDeferredUIMessage: [
 				self inform: 'st-spy did not produce a trace (pid ', pid printString, ').',
-					String cr, String cr,
-					(self failed
-						ifTrue: [self errorText]
-						ifFalse: ['Timed out. See ', self outputFile, '.log'])]]]
+					String cr, String cr, self failureReason]]]
 		forkAt: Processor userBackgroundPriority.
 	^ self
 ]
