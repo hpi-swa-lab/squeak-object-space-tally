@@ -38,7 +38,8 @@ Class {
 		'colorMode',
 		'layoutProgress',
 		'navPanel',
-		'selectedNode'
+		'selectedNode',
+		'leafKind'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -246,7 +247,7 @@ SWATreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
 }
 SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectangle nodes: nodeArray [
 	"Commit a row of tiles into aRectangle, sliced along its short side.
@@ -275,7 +276,7 @@ SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectang
 				(tileRect width >= 5 and: [tileRect height >= 5]) ifTrue: [
 					tiles add: node -> tileRect.
 					inner := self innerRectFor: tileRect.
-					(inner notNil and: [node children notNil and: [node children notEmpty]])
+					(inner notNil and: [self shouldLayoutChildrenOf: node])
 						ifTrue: [self layoutChildrenOf: node in: inner]]].
 			remaining := Rectangle
 				origin: ((x + thickness) truncated) @ y
@@ -292,7 +293,7 @@ SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectang
 				(tileRect width >= 5 and: [tileRect height >= 5]) ifTrue: [
 					tiles add: node -> tileRect.
 					inner := self innerRectFor: tileRect.
-					(inner notNil and: [node children notNil and: [node children notEmpty]])
+					(inner notNil and: [self shouldLayoutChildrenOf: node])
 						ifTrue: [self layoutChildrenOf: node in: inner]]].
 			remaining := Rectangle
 				origin: x @ ((y + thickness) truncated)
@@ -484,6 +485,31 @@ SWATreemapMorph >> layoutProgress: aBlockOrNil [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:03'
+}
+SWATreemapMorph >> leafKind [
+	"The node #kind at which layout stops recursing (nodes of this kind render as
+	leaf tiles even though they still have children for metric rollup). nil = no
+	cutoff (lay out the full tree)."
+	^ leafKind
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:03'
+}
+SWATreemapMorph >> leafKind: aSymbolOrNil [
+	"Stop laying out the tree at nodes whose #kind = aSymbolOrNil (they become the
+	visible leaves). The underlying tree and all metric roll-ups are unaffected;
+	only rendering stops here. Pass nil to lay out the full tree."
+	leafKind := aSymbolOrNil.
+	layoutValid := false.
+	cachedForm := nil.
+	self changed
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
 }
 SWATreemapMorph >> metaInfoString [
@@ -659,6 +685,21 @@ SWATreemapMorph >> setRoot: aNode [
 
 {
 	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:03'
+}
+SWATreemapMorph >> shouldLayoutChildrenOf: aNode [
+	"True if aNode's children should be laid out as nested tiles. False when a
+	leafKind cutoff is set and aNode is at (or below) that level, so the full tree
+	is still built for metrics but only rendered down to leafKind."
+	aNode children ifNil: [^ false].
+	aNode children isEmpty ifTrue: [^ false].
+	(leafKind notNil and: [(aNode respondsTo: #kind) and: [aNode kind == leafKind]])
+		ifTrue: [^ false].
+	^ true
+]
+
+{
+	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }
 SWATreemapMorph >> squarify: nodeArray scales: areaArray into: aRectangle [
@@ -806,14 +847,14 @@ SWATreemapMorph >> worstAspectRatio: indexRow areas: areaArray sum: rowSum side:
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
 }
 SWATreemapMorph >> zoomInto: aNode [
-	"Make aNode the new focus, if it has children. Push current view onto history."
+	"Make aNode the new focus, if it has children we are willing to show. Respects
+	the leafKind cutoff: you cannot zoom past a leaf-kind node. Push current view
+	onto history."
 
-	| kids |
-	kids := aNode children.
-	(kids isNil or: [kids isEmpty]) ifTrue: [^ self].
+	(self shouldLayoutChildrenOf: aNode) ifFalse: [^ self].
 	history addLast: currentNode.
 	currentNode := aNode.
 	selectedNode := nil.

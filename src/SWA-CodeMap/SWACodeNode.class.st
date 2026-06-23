@@ -319,6 +319,17 @@ SWACodeNode >> name [
 ]
 
 {
+	#category : #jump,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
+}
+SWACodeNode >> openClassTreemap [
+	"Open a treemap that stops at the CLASS level: packages and classes sized by
+	their total LOC, with no method/category tiles. Metrics (LOC, recency, author)
+	still roll up from the real methods underneath."
+	^ self openTreemapLeafKind: #class
+]
+
+{
 	#category : #graphviz,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
@@ -374,16 +385,27 @@ SWACodeNode >> openGraph: aTupleOrBlock engine: engineString label: aLabel [
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
 }
 SWACodeNode >> openTreemap [
-	"Open a squarified treemap of this code subtree (tiles sized by LOC). The shared
-	SWANavPanel supplies the window chrome: Back/Browse/Show buttons, breadcrumb,
-	selection-path line, a meta-info line (LOC/nodes/authors), and a toggleable
-	source pane. A single progress bar covers the build + layout phases."
-	| treemap overlay panel window total |
+	"Open a squarified treemap of the full subtree (down to methods)."
+	^ self openTreemapLeafKind: nil
+]
+
+{
+	#category : #jump,
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
+}
+SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
+	"Open a squarified treemap of this code subtree (tiles sized by LOC). The full
+	tree is built so LOC/recency/author roll up from real methods, but layout stops
+	at aLeafKindOrNil (e.g. #class to show packages+classes but no methods); nil
+	lays out the full tree down to methods. The shared SWANavPanel supplies the
+	window chrome. A single progress bar covers the build + layout phases."
+	| treemap overlay panel window total label |
 	total := (self estimatedNodeCount max: 1) * 2.   "build pass + layout pass"
 	treemap := SWACodeTreemapMorph on: self.
+	treemap leafKind: aLeafKindOrNil.
 	treemap extent: (Display extent * 0.7) rounded - (0 @ 60).
 	('Code map: ', self name)
 		displayProgressFrom: 0 to: total during: [:bar |
@@ -409,8 +431,11 @@ SWACodeNode >> openTreemap [
 
 	panel := SWANavPanel on: treemap.
 
+	label := aLeafKindOrNil
+		ifNil: ['Code Treemap: ', self name, '  (LOC)']
+		ifNotNil: [:k | 'Code Treemap: ', self name, '  (LOC, to ', k, ')'].
 	window := panel openInWindow.
-	window setLabel: 'Code Treemap: ', self name, '  (LOC)'.
+	window setLabel: label.
 	window extent: (Display extent * 0.7) rounded.
 	window center: Display center.
 	^ window

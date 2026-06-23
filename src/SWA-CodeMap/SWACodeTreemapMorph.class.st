@@ -73,18 +73,32 @@ SWACodeTreemapMorph >> colorByLoc: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:24'
+	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:00'
 }
 SWACodeTreemapMorph >> colorByRecency: aNode [
-	"Recency heat: recently-changed = bright blue, old = gray. Based on days since
-	lastChanged (rolled up to max over the subtree)."
-	| when days t |
+	"Recency heat with a LOGARITHMIC age scale and a warm->cool gradient.
+	Age (days since lastChanged, rolled up to the most-recent leaf over the
+	subtree) is mapped to t in [0,1] on a log scale spanning a full day .. ~30 years,
+	so both freshly-edited code and 10-20 year old core code spread across the
+	gradient:
+	  age <= 1 day       -> t = 1 (hottest: red-orange)
+	  age >= ~30 years    -> t = 0 (coldest: blue)
+	The hue sweeps 10 deg (warm) .. 230 deg (cool) at constant high saturation/value
+	so it reads as a clean gradient rather than fading to gray. Unknown = neutral gray."
+	| when ageDays t hue |
 	when := aNode lastChanged.
-	when isNil ifTrue: [^ Color gray: 0.5].
-	days := (DateAndTime now - when) days.
-	"0 days -> t=1 (bright), ~2 years -> t=0 (gray)"
-	t := (1.0 - (days / 730.0)) max: 0.0.
-	^ Color h: 210 s: 0.65 * t v: 0.55 + (0.3 * t)
+	when isNil ifTrue: [^ Color gray: 0.45].
+	ageDays := (DateAndTime now - when) asSeconds / 86400.0.
+	"Clamp: degenerate timestamps (parsed to ~1901) read as ~35000 days; treat
+	anything older than 40 years as the cold end rather than stretching the scale.
+	Floor at 1 day so log is well-defined."
+	ageDays := (ageDays max: 1.0) min: (40 * 365.0).
+	"Log-scale between 1 day (t=1) and ~30 years (t=0)."
+	t := 1.0 - (ageDays ln / (30 * 365.0) ln).
+	t := (t max: 0.0) min: 1.0.
+	"t=1 (recent) -> hue 10 (red-orange); t=0 (old) -> hue 230 (blue)."
+	hue := 230.0 - (t * 220.0).
+	^ Color h: hue s: 0.75 v: 0.9
 ]
 
 {
