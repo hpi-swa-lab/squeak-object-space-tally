@@ -49,6 +49,21 @@ Class {
 }
 
 {
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:02'
+}
+SWAStSpy class >> initialize [
+	"Register the Apps-menu entry for st-spy self profiling.
+	Idempotent: removes any prior entry for this receiver first."
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'st-spy Self Profile'.
+		{self. #open}.
+		'Sample this image for 10s with st-spy and open a flamegraph' }
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:58'
 }
@@ -99,6 +114,16 @@ SWAStSpy class >> stSpyBinary [
 	directory (/home/jens/lively4/squeak) and matches a passwordless sudo NOPASSWD
 	rule for that exact path, so #record can run it without a tty password prompt."
 	^ './st-spy'
+]
+
+{
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:02'
+}
+SWAStSpy class >> unload [
+	"Remove the Apps-menu entry when the package is unloaded."
+	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
+		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
 ]
 
 {
