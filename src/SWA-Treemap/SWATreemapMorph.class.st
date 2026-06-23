@@ -20,25 +20,20 @@ SWACodeTreemapMorph (sized by LOC).
 "
 Class {
 	#name : #SWATreemapMorph,
-	#superclass : #Morph,
+	#superclass : #SWAView,
 	#instVars : [
-		'rootNode',
 		'currentNode',
 		'tiles',
 		'layoutValid',
 		'minTileForLabel',
-		'cachedForm',
 		'minRecurseExtent',
 		'resizeDeferring',
 		'lastResizeTime',
 		'breadcrumbMorph',
 		'overlayMorph',
-		'history',
 		'selectionPathMorph',
 		'colorMode',
 		'layoutProgress',
-		'navPanel',
-		'selectedNode',
 		'leafKind'
 	],
 	#category : #'SWA-Treemap',
@@ -94,6 +89,16 @@ SWATreemapMorph >> balloonStringFor: aNode [
 ]
 
 {
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:35'
+}
+SWATreemapMorph >> baseColorForNode: aNode [
+	"Intrinsic fill color for a tile, ignoring any cross-ref highlight.
+	Default: gray ramp by depth. Subclasses override this (not #colorForNode:)."
+	^ Color gray: (0.4 + ((aNode depth \\ 4) * 0.08))
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }
@@ -130,15 +135,6 @@ SWATreemapMorph >> browseSelected [
 	(selectedNode notNil and: [selectedNode respondsTo: #browse])
 		ifTrue: [selectedNode browse]
 		ifFalse: [Beeper beep]
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:10'
-}
-SWATreemapMorph >> colorForNode: aNode [
-	"Fill color for a tile. Default: gray ramp by depth. Subclasses override."
-	^ Color gray: (0.4 + ((aNode depth \\ 4) * 0.08))
 ]
 
 {
@@ -527,23 +523,6 @@ SWATreemapMorph >> minTileForLabel [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
-}
-SWATreemapMorph >> navPanel [
-	^ navPanel
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
-}
-SWATreemapMorph >> navPanel: aSWANavPanel [
-	"The chrome panel that owns my breadcrumb/selection/meta labels + source pane."
-	navPanel := aSWANavPanel
-]
-
-{
-	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }
 SWATreemapMorph >> overlayMorph: aMorph [
@@ -604,29 +583,12 @@ SWATreemapMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
-}
-SWATreemapMorph >> rootNode [
-	^ rootNode
-]
-
-{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
 }
 SWATreemapMorph >> selectTileNode: aNodeOrNil [
 	"A tile was single-clicked (selected). Record it and refresh the chrome."
 	self selectedNode: aNodeOrNil
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
-}
-SWATreemapMorph >> selectedNode [
-	"The currently selected node (single-click), or nil."
-	^ selectedNode
 ]
 
 {
@@ -672,13 +634,15 @@ SWATreemapMorph >> selectionPathString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:09'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:35'
 }
 SWATreemapMorph >> setRoot: aNode [
-	"Set the root node and invalidate the layout."
+	"Set the root node and invalidate the layout. Rebuilds the cross-ref
+	key index eagerly so peer panels can link against us immediately."
 	rootNode := aNode.
 	currentNode := aNode.
 	layoutValid := false.
+	self rebuildKeyIndex.
 	self changed.
 	^ self
 ]

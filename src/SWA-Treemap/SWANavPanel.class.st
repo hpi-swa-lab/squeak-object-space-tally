@@ -46,12 +46,36 @@ Class {
 }
 
 {
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
+}
+SWANavPanel class >> initialize [
+	"Register the Apps-menu entry for the code map.
+	Idempotent: removes any prior entry for this receiver first."
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'Code Map'.
+		{self. #open}.
+		'Open a treemap of all packages, classes as leaves' }
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
 SWANavPanel class >> on: aViewMorph [
 	"Build a navigation panel wrapping aViewMorph (a treemap/flamegraph morph)."
 	^ self new setView: aViewMorph
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:51'
+}
+SWANavPanel class >> open [
+	"Apps-menu action: open the whole-image code map (all packages, classes as leaves)."
+	^ self openOnPackageNamed: '*' leafKind: #class
 ]
 
 {
@@ -101,6 +125,27 @@ SWANavPanel class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+}
+SWANavPanel class >> openPanels [
+	"All nav panels currently live in the world (still owned by a window/world).
+	Discovered live rather than via a registry so closed panels drop out
+	automatically."
+	^ self allInstances select: [:p | p world notNil]
+]
+
+{
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
+}
+SWANavPanel class >> unload [
+	"Remove the Apps-menu entry."
+	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
+		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -135,6 +180,68 @@ SWANavPanel >> buttonLabelled: aString action: aSelector [
 		actionSelector: aSelector;
 		hResizing: #rigid; vResizing: #rigid;
 		yourself
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+}
+SWANavPanel >> clearCrossReference [
+	"Remove any cross-reference highlight from this view."
+	| mine |
+	mine := self treemap.
+	mine ifNil: [^ self].
+	mine clearCrossReference.
+	self refresh
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+}
+SWANavPanel >> crossRefMenuLabel [
+	"Human-readable label for this panel in a cross-reference chooser:
+	the enclosing window's title, else the view's class name."
+	| win |
+	win := self enclosingWindow.
+	(win notNil and: [win label notNil]) ifTrue: [^ win label].
+	^ view class name
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+}
+SWANavPanel >> crossReference [
+	"X-ref button: highlight this view's tiles that also appear in another open
+	panel, weighted (log heat ramp) by that panel's metric. With one peer, link
+	to it directly; with several, ask which. With none, beep."
+	| mine peers chosen |
+	mine := self treemap.
+	mine ifNil: [^ Beeper beep].
+	peers := self peerPanels.
+	peers isEmpty ifTrue: [^ self inform: 'No other treemap panel is open to cross-reference.'].
+	peers size = 1 ifTrue: [^ self crossReferenceWith: peers first].
+	"Several candidates: let the user pick by window label."
+	chosen := UIManager default
+		chooseFrom: (peers collect: [:p | p crossRefMenuLabel])
+		values: peers
+		title: 'Cross-reference against which panel?'.
+	chosen ifNotNil: [self crossReferenceWith: chosen]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+}
+SWANavPanel >> crossReferenceWith: aPeerPanel [
+	"Push aPeerPanel's key index onto our treemap as a highlight overlay."
+	| mine peer |
+	mine := self treemap.
+	peer := aPeerPanel treemap.
+	(mine isNil or: [peer isNil]) ifTrue: [^ Beeper beep].
+	mine crossReferenceFrom: peer.
+	self refresh
 ]
 
 {
@@ -210,6 +317,16 @@ SWANavPanel >> newSourceMorph [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+}
+SWANavPanel >> peerPanels [
+	"Other open nav panels whose view is a cross-referenceable treemap."
+	^ (SWANavPanel openPanels)
+		select: [:p | p ~~ self and: [p treemap notNil]]
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
@@ -246,12 +363,13 @@ SWANavPanel >> selectionPathContents [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:11'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:55'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: header (Back/Browse/Show + optional
-	Depth + breadcrumb + a top-right fullscreen toggle), selection-path line,
-	meta-info line, then the view. The source pane is created lazily by #toggleSource."
+	X-ref/Clear + optional Depth + breadcrumb + a top-right fullscreen toggle),
+	selection-path line, meta-info line, then the view. The source pane is created
+	lazily by #toggleSource."
 	| crumbFont detailFont metaFont backButton browseButton showButton |
 	view := aViewMorph.
 	crumbFont := TextStyle default fontOfPointSize: 12.
@@ -294,6 +412,10 @@ SWANavPanel >> setView: aViewMorph [
 		yourself.
 	headerRow addMorphBack: backButton; addMorphBack: browseButton;
 		addMorphBack: showButton.
+	"Cross-reference controls, only for cross-referenceable treemap views."
+	(view respondsTo: #keyIndex) ifTrue: [
+		headerRow addMorphBack: (self buttonLabelled: 'X-ref' action: #crossReference).
+		headerRow addMorphBack: (self buttonLabelled: 'Clear' action: #clearCrossReference)].
 	depthButton ifNotNil: [headerRow addMorphBack: depthButton].
 	"Breadcrumb spaceFills, pushing the fullscreen button to the right edge."
 	headerRow addMorphBack: breadcrumbMorph.
@@ -388,6 +510,15 @@ SWANavPanel >> toggleSource [
 			self addMorphBack: sourceMorph.
 			self updateSource].
 	self layoutChanged
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:28'
+}
+SWANavPanel >> treemap [
+	"The wrapped view, if it supports cross-referencing (treemap or flamegraph)."
+	^ (view respondsTo: #keyIndex) ifTrue: [view] ifFalse: [nil]
 ]
 
 {

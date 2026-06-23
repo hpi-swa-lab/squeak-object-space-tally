@@ -28,6 +28,20 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:36'
+}
+SWACodeTreemapMorph >> baseColorForNode: aNode [
+	"Dispatch on the active color mode."
+	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
+	colorMode == #avgloc ifTrue: [^ self colorByAvgLoc: aNode].
+	colorMode == #versions ifTrue: [^ self colorByVersions: aNode].
+	colorMode == #recency ifTrue: [^ self colorByRecency: aNode].
+	colorMode == #author ifTrue: [^ self colorByAuthor: aNode].
+	^ self colorByKind: aNode
+]
+
+{
+	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:29'
 }
 SWACodeTreemapMorph >> colorByAuthor: aNode [
@@ -130,20 +144,6 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 	t := t min: 1.0.
 	"hue 120 (green) down to 0 (red)"
 	^ Color h: 120 * (1.0 - t) s: 0.6 v: 0.85
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:38'
-}
-SWACodeTreemapMorph >> colorForNode: aNode [
-	"Dispatch on the active color mode."
-	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
-	colorMode == #avgloc ifTrue: [^ self colorByAvgLoc: aNode].
-	colorMode == #versions ifTrue: [^ self colorByVersions: aNode].
-	colorMode == #recency ifTrue: [^ self colorByRecency: aNode].
-	colorMode == #author ifTrue: [^ self colorByAuthor: aNode].
-	^ self colorByKind: aNode
 ]
 
 {

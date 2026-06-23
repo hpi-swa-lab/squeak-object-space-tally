@@ -27,9 +27,9 @@ SWAStSpyTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:58'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:36'
 }
-SWAStSpyTreemapMorph >> colorForNode: aNode [
+SWAStSpyTreemapMorph >> baseColorForNode: aNode [
 	"Heat ramp by share of the root's total samples: cold blue -> hot red."
 	| rootTotal frac |
 	rootTotal := rootNode totalSize max: 1.

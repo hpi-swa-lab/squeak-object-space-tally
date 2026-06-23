@@ -78,6 +78,17 @@ SWACodeMethodNode >> computeChangeCount [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:56'
+}
+SWACodeMethodNode >> crossRefKey [
+	"Methods are identified across views by 'ClassName>>selector'
+	('ClassName class>>selector' for class-side methods). subject is a
+	MethodReference; actualClass already yields the metaclass for class-side."
+	^ subject actualClass name asString, '>>', subject selector
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
 }

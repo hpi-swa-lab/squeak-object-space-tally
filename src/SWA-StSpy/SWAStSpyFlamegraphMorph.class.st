@@ -14,18 +14,13 @@ Open via SWAStSpy>>openFlamegraph, or directly: SWAStSpyFlamegraphMorph on: aSWA
 "
 Class {
 	#name : #SWAStSpyFlamegraphMorph,
-	#superclass : #Morph,
+	#superclass : #SWAView,
 	#instVars : [
-		'rootNode',
 		'focusNode',
 		'rowHeight',
 		'frames',
 		'minFrameWidth',
 		'framesBounds',
-		'cachedForm',
-		'history',
-		'selectedNode',
-		'navPanel',
 		'metaInfo'
 	],
 	#category : #'SWA-StSpy',
@@ -80,6 +75,21 @@ SWAStSpyFlamegraphMorph >> ancestorChain [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:27'
+}
+SWAStSpyFlamegraphMorph >> baseColorForNode: aNode [
+	"Classic flamegraph warm palette: reds/oranges/yellows, deterministic per
+	frame name so the same method is always the same color."
+	| h hue sat bri |
+	h := (aNode name ifNil: ['?']) hash.
+	hue := 10.0 + ((h \\ 50)).            "10..60 deg: red -> orange -> yellow"
+	sat := 0.65 + ((h // 50 \\ 30) / 100.0).  "0.65..0.94"
+	bri := 0.82 + ((h // 1500 \\ 15) / 100.0). "0.82..0.96"
+	^ Color h: hue s: sat v: bri
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:22'
 }
@@ -108,21 +118,6 @@ SWAStSpyFlamegraphMorph >> browseSelected [
 	(selectedNode notNil and: [selectedNode isSmalltalkFrame])
 		ifTrue: [selectedNode browse]
 		ifFalse: [Beeper beep]
-]
-
-{
-	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:53'
-}
-SWAStSpyFlamegraphMorph >> colorForNode: aNode [
-	"Classic flamegraph warm palette: reds/oranges/yellows, deterministic per
-	frame name so the same method is always the same color."
-	| h hue sat bri |
-	h := (aNode name ifNil: ['?']) hash.
-	hue := 10.0 + ((h \\ 50)).            "10..60 deg: red -> orange -> yellow"
-	sat := 0.65 + ((h // 50 \\ 30) / 100.0).  "0.65..0.94"
-	bri := 0.82 + ((h // 1500 \\ 15) / 100.0). "0.82..0.96"
-	^ Color h: hue s: sat v: bri
 ]
 
 {
@@ -446,23 +441,6 @@ SWAStSpyFlamegraphMorph >> mouseDown: evt [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
-}
-SWAStSpyFlamegraphMorph >> navPanel [
-	^ navPanel
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
-}
-SWAStSpyFlamegraphMorph >> navPanel: aSWANavPanel [
-	"The chrome panel that owns my breadcrumb/selection/meta labels + source pane."
-	navPanel := aSWANavPanel
-]
-
-{
-	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:56'
 }
 SWAStSpyFlamegraphMorph >> refreshChrome [
@@ -507,26 +485,10 @@ SWAStSpyFlamegraphMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:52'
-}
-SWAStSpyFlamegraphMorph >> rootNode [
-	^ rootNode
-]
-
-{
-	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:58'
 }
 SWAStSpyFlamegraphMorph >> rowHeight [
 	^ rowHeight
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:10'
-}
-SWAStSpyFlamegraphMorph >> selectedNode [
-	^ selectedNode
 ]
 
 {
@@ -559,13 +521,14 @@ SWAStSpyFlamegraphMorph >> selectionPathString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:27'
 }
 SWAStSpyFlamegraphMorph >> setRoot: aNode [
 	rootNode := aNode.
 	focusNode := aNode.
 	frames := OrderedCollection new.
 	cachedForm := nil.
+	self rebuildKeyIndex.
 	self changed.
 	^ self
 ]

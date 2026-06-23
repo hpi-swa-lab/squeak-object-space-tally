@@ -15,11 +15,9 @@ Graph output mirrors SWASpaceTallyNode: graph-builder methods return { dotString
 "
 Class {
 	#name : #SWACodeNode,
-	#superclass : #Object,
+	#superclass : #SWANode,
 	#instVars : [
 		'subject',
-		'parent',
-		'children',
 		'rollupLoc',
 		'rollupMethodCount'
 	],
@@ -180,14 +178,6 @@ SWACodeNode >> containmentGraph [
 ]
 
 {
-	#category : #tree,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
-}
-SWACodeNode >> depth [
-	^ parent isNil ifTrue: [0] ifFalse: [parent depth + 1]
-]
-
-{
 	#category : #graphviz,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
 }
@@ -268,14 +258,6 @@ SWACodeNode >> estimatedNodeCount [
 	(+ category nodes), computed WITHOUT forcing source/LOC. Subclasses refine;
 	default falls back to counting already-built children."
 	^ 1 + (self children inject: 0 into: [:s :c | s + c estimatedNodeCount])
-]
-
-{
-	#category : #tree,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
-}
-SWACodeNode >> isLeaf [
-	^ self children isEmpty
 ]
 
 {
@@ -492,33 +474,6 @@ SWACodeNode >> otherParents [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
-}
-SWACodeNode >> parent [
-	^ parent
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
-}
-SWACodeNode >> parent: aNode [
-	parent := aNode
-]
-
-{
-	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:05'
-}
-SWACodeNode >> pathString [
-	"Slash-separated path from the root to the receiver (for balloon help)."
-	^ parent isNil
-		ifTrue: [self name]
-		ifFalse: [parent pathString, ' / ', self name]
-]
-
-{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:31'
 }
@@ -594,14 +549,4 @@ SWACodeNode >> totalSize [
 	"Treemap weight: rolled-up LOC over the subtree. (The treemap squarifies by
 	this value, so packages/classes/categories are sized by total lines of code.)"
 	^ self loc max: 1
-]
-
-{
-	#category : #tree,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
-}
-SWACodeNode >> withAllChildrenDo: aBlock [
-	"Evaluate aBlock with the receiver and every descendant (depth-first)."
-	aBlock value: self.
-	self children do: [:c | c withAllChildrenDo: aBlock]
 ]

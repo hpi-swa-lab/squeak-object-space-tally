@@ -69,6 +69,21 @@ SWASpaceTallyTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:36'
+}
+SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
+	"Dispatch to the active color strategy."
+	self colorMode == #children ifTrue: [^ self colorByChildren: aNode].
+	self colorMode == #otherParents ifTrue: [^ self colorByOtherParents: aNode].
+	self colorMode == #type ifTrue: [^ self colorByType: aNode].
+	self colorMode == #bitmap ifTrue: [
+		"Non-Form tiles get a dim gray so actual images stand out."
+		^ Color gray: 0.18].
+	^ self colorByClass: aNode
+]
+
+{
+	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:52'
 }
 SWASpaceTallyTreemapMorph >> colorByChildren: aNode [
@@ -147,22 +162,6 @@ SWASpaceTallyTreemapMorph >> colorByType: aNode [
 
 	"Other"
 	^ Color h: 0 s: 0.05 v: (0.45 + ((depth \\ 4) * 0.05))
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 17:20'
-}
-SWASpaceTallyTreemapMorph >> colorForNode: aNode [
-	"Dispatch to the active color strategy."
-
-	self colorMode == #children ifTrue: [^ self colorByChildren: aNode].
-	self colorMode == #otherParents ifTrue: [^ self colorByOtherParents: aNode].
-	self colorMode == #type ifTrue: [^ self colorByType: aNode].
-	self colorMode == #bitmap ifTrue: [
-		"Non-Form tiles get a dim gray so actual images stand out."
-		^ Color gray: 0.18].
-	^ self colorByClass: aNode
 ]
 
 {

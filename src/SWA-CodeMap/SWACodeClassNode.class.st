@@ -50,6 +50,15 @@ SWACodeClassNode >> classNode [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:33'
+}
+SWACodeClassNode >> crossRefKey [
+	"Classes are identified across views by their (unique) class name."
+	^ subject name asString
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
 }

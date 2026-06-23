@@ -9,11 +9,9 @@ Build with: parent addChildNamed: aString -- which finds-or-creates a child. Aft
 "
 Class {
 	#name : #SWAStSpyNode,
-	#superclass : #Object,
+	#superclass : #SWANode,
 	#instVars : [
 		'name',
-		'children',
-		'parent',
 		'selfCount',
 		'totalCount',
 		'category',
@@ -91,16 +89,6 @@ SWAStSpyNode >> childNamed: aString [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
-}
-SWAStSpyNode >> children [
-	"Child frames. Returns #() (not a fresh collection) for leaves so reads are
-	cheap. Use #childNamed: to add; never #children add:."
-	^ children ifNil: [#()]
-]
-
-{
 	#category : #browsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:40'
 }
@@ -115,11 +103,18 @@ SWAStSpyNode >> compiledMethod [
 ]
 
 {
-	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:33'
 }
-SWAStSpyNode >> depth [
-	^ parent isNil ifTrue: [0] ifFalse: [parent depth + 1]
+SWAStSpyNode >> crossRefKey [
+	"A resolvable Smalltalk frame cross-references as 'ClassName>>selector'
+	(matching SWACodeMethodNode). Native/unresolvable frames answer nil.
+	The class portion is taken from the resolved class so metaclass framing
+	('Foo class>>bar') is normalised consistently with the static view."
+	| ref |
+	ref := self methodReference.
+	ref ifNil: [^ nil].
+	^ ref first name asString, '>>', ref second
 ]
 
 {
@@ -273,33 +268,6 @@ SWAStSpyNode >> otherParents [
 	"Call-tree nodes have a single parent; the overlay guards on nil, so answering
 	nil disables that decoration."
 	^ nil
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
-}
-SWAStSpyNode >> parent [
-	^ parent
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
-}
-SWAStSpyNode >> parent: aNode [
-	parent := aNode
-]
-
-{
-	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
-}
-SWAStSpyNode >> pathString [
-	"Slash-separated path from the root to the receiver (for balloon help)."
-	^ parent isNil
-		ifTrue: [self name]
-		ifFalse: [parent pathString, ' / ', self name]
 ]
 
 {

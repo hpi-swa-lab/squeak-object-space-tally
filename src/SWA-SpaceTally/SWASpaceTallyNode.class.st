@@ -21,14 +21,12 @@ duration, limits) live on the owning SWASpaceTally group, NOT here.
 "
 Class {
 	#name : #SWASpaceTallyNode,
-	#superclass : #Object,
+	#superclass : #SWANode,
 	#instVars : [
 		'obj',
 		'className',
 		'selfSize',
 		'totalSize',
-		'parent',
-		'children',
 		'depth',
 		'truncated',
 		'edgeLabel',
@@ -249,18 +247,6 @@ SWASpaceTallyNode >> binChildrenByClass [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:34'
-}
-SWASpaceTallyNode >> children [
-	"The child nodes. Returns an empty Array (not a fresh OrderedCollection)
-	when this node is a leaf, so reads are cheap and allocation-free. Use
-	#addChild: to add children; never #children add:."
-
-	^ children ifNil: [#()]
-]
-
-{
 	#category : #private,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:34'
 }
@@ -373,6 +359,18 @@ SWASpaceTallyNode >> copySubtreeFilteredBy: isNewBlock depth: d ignoring: patter
 		copy addChild: c].
 
 	^ copy
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:33'
+}
+SWASpaceTallyNode >> crossRefKey [
+	"Space tally is class-granular: cross-reference by class name.
+	Aggregate/synthetic buckets without a real class name answer nil."
+	className ifNil: [^ nil].
+	(Smalltalk classNamed: className) ifNil: [^ nil].
+	^ className asString
 ]
 
 {
@@ -802,14 +800,6 @@ SWASpaceTallyNode >> owner: aMorph isUnderAnyOf: aMorphSet [
 		(aMorphSet includes: owner) ifTrue: [^ true].
 		owner := owner owner].
 	^ false
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:09'
-}
-SWASpaceTallyNode >> parent [
-	^ parent
 ]
 
 {
