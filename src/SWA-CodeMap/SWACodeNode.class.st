@@ -19,7 +19,8 @@ Class {
 	#instVars : [
 		'subject',
 		'parent',
-		'children'
+		'children',
+		'rollupLoc'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -302,11 +303,13 @@ SWACodeNode >> lastChanged [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:45'
 }
 SWACodeNode >> loc [
-	"Lines of code. Default: sum over children (roll-up). Method leaves override."
-	^ self children inject: 0 into: [:sum :c | sum + c loc]
+	"Lines of code. Default: sum over children (roll-up), cached so repeated layout
+	passes don't re-walk the subtree. Method leaves override with their own count."
+	^ rollupLoc ifNil: [
+		rollupLoc := self children inject: 0 into: [:sum :c | sum + c loc]]
 ]
 
 {

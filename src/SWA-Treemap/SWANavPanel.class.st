@@ -36,7 +36,10 @@ Class {
 		'breadcrumbMorph',
 		'selectionPathMorph',
 		'metaInfoMorph',
-		'sourceMorph'
+		'sourceMorph',
+		'depthButton',
+		'fullButton',
+		'savedWindowFrame'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -49,6 +52,52 @@ Class {
 SWANavPanel class >> on: aViewMorph [
 	"Build a navigation panel wrapping aViewMorph (a treemap/flamegraph morph)."
 	^ self new setView: aViewMorph
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:53'
+}
+SWANavPanel class >> openOnPackageNamed: aPackageName [
+	"Open a code-structure treemap (package -> classes -> methods) wrapped in a
+	SWANavPanel, rendered to full depth.
+
+	(SWANavPanel openOnPackageNamed: 'Morphic-Kernel')"
+	^ self openOnPackageNamed: aPackageName leafKind: nil
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:25'
+}
+SWANavPanel class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
+	"Open a code-structure treemap (root -> packages -> classes -> categories ->
+	methods) wrapped in a SWANavPanel, with Back/Browse/Show/Depth/Full chrome.
+
+	aPackageGlob is a String>>match: glob matched against all package names. A plain
+	name ('Kernel') simply matches one package; 'Morphic*' or '*' match many. We
+	always build an aggregate SWACodeRootNode, so the single- and multi-package cases
+	share one path.
+
+	aKindOrNil stops *rendering* at nodes of that #kind (#package/#class/#category/
+	#method); the full tree and all metric roll-ups are still built. nil renders the
+	full depth. With a broad glob, #class avoids tiling thousands of method nodes.
+
+	Delegates to SWACodeNode>>openTreemapLeafKind: for the actual build -- that wires
+	up the click overlay (select / zoom / explore / context menu), the two-phase
+	progress bar, and the panel chrome -- then sizes the window.
+
+	(SWANavPanel openOnPackageNamed: 'Kernel' leafKind: nil)
+	(SWANavPanel openOnPackageNamed: '*' leafKind: #class)"
+	| root window |
+	root := (SWACodeRootNode new)
+		name: aPackageGlob;
+		addPackages: aPackageGlob;
+		yourself.
+	window := root openTreemapLeafKind: aKindOrNil.
+	window setLabel: 'Code Treemap: ', aPackageGlob.
+	window extent: 900 @ 650.
+	^ window
 ]
 
 {
@@ -82,6 +131,49 @@ SWANavPanel >> buttonLabelled: aString action: aSelector [
 	^ SimpleButtonMorph new
 		label: aString;
 		color: (Color gray: 0.3);
+		target: self;
+		actionSelector: aSelector;
+		hResizing: #rigid; vResizing: #rigid;
+		yourself
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:54'
+}
+SWANavPanel >> cycleLeafKind [
+	"Depth button: cycle the view's render depth (leafKind) through
+	Full -> Package -> Class -> Category -> Method -> Full. Only affects rendering;
+	the tree and metric roll-ups are unchanged, so this is cheap to re-apply."
+	| order current next |
+	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
+	order := { nil. #package. #class. #category. #method }.
+	current := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
+	next := order at: ((order indexOf: current) \\ order size) + 1.
+	view leafKind: next.
+	self updateDepthLabel.
+	self refresh
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:07'
+}
+SWANavPanel >> enclosingWindow [
+	"The SystemWindow that contains this panel, or nil if opened bare in the world."
+	^ self ownerThatIsA: SystemWindow
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:11'
+}
+SWANavPanel >> iconButtonGraphic: aForm action: aSelector [
+	"A header button showing aForm as its icon that sends aSelector to THIS panel."
+	^ IconicButton new
+		labelGraphic: aForm;
+		color: (Color gray: 0.3);
+		borderWidth: 0;
 		target: self;
 		actionSelector: aSelector;
 		hResizing: #rigid; vResizing: #rigid;
@@ -154,12 +246,12 @@ SWANavPanel >> selectionPathContents [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:11'
 }
 SWANavPanel >> setView: aViewMorph [
-	"Build the panel chrome around aViewMorph: header (Back/Browse/Show + breadcrumb),
-	selection-path line, meta-info line, then the view. The source pane is created
-	lazily by #toggleSource."
+	"Build the panel chrome around aViewMorph: header (Back/Browse/Show + optional
+	Depth + breadcrumb + a top-right fullscreen toggle), selection-path line,
+	meta-info line, then the view. The source pane is created lazily by #toggleSource."
 	| crumbFont detailFont metaFont backButton browseButton showButton |
 	view := aViewMorph.
 	crumbFont := TextStyle default fontOfPointSize: 12.
@@ -177,6 +269,12 @@ SWANavPanel >> setView: aViewMorph [
 	backButton := self buttonLabelled: 'Back' action: #zoomOut.
 	browseButton := self buttonLabelled: 'Browse' action: #browseSelected.
 	showButton := self buttonLabelled: 'Show' action: #toggleSource.
+	"Depth (render-level) control, only for views that support a leafKind cutoff."
+	(view respondsTo: #leafKind:) ifTrue: [
+		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
+		self updateDepthLabel].
+	"Fullscreen toggle: uses the docking bar's fullscreen icon, pinned top-right."
+	fullButton := self iconButtonGraphic: MenuIcons smallFullscreenOnIcon action: #toggleFullScreen.
 
 	breadcrumbMorph := StringMorph new
 		contents: self breadcrumbContents;
@@ -195,7 +293,11 @@ SWANavPanel >> setView: aViewMorph [
 		vResizing: #shrinkWrap;
 		yourself.
 	headerRow addMorphBack: backButton; addMorphBack: browseButton;
-		addMorphBack: showButton; addMorphBack: breadcrumbMorph.
+		addMorphBack: showButton.
+	depthButton ifNotNil: [headerRow addMorphBack: depthButton].
+	"Breadcrumb spaceFills, pushing the fullscreen button to the right edge."
+	headerRow addMorphBack: breadcrumbMorph.
+	headerRow addMorphBack: fullButton.
 
 	selectionPathMorph := StringMorph new
 		contents: (self selectionPathContents ifNil: ['']);
@@ -243,6 +345,37 @@ SWANavPanel >> sourceMorph [
 
 {
 	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:21'
+}
+SWANavPanel >> toggleFullScreen [
+	"Fullscreen toggle: cover the ENTIRE Display edge-to-edge, including the top
+	docking/menu bar, or restore the previous frame. To hide the window's own title
+	bar without touching its layout, we just push the window UP by its label height
+	so the title bar sits above the visible Display and the panel fills the screen.
+	The docking bar sits in the world's frontmost layer, so we insert the window at
+	absolute submorph index 1 to draw over it; restoring re-adds it as a normal
+	layered window. Unlike SystemWindow>>fullScreen this applies no insets."
+	| window world top |
+	window := self enclosingWindow ifNil: [^ Beeper beep].
+	world := window world ifNil: [^ Beeper beep].
+	savedWindowFrame
+		ifNil: [
+			savedWindowFrame := window bounds.
+			world privateAddMorph: window atIndex: 1.
+			"Offset up by the title-bar strip so it clips off the top of the Display."
+			top := window labelHeight + window layoutInset + window borderWidth.
+			window bounds: (Display boundingBox origin - (0 @ top)
+				corner: Display boundingBox corner).
+			fullButton ifNotNil: [fullButton labelGraphic: MenuIcons smallFullscreenOffIcon]]
+		ifNotNil: [
+			window bounds: savedWindowFrame.
+			savedWindowFrame := nil.
+			world addMorphFront: window.
+			fullButton ifNotNil: [fullButton labelGraphic: MenuIcons smallFullscreenOnIcon]]
+]
+
+{
+	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
 SWANavPanel >> toggleSource [
@@ -255,6 +388,21 @@ SWANavPanel >> toggleSource [
 			self addMorphBack: sourceMorph.
 			self updateSource].
 	self layoutChanged
+]
+
+{
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:54'
+}
+SWANavPanel >> updateDepthLabel [
+	"Relabel the depth button to reflect the view's current render depth (leafKind)."
+	| kind text |
+	depthButton ifNil: [^ self].
+	kind := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
+	text := kind
+		ifNil: ['Depth: Full']
+		ifNotNil: ['Depth: ', (kind asString capitalized)].
+	depthButton label: text
 ]
 
 {

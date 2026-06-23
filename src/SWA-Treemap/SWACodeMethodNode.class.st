@@ -5,9 +5,12 @@ Class {
 	#name : #SWACodeMethodNode,
 	#superclass : #SWACodeNode,
 	#instVars : [
-		'isStatic'
+		'isStatic',
+		'cachedSource',
+		'cachedLoc',
+		'cachedTimeStamp'
 	],
-	#category : #'SWA-CodeMap',
+	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -88,14 +91,14 @@ SWACodeMethodNode >> kind [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }
 SWACodeMethodNode >> lastAuthor [
-	"Author initials parsed from the method timeStamp ('<initials> <date> <time>'),
+	"Author initials parsed from the cached method timeStamp ('<initials> <date> <time>'),
 	or nil if unavailable."
 	| ts tokens |
-	ts := [subject timeStamp] on: Error do: [:e | nil].
-	(ts isNil or: [ts isEmpty]) ifTrue: [^ nil].
+	ts := self timeStamp.
+	ts isEmpty ifTrue: [^ nil].
 	tokens := ts findTokens: ' '.
 	tokens size >= 3 ifFalse: [^ nil].
 	^ tokens first
@@ -103,14 +106,14 @@ SWACodeMethodNode >> lastAuthor [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }
 SWACodeMethodNode >> lastChanged [
-	"DateAndTime parsed from the method timeStamp ('<initials> <m/d/yyyy> <hh:mm>'),
+	"DateAndTime parsed from the cached method timeStamp ('<initials> <m/d/yyyy> <hh:mm>'),
 	or nil if unavailable/unparseable."
 	| ts tokens |
-	ts := [subject timeStamp] on: Error do: [:e | nil].
-	(ts isNil or: [ts isEmpty]) ifTrue: [^ nil].
+	ts := self timeStamp.
+	ts isEmpty ifTrue: [^ nil].
 	tokens := ts findTokens: ' '.
 	tokens size >= 3 ifFalse: [^ nil].
 	^ [DateAndTime date: (Date fromString: (tokens at: 2))
@@ -120,11 +123,13 @@ SWACodeMethodNode >> lastChanged [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }
 SWACodeMethodNode >> loc [
-	"Lines of code: non-blank source lines."
-	^ (self source lines reject: [:l | l withBlanksTrimmed isEmpty]) size
+	"Lines of code: non-blank source lines. Cached, since the treemap squarifies by
+	loc and would otherwise re-read source from disk on every layout pass."
+	^ cachedLoc ifNil: [
+		cachedLoc := (self source lines reject: [:l | l withBlanksTrimmed isEmpty]) size]
 ]
 
 {
@@ -137,11 +142,14 @@ SWACodeMethodNode >> name [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }
 SWACodeMethodNode >> source [
-	"The method source string. The MethodReference knows how to fetch it."
-	^ [subject source asString] on: Error do: [:e | '']
+	"The method source string, fetched once from the .changes/.sources file via the
+	MethodReference and then held in the image. Source does not live in the image
+	otherwise, so caching it here avoids a disk read on every loc/relayout/Show."
+	^ cachedSource ifNil: [
+		cachedSource := [subject source asString] on: Error do: [:e | '']]
 ]
 
 {
@@ -160,4 +168,16 @@ SWACodeMethodNode >> sourceString [
 SWACodeMethodNode >> styleClassOrNil [
 	"The method's class (or metaclass) so Shout highlights ivars/selectors in context."
 	^ [subject actualClass] on: Error do: [:e | nil]
+]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
+}
+SWACodeMethodNode >> timeStamp [
+	"Raw method timeStamp string ('<initials> <date> <time>'), fetched once from the
+	MethodReference and cached. Feeds lastAuthor and lastChanged. Empty string means
+	'looked up, nothing there' so we don't retry the disk read."
+	^ cachedTimeStamp ifNil: [
+		cachedTimeStamp := ([subject timeStamp] on: Error do: [:e | nil]) ifNil: ['']]
 ]
