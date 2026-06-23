@@ -8,7 +8,8 @@ Class {
 		'isStatic',
 		'cachedSource',
 		'cachedLoc',
-		'cachedTimeStamp'
+		'cachedTimeStamp',
+		'cachedChangeCount'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -33,11 +34,32 @@ SWACodeMethodNode >> buildChildren [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
 }
 SWACodeMethodNode >> changeCount [
 	"Number of recorded versions of this method in the .changes/.sources history.
-	Computed on demand (can be slow for hot methods); not cached here yet."
+	Scanning the version history is expensive, so the result is cached (the 'versions'
+	color mode colours every node, which would otherwise re-scan the whole package)."
+	^ cachedChangeCount ifNil: [cachedChangeCount := self computeChangeCount]
+]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
+}
+SWACodeMethodNode >> commentLines [
+	"Heuristic: source lines whose first non-blank character starts a comment.
+	Good enough for a quick metric; full lexing can come later."
+	^ (self source lines count: [:l | l withBlanksTrimmed beginsWith: '"'])
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
+}
+SWACodeMethodNode >> computeChangeCount [
+	"Scan the .changes/.sources version history for this method and count versions.
+	Slow; call once and cache via #changeCount."
 	| cls sel meta vb |
 	cls := subject actualClass.
 	cls ifNil: [^ 0].
@@ -53,16 +75,6 @@ SWACodeMethodNode >> changeCount [
 		selector: sel.
 	   vb changeList size]
 		on: Error do: [:e | 0]
-]
-
-{
-	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
-}
-SWACodeMethodNode >> commentLines [
-	"Heuristic: source lines whose first non-blank character starts a comment.
-	Good enough for a quick metric; full lexing can come later."
-	^ (self source lines count: [:l | l withBlanksTrimmed beginsWith: '"'])
 ]
 
 {
@@ -130,6 +142,15 @@ SWACodeMethodNode >> loc [
 	loc and would otherwise re-read source from disk on every layout pass."
 	^ cachedLoc ifNil: [
 		cachedLoc := (self source lines reject: [:l | l withBlanksTrimmed isEmpty]) size]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
+}
+SWACodeMethodNode >> methodCount [
+	"A method leaf counts as one method."
+	^ 1
 ]
 
 {

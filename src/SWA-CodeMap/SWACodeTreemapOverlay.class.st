@@ -50,12 +50,14 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:29'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:41'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	^ #(
 		(#codeKind  'By kind (package/class/category/method)')
 		(#loc       'By LOC (heat)')
+		(#avgloc    'By avg LOC / method')
+		(#versions  'By avg versions / method')
 		(#recency   'By recency (last changed)')
 		(#author    'By author (last changed)')
 	)

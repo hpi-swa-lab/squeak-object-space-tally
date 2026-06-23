@@ -20,7 +20,8 @@ Class {
 		'subject',
 		'parent',
 		'children',
-		'rollupLoc'
+		'rollupLoc',
+		'rollupMethodCount'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -56,6 +57,31 @@ SWACodeNode class >> on: aSubject [
 }
 SWACodeNode class >> on: aSubject parent: aNode [
 	^ self new subject: aSubject; parent: aNode; yourself
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:41'
+}
+SWACodeNode >> avgChangeCount [
+	"Average number of recorded versions per method over this subtree (rolled-up
+	changeCount / method count). On class/package nodes a raw total just tracks size,
+	so the average is the meaningful 'churn per method' signal. 0 if no methods."
+	| n |
+	n := self methodCount.
+	^ n = 0 ifTrue: [0] ifFalse: [self changeCount / n]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
+}
+SWACodeNode >> avgLoc [
+	"Average lines of code per method over this subtree (rolled-up LOC / method count).
+	Most meaningful for class/category/package nodes. 0 if there are no methods."
+	| n |
+	n := self methodCount.
+	^ n = 0 ifTrue: [0] ifFalse: [self loc / n]
 ]
 
 {
@@ -310,6 +336,16 @@ SWACodeNode >> loc [
 	passes don't re-walk the subtree. Method leaves override with their own count."
 	^ rollupLoc ifNil: [
 		rollupLoc := self children inject: 0 into: [:sum :c | sum + c loc]]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
+}
+SWACodeNode >> methodCount [
+	"Number of method leaves in this subtree (cached). Method leaves override with 1."
+	^ rollupMethodCount ifNil: [
+		rollupMethodCount := self children inject: 0 into: [:sum :c | sum + c methodCount]]
 ]
 
 {

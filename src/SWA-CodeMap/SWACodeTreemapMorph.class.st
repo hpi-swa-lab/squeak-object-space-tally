@@ -41,6 +41,21 @@ SWACodeTreemapMorph >> colorByAuthor: aNode [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
+}
+SWACodeTreemapMorph >> colorByAvgLoc: aNode [
+	"Average-LOC-per-method heat (most meaningful for class/category nodes): small
+	average methods green, large average methods red. Linear over 0..40 LOC/method,
+	which spans tidy short methods to long ones. Zero (no methods) = cool green."
+	| avg t |
+	avg := aNode avgLoc.
+	t := (avg / 40.0) min: 1.0.
+	"hue 120 (green) down to 0 (red)"
+	^ Color h: 120 * (1.0 - t) s: 0.6 v: 0.85
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:23'
 }
@@ -102,12 +117,30 @@ SWACodeTreemapMorph >> colorByRecency: aNode [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:41'
+}
+SWACodeTreemapMorph >> colorByVersions: aNode [
+	"Churn heat: average number of recorded method versions per method over this
+	subtree (raw totals just track size, so we average). Green (stable, ~1 version)
+	-> red (high churn). Linear over 1..8 versions/method. Unknown/zero = cool green."
+	| avg t |
+	avg := aNode avgChangeCount.
+	t := ((avg - 1.0) / 7.0) max: 0.0.
+	t := t min: 1.0.
+	"hue 120 (green) down to 0 (red)"
+	^ Color h: 120 * (1.0 - t) s: 0.6 v: 0.85
+]
+
+{
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:29'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:38'
 }
 SWACodeTreemapMorph >> colorForNode: aNode [
 	"Dispatch on the active color mode."
 	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
+	colorMode == #avgloc ifTrue: [^ self colorByAvgLoc: aNode].
+	colorMode == #versions ifTrue: [^ self colorByVersions: aNode].
 	colorMode == #recency ifTrue: [^ self colorByRecency: aNode].
 	colorMode == #author ifTrue: [^ self colorByAuthor: aNode].
 	^ self colorByKind: aNode
@@ -167,10 +200,11 @@ SWACodeTreemapMorph >> metaInfoString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:46'
 }
 SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
-	"Meta line for a single SELECTED node: kind, author, last-changed date, LOC."
+	"Meta line for a single SELECTED node: kind, author, last-changed date, LOC,
+	and version churn (total versions over the subtree + average per method)."
 	| author when whenStr |
 	author := aNode lastAuthor ifNil: ['?'].
 	when := aNode lastChanged.
@@ -180,15 +214,18 @@ SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
 	^ aNode kind asString, ' ', aNode name,
 		'   author: ', author,
 		'   changed: ', whenStr,
-		'   ', aNode loc printString, ' LOC'
+		'   ', aNode loc printString, ' LOC',
+		'   ', aNode changeCount printString, ' versions',
+		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:46'
 }
 SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
-	"Meta line summarising a focused subtree: LOC, node count, distinct authors."
+	"Meta line summarising a focused subtree: LOC, node count, distinct authors,
+	and version churn (total versions + average per method)."
 	| authors nodeCount |
 	aNode ifNil: [^ ''].
 	authors := Set new.
@@ -199,5 +236,7 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 	^ aNode kind asString, ' ', aNode name,
 		'   ', aNode loc printString, ' LOC',
 		'   ', nodeCount printString, ' nodes',
-		'   ', authors size printString, ' authors'
+		'   ', authors size printString, ' authors',
+		'   ', aNode changeCount printString, ' versions',
+		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
 ]
