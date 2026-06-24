@@ -4,6 +4,9 @@ A squarified treemap of a SWACodeNode tree (Package -> Class -> Category -> Meth
 Class {
 	#name : #SWACodeTreemapMorph,
 	#superclass : #SWATreemapMorph,
+	#instVars : [
+		'coverageStatus'
+	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }
@@ -147,6 +150,49 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 ]
 
 {
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+}
+SWACodeTreemapMorph >> coverageNoteForNode: aNode [
+	"A short per-node coverage/tally note for the selected-node meta line, or '' if
+	no overlay is active. Method nodes show their own value; class/package nodes
+	show the rolled-up (max) value over their methods."
+	| v isLeaf |
+	coverageKind ifNil: [^ ''].
+	v := self coverageValueForNode: aNode.
+	isLeaf := aNode kind == #method.
+	coverageKind == #tally ifTrue: [
+		v ifNil: [^ isLeaf ifTrue: ['not invoked'] ifFalse: ['no invoked methods']].
+		^ isLeaf
+			ifTrue: ['invoked ', v printString, 'x']
+			ifFalse: ['hottest method: ', v printString, 'x']].
+	"#boolean"
+	v ifNil: [^ isLeaf ifTrue: ['not covered'] ifFalse: ['no covered methods']].
+	^ isLeaf ifTrue: ['covered'] ifFalse: ['has covered methods']
+]
+
+{
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
+}
+SWACodeTreemapMorph >> coverageStatus [
+	"Short human-readable description of the current coverage overlay, or nil if
+	there is none. Shown in the panel's meta-info line so existing vs. fresh vs.
+	in-progress coverage is distinguishable."
+	^ coverageStatus
+]
+
+{
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
+}
+SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
+	"Set the coverage status line and refresh the chrome/meta line."
+	coverageStatus := aStringOrNil.
+	navPanel ifNotNil: [navPanel refresh]
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:06'
 }
@@ -188,35 +234,44 @@ SWACodeTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
 }
 SWACodeTreemapMorph >> metaInfoString [
 	"Per-view meta line for the code treemap. When a node is SELECTED, describe it
 	(author / last changed / LOC); otherwise summarise the focused subtree
-	(LOC / nodes / distinct authors). (SWANavPanel content protocol.)"
-	selectedNode ifNotNil: [:n | ^ self metaInfoStringForNode: n].
-	^ self metaInfoStringForSubtree: (currentNode ifNil: [rootNode])
+	(LOC / nodes / distinct authors). A coverage overlay, if any, is prefixed so
+	the user always sees whether coverage data is shown, fresh, or running.
+	(SWANavPanel content protocol.)"
+	| base |
+	base := selectedNode
+		ifNotNil: [:n | self metaInfoStringForNode: n]
+		ifNil: [self metaInfoStringForSubtree: (currentNode ifNil: [rootNode])].
+	(coverageStatus isNil or: [coverageStatus isEmpty]) ifTrue: [^ base].
+	^ '[', coverageStatus, ']   ', base
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:46'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
 }
 SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
 	"Meta line for a single SELECTED node: kind, author, last-changed date, LOC,
-	and version churn (total versions over the subtree + average per method)."
-	| author when whenStr |
+	and version churn (total versions over the subtree + average per method). When
+	a coverage/tally overlay is active, the node's coverage value is appended."
+	| author when whenStr cov |
 	author := aNode lastAuthor ifNil: ['?'].
 	when := aNode lastChanged.
 	whenStr := when
 		ifNil: ['?']
 		ifNotNil: [:t | t asDate printString, ' ', (t asTime print24)].
+	cov := self coverageNoteForNode: aNode.
 	^ aNode kind asString, ' ', aNode name,
 		'   author: ', author,
 		'   changed: ', whenStr,
 		'   ', aNode loc printString, ' LOC',
 		'   ', aNode changeCount printString, ' versions',
-		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
+		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)',
+		(cov isEmpty ifTrue: [''] ifFalse: ['   >> ', cov])
 ]
 
 {

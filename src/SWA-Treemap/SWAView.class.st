@@ -26,7 +26,9 @@ Class {
 		'cachedForm',
 		'history',
 		'navPanel',
-		'selectedNode'
+		'selectedNode',
+		'highlightStyle',
+		'coverageKind'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -52,19 +54,60 @@ SWAView >> clearCrossReference [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:33'
 }
 SWAView >> colorForNode: aNode [
-	"Subclass's #baseColorForNode: with any active cross-reference highlight on top.
-	A tile lights up when it -- or any descendant -- matched; its heat is the MAX
-	matching weight in its subtree, so a class tile is as hot as its hottest
-	matching method. Non-matching tiles are dimmed."
+	"Subclass's #baseColorForNode: with any active highlight on top. A tile lights
+	up when it -- or any descendant -- matched; its weight is the MAX matching
+	weight in its subtree, so a class tile is as hot as its hottest matching method.
+	Non-matching tiles are dimmed. The matched-tile ramp depends on #highlightStyle
+	(#heat for cross-ref, #coverage for SWACoverage data)."
 	| base w |
 	highlightWeights ifNil: [^ self baseColorForNode: aNode].
 	base := self baseColorForNode: aNode.
 	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
 	w ifNil: [^ (base alphaMixed: 0.25 with: (Color gray: 0.12))].
-	^ self heatColorForWeight: w base: base
+	^ self highlightColorForWeight: w base: base
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:33'
+}
+SWAView >> coverageColorForWeight: aWeight base: baseColor [
+	"Coverage ramp. For boolean coverage every matched weight is 1, so all covered
+	tiles are solid green and everything unmatched is dimmed by #colorForNode:.
+	For invocation tallies, busier methods go from pale to saturated green on a log
+	scale (hue 120), so hot paths read darker-green."
+	| maxW frac |
+	maxW := self highlightMaxWeight.
+	(aWeight isNil or: [aWeight <= 0]) ifTrue: [^ Color gray: 0.2].
+	maxW <= 1 ifTrue: [^ Color h: 120.0 s: 0.75 v: 0.85].   "boolean: flat green"
+	frac := ((aWeight + 1) ln) / ((maxW + 1) ln).
+	frac := (frac max: 0.0) min: 1.0.
+	"Pale green (low) -> vivid green (hot): raise saturation + drop brightness."
+	^ Color h: 120.0 s: (0.35 + (0.55 * frac)) v: (0.95 - (0.2 * frac))
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+}
+SWAView >> coverageKind [
+	"#boolean or #tally when a coverage overlay is active, else nil."
+	^ coverageKind
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+}
+SWAView >> coverageValueForNode: aNode [
+	"The rolled-up coverage/tally value for aNode (max over its subtree), or nil if
+	no overlay is active or nothing in its subtree matched. For a method node this
+	is its own value; for a class/package node it is the hottest descendant's."
+	(highlightStyle == #coverage and: [effectiveWeights notNil]) ifFalse: [^ nil].
+	^ effectiveWeights at: aNode ifAbsent: [nil]
 ]
 
 {
@@ -120,6 +163,17 @@ SWAView >> heatColorForWeight: aWeight base: baseColor [
 
 {
 	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:33'
+}
+SWAView >> highlightColorForWeight: aWeight base: baseColor [
+	"Dispatch a matched tile's colour on the active highlight style."
+	^ self highlightStyle == #coverage
+		ifTrue: [self coverageColorForWeight: aWeight base: baseColor]
+		ifFalse: [self heatColorForWeight: aWeight base: baseColor]
+]
+
+{
+	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
 SWAView >> highlightMaxWeight [
@@ -127,6 +181,27 @@ SWAView >> highlightMaxWeight [
 	highlightWeights ifNil: [^ 0].
 	highlightWeights isEmpty ifTrue: [^ 0].
 	^ highlightWeights values inject: 0 into: [:mx :w | mx max: w]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:33'
+}
+SWAView >> highlightStyle [
+	"How a matched tile is coloured: #heat (cross-ref blue->red, default) or
+	#coverage (covered green -> uncovered red, for SWACoverage data)."
+	^ highlightStyle ifNil: [#heat]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:33'
+}
+SWAView >> highlightStyle: aSymbol [
+	"#heat or #coverage. Redraws."
+	highlightStyle := aSymbol.
+	self flushCache.
+	self changed
 ]
 
 {
@@ -228,4 +303,17 @@ SWAView >> rootNode [
 SWAView >> selectedNode [
 	"The currently selected node (single-click), or nil."
 	^ selectedNode
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+}
+SWAView >> showCoverage: aCoverage [
+	"Overlay a SWACoverage result (its 'Class>>selector' -> value map) using the
+	green coverage ramp, with the usual max class-rollup. Pass nil to clear."
+	aCoverage ifNil: [coverageKind := nil. ^ self highlightWeights: nil].
+	highlightStyle := #coverage.
+	coverageKind := aCoverage kind.
+	self highlightWeights: aCoverage resultMap
 ]

@@ -109,6 +109,15 @@ SWACodeRootNode >> name: aString [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:37'
+}
+SWACodeRootNode >> packageNames [
+	"The names of the packages this code map is showing."
+	^ packages collect: [:p | p packageName]
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:08'
 }
