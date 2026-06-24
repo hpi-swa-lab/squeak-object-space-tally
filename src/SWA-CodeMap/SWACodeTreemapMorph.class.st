@@ -151,16 +151,20 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:48'
 }
 SWACodeTreemapMorph >> coverageNoteForNode: aNode [
 	"A short per-node coverage/tally note for the selected-node meta line, or '' if
-	no overlay is active. Method nodes show their own value; class/package nodes
-	show the rolled-up (max) value over their methods."
+	no overlay is active. With a SWACoverageData (provenance) overlay, a method node
+	also lists its covering tests (PathTools-style). Method nodes show their own
+	value; class/package nodes show the rolled-up (max) value over their methods."
 	| v isLeaf |
 	coverageKind ifNil: [^ ''].
 	v := self coverageValueForNode: aNode.
 	isLeaf := aNode kind == #method.
+	"Provenance: covering tests for a selected method."
+	(coverageData notNil and: [isLeaf]) ifTrue: [
+		^ self coverageProvenanceNoteForNode: aNode].
 	coverageKind == #tally ifTrue: [
 		v ifNil: [^ isLeaf ifTrue: ['not invoked'] ifFalse: ['no invoked methods']].
 		^ isLeaf
@@ -169,6 +173,26 @@ SWACodeTreemapMorph >> coverageNoteForNode: aNode [
 	"#boolean"
 	v ifNil: [^ isLeaf ifTrue: ['not covered'] ifFalse: ['no covered methods']].
 	^ isLeaf ifTrue: ['covered'] ifFalse: ['has covered methods']
+]
+
+{
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:48'
+}
+SWACodeTreemapMorph >> coverageProvenanceNoteForNode: aNode [
+	"For a method node under a SWACoverageData overlay: 'covered by N tests: a, b, ...'
+	(showing the stored sample) or 'not covered'."
+	| key count tests |
+	key := aNode crossRefKey.
+	key ifNil: [^ ''].
+	count := coverageData coveringTestCountFor: key.
+	count = 0 ifTrue: [^ 'not covered'].
+	tests := coverageData testsForMethod: key.
+	^ 'covered by ', count printString, ' test',
+		(count = 1 ifTrue: [''] ifFalse: ['s']), ': ',
+		((tests first: (5 min: tests size)) inject: '' into: [:a :b |
+			a isEmpty ifTrue: [b] ifFalse: [a, ', ', b]]),
+		(tests size > 5 ifTrue: [', ...'] ifFalse: [''])
 ]
 
 {

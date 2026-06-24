@@ -28,7 +28,8 @@ Class {
 		'navPanel',
 		'selectedNode',
 		'highlightStyle',
-		'coverageKind'
+		'coverageKind',
+		'coverageData'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -87,6 +88,16 @@ SWAView >> coverageColorForWeight: aWeight base: baseColor [
 	frac := (frac max: 0.0) min: 1.0.
 	"Pale green (low) -> vivid green (hot): raise saturation + drop brightness."
 	^ Color h: 120.0 s: (0.35 + (0.55 * frac)) v: (0.95 - (0.2 * frac))
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:47'
+}
+SWAView >> coverageData [
+	"The SWACoverageData behind a provenance overlay (test<->method relation), or
+	nil. Lets the meta line show a method's covering tests."
+	^ coverageData
 ]
 
 {
@@ -307,13 +318,31 @@ SWAView >> selectedNode [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:49'
 }
 SWAView >> showCoverage: aCoverage [
 	"Overlay a SWACoverage result (its 'Class>>selector' -> value map) using the
 	green coverage ramp, with the usual max class-rollup. Pass nil to clear."
-	aCoverage ifNil: [coverageKind := nil. ^ self highlightWeights: nil].
+	aCoverage ifNil: [coverageKind := nil. coverageData := nil. ^ self highlightWeights: nil].
 	highlightStyle := #coverage.
+	coverageData := nil.
 	coverageKind := aCoverage kind.
 	self highlightWeights: aCoverage resultMap
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:48'
+}
+SWAView >> showCoverageData: aCoverageData [
+	"Overlay a SWACoverageData: tiles tinted green by covering-test count (more
+	tests = hotter green), with per-node covering-test provenance available in the
+	meta line. Pass nil to clear."
+	aCoverageData ifNil: [
+		coverageData := nil. coverageKind := nil.
+		^ self highlightWeights: nil].
+	coverageData := aCoverageData.
+	coverageKind := #tally.   "graded green by covering-test count"
+	highlightStyle := #coverage.
+	self highlightWeights: aCoverageData resultMap
 ]

@@ -188,6 +188,23 @@ SWANavPanel >> buttonLabelled: aString action: aSelector [
 
 {
 	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:45'
+}
+SWANavPanel >> chooseCoverageFile [
+	"Open a *.json file chooser and answer the chosen full path, or nil if cancelled.
+	Falls back to a text path prompt if no file chooser is available (e.g. headless)."
+	| result |
+	(Smalltalk includesKey: #StandardFileMenu) ifTrue: [
+		result := StandardFileMenu oldFileFrom: FileDirectory default withPattern: '*.json'.
+		result ifNil: [^ nil].
+		^ result directory fullNameFor: result name].
+	"Fallback."
+	^ (UIManager default request: 'Load coverage JSON from:' initialAnswer: '')
+		ifNil: [nil] ifNotNil: [:s | s isEmpty ifTrue: [nil] ifFalse: [s withBlanksTrimmed]]
+]
+
+{
+	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
 }
 SWANavPanel >> clearCoverage [
@@ -249,44 +266,32 @@ SWANavPanel >> collectInvocationTally [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
-}
-SWANavPanel >> coverageAll [
-	"Button action: test coverage of the shown packages, run by ALL tests (slow)."
-	| root |
-	root := self codeRoot.
-	root ifNil: [^ self treemapCoverageStatus: 'Coverage: only on a Code Map'].
-	self runAllTestCoverage: root
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:15'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:39'
 }
 SWANavPanel >> coverageScoped [
-	"Button action: test coverage of the shown packages, run by their related tests."
-	| root |
+	"Cover button (code map only): run test coverage WITH provenance for the shown
+	packages -- captures both coverage AND which tests cover each method -- under a
+	forked, Stop-able panel, then overlay it (green by covering-test count; select a
+	method to see its tests). Even on a broad selection like '*' this never wedges
+	the image: hit STOP to abort and keep the partial result."
+	| root names tm testClasses |
 	root := self codeRoot.
 	root ifNil: [^ self treemapCoverageStatus: 'Coverage: only on a Code Map'].
-	self runScopedTestCoverage: root
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:55'
-}
-SWANavPanel >> coverageStatusString: aCoverage ran: done of: total cancelled: wasCancelled [
-	"Build the meta-line status for a boolean coverage pass."
-	| covered watched |
-	covered := aCoverage resultMap size.
-	watched := aCoverage methods size max: 1.
-	^ String streamContents: [:s |
-		s nextPutAll: 'Coverage: '.
-		done < total ifTrue: [
-			s nextPutAll: (wasCancelled ifTrue: ['stopped '] ifFalse: ['running ']);
-			print: done; nextPut: $/; print: total; nextPutAll: ' classes -- '].
-		s print: covered; nextPut: $/; print: watched; nextPutAll: ' methods (';
-			print: ((covered * 100) // watched); nextPutAll: '%)']
+	names := root packageNames.
+	testClasses := SWACoverage testClassesForPackages: names.
+	testClasses isEmpty ifTrue: [
+		^ self treemapCoverageStatus: 'Coverage: no related test classes found'].
+	tm := self treemap.
+	self treemapCoverageStatus: 'Coverage: running ', testClasses size printString,
+		' test classes (use STOP to abort)...'.
+	SWACoverage
+		runProvenanceForPackages: names
+		tests: testClasses
+		then: [:data |
+			tm showCoverageData: data.
+			tm coverageStatus: 'Coverage: ', data coveredMethodCount printString,
+				' methods, ', data testNames size printString, ' tests (select a method to see them)'.
+			self refresh]
 ]
 
 {
@@ -381,11 +386,22 @@ SWANavPanel >> enclosingWindow [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:55'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:46'
 }
-SWANavPanel >> escapePressed [
-	"True if ESC is currently down -- used to abort a modal coverage run."
-	^ Sensor peekKeyboard = Character escape
+SWANavPanel >> exportCoverage [
+	"Button: write the current provenance coverage (SWACoverageData) to a reusable,
+	image-independent JSON file. (Export is a save -- a text prompt with a default
+	path is friendlier than a chooser for naming a new file.)"
+	| data path |
+	data := self treemap coverageData.
+	data ifNil: [^ self treemapCoverageStatus: 'No coverage to export (run Cover first)'].
+	path := UIManager default
+		request: 'Write coverage JSON to:'
+		initialAnswer: (FileDirectory default fullNameFor: 'swa-coverage.json').
+	(path isNil or: [path isEmpty]) ifTrue: [^ self].
+	[data writeToFile: path withBlanksTrimmed]
+		on: Error do: [:e | ^ self treemapCoverageStatus: 'Export failed: ', e messageText].
+	self treemapCoverageStatus: 'Coverage written to ', path withBlanksTrimmed
 ]
 
 {
@@ -402,6 +418,50 @@ SWANavPanel >> iconButtonGraphic: aForm action: aSelector [
 		actionSelector: aSelector;
 		hResizing: #rigid; vResizing: #rigid;
 		yourself
+]
+
+{
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:19'
+}
+SWANavPanel >> importCoverage [
+	"Button action (code map only): load a smalltalkCI Coveralls JSON file
+	(coveralls_results.json) and overlay it as boolean coverage. Lets you view
+	coverage produced by CI -- or a separate smalltalkCI run -- without re-running
+	tests in this image."
+	| path cov |
+	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
+	path := UIManager default
+		request: 'Path to Coveralls JSON (coveralls_results.json):'
+		initialAnswer: ''.
+	(path isNil or: [path isEmpty]) ifTrue: [^ self].
+	[cov := SWACoverage fromCoverallsFile: path withBlanksTrimmed]
+		on: Error do: [:e |
+			^ self treemapCoverageStatus: 'Coverage import failed: ', e messageText].
+	self treemap showCoverage: cov.
+	self treemapCoverageStatus: 'Coverage (imported): ', cov resultMap size printString,
+		' methods covered'.
+	self refresh
+]
+
+{
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:45'
+}
+SWANavPanel >> importCoverageData [
+	"Load button: open a file chooser for a reusable SWACoverageData JSON file
+	(test<->method provenance) and overlay it -- works in any image, matched by
+	'Class>>selector'."
+	| path data |
+	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
+	path := self chooseCoverageFile.
+	path ifNil: [^ self].
+	[data := SWACoverageData fromFile: path]
+		on: Error do: [:e | ^ self treemapCoverageStatus: 'Import failed: ', e messageText].
+	self treemap showCoverageData: data.
+	self treemapCoverageStatus: 'Coverage (loaded): ', data coveredMethodCount printString,
+		' methods, ', data testNames size printString, ' tests'.
+	self refresh
 ]
 
 {
@@ -457,94 +517,6 @@ SWANavPanel >> refresh [
 ]
 
 {
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
-}
-SWANavPanel >> repaintNow [
-	"Force a synchronous redraw of the treemap (and its overlay) plus the meta line,
-	so coverage results appear live mid-run even under a modal progress bar."
-	| tm |
-	tm := self treemap.
-	tm ifNotNil: [tm flushCache; changed].
-	self world ifNotNil: [:w | w displayWorld]
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
-}
-SWANavPanel >> runAllTestCoverage: aCodeRoot [
-	"Whole-image test coverage: instrument the shown packages, run EVERY test in
-	the image. Slow and memory-heavy -- the progress bar shows it, ESC stops it.
-	No confirm dialog."
-	| cov testClasses |
-	cov := SWACoverage new methodsForPackages: aCodeRoot packageNames.
-	testClasses := (TestCase allSubclasses select: [:tc |
-		tc isAbstract not and: [tc testSelectors notEmpty]]) asArray.
-	self runCoverage: cov testClasses: testClasses label: 'Test coverage (all tests)'
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:55'
-}
-SWANavPanel >> runCoverage: aCoverage testClasses: testClasses label: aLabel [
-	"Drive a boolean test-coverage pass over testClasses with a modal progress bar,
-	repainting the treemap with partial results every few classes. Press ESC to
-	stop early (the bar is modal, so the Stop button can't be clicked during it);
-	whatever ran so far is kept. Wrappers are always uninstalled (ensure:)."
-	| tm n |
-	tm := self treemap.
-	n := testClasses size max: 1.
-	coverageCancel := false.
-	tm coverageStatus: 'starting...'.
-	aCoverage installTestCoverage.
-	[aLabel
-		displayProgressFrom: 0 to: n
-		during: [:bar | | done |
-			done := 0.
-			testClasses do: [:tc |
-				(coverageCancel or: [self escapePressed]) ifTrue: [coverageCancel := true].
-				coverageCancel ifFalse: [
-					[tc suite run] on: Error, Halt do: [:e | e return: nil].
-					done := done + 1.
-					bar value: done.
-					(done \\ 5 = 0 or: [done = testClasses size]) ifTrue: [
-						aCoverage refreshBooleanResult.
-						tm showCoverage: aCoverage.
-						tm coverageStatus: (self coverageStatusString: aCoverage
-							ran: done of: testClasses size cancelled: false).
-						self repaintNow]]]]]
-		ensure: [aCoverage uninstallTestCoverage].
-	aCoverage refreshBooleanResult.
-	tm showCoverage: aCoverage.
-	tm coverageStatus: (self coverageStatusString: aCoverage
-		ran: testClasses size of: testClasses size cancelled: coverageCancel).
-	self refresh
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
-}
-SWANavPanel >> runScopedTestCoverage: aCodeRoot [
-	"Boolean test coverage of the shown packages, exercised by their related
-	TestCase classes (category = or starts-with a shown package name). Modal
-	progress bar with live partial repaint; ESC to stop. Feedback goes to the
-	status line, not a dialog."
-	| names cov testClasses |
-	names := aCodeRoot packageNames.
-	cov := SWACoverage new methodsForPackages: names.
-	testClasses := (TestCase allSubclasses select: [:tc | | cat |
-		cat := tc category ifNil: [''].
-		tc isAbstract not and: [tc testSelectors notEmpty and: [
-			names anySatisfy: [:nm | cat = nm or: [cat beginsWith: nm] ]]]]) asArray.
-	testClasses isEmpty ifTrue: [
-		^ self treemapCoverageStatus: 'Coverage: no related test classes found'].
-	self runCoverage: cov testClasses: testClasses label: 'Test coverage'
-]
-
-{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -568,13 +540,13 @@ SWANavPanel >> selectionPathContents [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:14'
+	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:40'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: header (Back/Browse/Show + optional
-	X-ref/Clear + optional Cover/All/Tally/Clear Cov + optional Depth + breadcrumb
-	+ a top-right fullscreen toggle), selection-path line, meta-info line, then the
-	view. The source pane is created lazily by #toggleSource."
+	X-ref/Clear + optional coverage controls + optional Depth + breadcrumb + a
+	top-right fullscreen toggle), selection-path line, meta-info line, then the view.
+	The source pane is created lazily by #toggleSource."
 	| crumbFont detailFont metaFont backButton browseButton showButton |
 	view := aViewMorph.
 	crumbFont := TextStyle default fontOfPointSize: 12.
@@ -621,13 +593,17 @@ SWANavPanel >> setView: aViewMorph [
 	(view respondsTo: #keyIndex) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'X-ref' action: #crossReference).
 		headerRow addMorphBack: (self buttonLabelled: 'Clear' action: #clearCrossReference)].
-	"Coverage controls, only for the static Code Map: one button per measurement.
-	The Tally button is kept so its label/colour can reflect the live-tally state."
+	"Coverage controls, only for the static Code Map. Cover runs the shown packages'
+	related tests WITH provenance under a forked, Stop-able panel (covered green +
+	per-method covering tests). Tally = live invocation counting. Export/Load persist
+	the reusable JSON. The whole-image run is NOT here -- use
+	SWACoverage class>>generateAllTestsToFile: from a Workspace/CLI."
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Cover' action: #coverageScoped).
-		headerRow addMorphBack: (self buttonLabelled: 'Cover All' action: #coverageAll).
 		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
 		headerRow addMorphBack: tallyButton.
+		headerRow addMorphBack: (self buttonLabelled: 'Export' action: #exportCoverage).
+		headerRow addMorphBack: (self buttonLabelled: 'Load' action: #importCoverageData).
 		headerRow addMorphBack: (self buttonLabelled: 'Clear Cov' action: #clearCoverage).
 		self updateTallyButton].
 	depthButton ifNotNil: [headerRow addMorphBack: depthButton].
@@ -696,16 +672,6 @@ SWANavPanel >> startInvocationTally: aCodeRoot [
 	self updateTallyButton.
 	self treemapCoverageStatus: 'Tallying ', liveTally methods size printString,
 		' methods -- exercise, then press Tally to collect'
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
-}
-SWANavPanel >> stopCoverage [
-	"Stop button: request cancellation of a running coverage pass (the run loop
-	checks this each step, restores wrappers, and keeps partial results)."
-	coverageCancel := true
 ]
 
 {
