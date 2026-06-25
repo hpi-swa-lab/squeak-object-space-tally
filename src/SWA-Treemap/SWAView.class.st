@@ -29,7 +29,10 @@ Class {
 		'selectedNode',
 		'highlightStyle',
 		'coverageKind',
-		'coverageData'
+		'coverageData',
+		'testKeys',
+		'testFilterKeys',
+		'coveringTestFilter'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -54,16 +57,29 @@ SWAView >> clearCrossReference [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+}
+SWAView >> clearTestFilters [
+	"Drop both the green (test-selected) and blue (method-selected) filters and
+	restore the full coverage overlay."
+	coveringTestFilter := nil.
+	self filterToTestKey: nil
+]
+
+{
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:33'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
 }
 SWAView >> colorForNode: aNode [
 	"Subclass's #baseColorForNode: with any active highlight on top. A tile lights
 	up when it -- or any descendant -- matched; its weight is the MAX matching
 	weight in its subtree, so a class tile is as hot as its hottest matching method.
 	Non-matching tiles are dimmed. The matched-tile ramp depends on #highlightStyle
-	(#heat for cross-ref, #coverage for SWACoverage data)."
+	(#heat for cross-ref, #coverage for SWACoverage data).
+	Under a provenance overlay, executed tests / TestCase classes are tinted BLUE."
 	| base w |
+	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
 	highlightWeights ifNil: [^ self baseColorForNode: aNode].
 	base := self baseColorForNode: aNode.
 	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
@@ -138,22 +154,60 @@ SWAView >> crossReferenceFrom: aPeerView [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
 }
 SWAView >> effectiveWeightOf: aNode [
 	"Memoised rolled-up highlight weight: the max of aNode's own direct match and
-	its children's effective weights. Answers nil if nothing in the subtree matched."
+	its children's effective weights. Answers nil if nothing in the subtree matched.
+	When a test filter is active (a test/TestCase is selected), a method only counts
+	as a direct match if it is one of that test's covered methods."
 	| key w |
 	effectiveWeights at: aNode ifPresent: [:cached | ^ cached ].
 	w := nil.
 	key := aNode crossRefKey.
-	(key notNil and: [highlightWeights includesKey: key])
+	(key notNil
+		and: [highlightWeights includesKey: key]
+		and: [testFilterKeys isNil or: [testFilterKeys includes: key]])
 		ifTrue: [w := highlightWeights at: key].
 	aNode children do: [:c | | cw |
 		cw := self effectiveWeightOf: c.
 		cw ifNotNil: [w := w isNil ifTrue: [cw] ifFalse: [w max: cw]]].
 	effectiveWeights at: aNode put: w.
 	^ w
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+}
+SWAView >> filterToCoveredMethodKey: aMethodKey [
+	"Restrict the blue test highlight to just the tests (and their TestCase classes)
+	that covered the given application method. Pass nil to remove the filter.
+	No-op unless a SWACoverageData provenance overlay is active."
+	coverageData ifNil: [^ self].
+	coveringTestFilter := aMethodKey
+		ifNil: [nil]
+		ifNotNil: [:key | coverageData testKeysForMethod: key].
+	self flushCache.
+	self changed
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+}
+SWAView >> filterToTestKey: aTestOrClassKey [
+	"Restrict the green coverage highlight to just the methods covered by the given
+	test method or TestCase class. Pass nil to remove the filter (show all covered
+	methods again). No-op unless a SWACoverageData provenance overlay is active."
+	coverageData ifNil: [^ self].
+	aTestOrClassKey
+		ifNil: [testFilterKeys := nil]
+		ifNotNil: [:key |
+			testFilterKeys := (coverageData methodsForTestOrClass: key) asSet].
+	self rebuildEffectiveWeights.
+	self flushCache.
+	self changed
 ]
 
 {
@@ -240,6 +294,17 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 
 {
 	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+}
+SWAView >> isTestKey: aKey [
+	"True if aKey identifies an executed test method or TestCase class under the
+	active provenance coverage overlay (drives blue tinting)."
+	(testKeys isNil or: [aKey isNil]) ifTrue: [^ false].
+	^ testKeys includes: aKey
+]
+
+{
+	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
 SWAView >> keyIndex [
@@ -318,11 +383,13 @@ SWAView >> selectedNode [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:49'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
 }
 SWAView >> showCoverage: aCoverage [
 	"Overlay a SWACoverage result (its 'Class>>selector' -> value map) using the
-	green coverage ramp, with the usual max class-rollup. Pass nil to clear."
+	green coverage ramp, with the usual max class-rollup. Pass nil to clear.
+	This overlay has no test<->method provenance, so no blue test tinting."
+	testKeys := nil. testFilterKeys := nil.
 	aCoverage ifNil: [coverageKind := nil. coverageData := nil. ^ self highlightWeights: nil].
 	highlightStyle := #coverage.
 	coverageData := nil.
@@ -332,17 +399,78 @@ SWAView >> showCoverage: aCoverage [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:48'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
 }
 SWAView >> showCoverageData: aCoverageData [
-	"Overlay a SWACoverageData: tiles tinted green by covering-test count (more
-	tests = hotter green), with per-node covering-test provenance available in the
-	meta line. Pass nil to clear."
+	"Overlay a SWACoverageData: covered application methods are tinted green by
+	covering-test count, and executed test methods / TestCase classes are tinted
+	BLUE (see #colorForNode:). Selecting a test filters the green highlight to that
+	test's covered methods; selecting a covered method filters the blue tests to
+	those that covered it. Pass nil to clear."
+	testFilterKeys := nil. coveringTestFilter := nil.
 	aCoverageData ifNil: [
-		coverageData := nil. coverageKind := nil.
+		coverageData := nil. coverageKind := nil. testKeys := nil.
 		^ self highlightWeights: nil].
 	coverageData := aCoverageData.
 	coverageKind := #tally.   "graded green by covering-test count"
 	highlightStyle := #coverage.
+	testKeys := aCoverageData testKeySet , aCoverageData testClassNameSet.
 	self highlightWeights: aCoverageData resultMap
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+}
+SWAView >> testColorForNode: aNode [
+	"Blue tint for an executed test method or TestCase class tile.
+	 - With a test selected (testFilterKeys set): the selected test/class is bright,
+	   the others dimmed.
+	 - With a covered application method selected (coveringTestFilter set): tests
+	   that covered it are bright, the others dimmed.
+	 - Otherwise: plain blue."
+	| key selectedKey |
+	key := aNode crossRefKey.
+	coveringTestFilter notNil ifTrue: [
+		^ (coveringTestFilter includes: key)
+			ifTrue: [Color h: 210.0 s: 0.85 v: 0.95]
+			ifFalse: [Color h: 210.0 s: 0.35 v: 0.45]].
+	selectedKey := selectedNode ifNil: [nil] ifNotNil: [:n | n crossRefKey].
+	(testFilterKeys notNil and: [key = selectedKey])
+		ifTrue: [^ Color h: 210.0 s: 0.85 v: 0.95].
+	testFilterKeys notNil ifTrue: [^ Color h: 210.0 s: 0.35 v: 0.45].
+	^ Color h: 210.0 s: 0.6 v: 0.85
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+}
+SWAView >> testFilterKeys [
+	"The set of method crossRefKeys the green highlight is currently restricted to
+	(because a test/TestCase is selected), or nil for 'show all covered methods'."
+	^ testFilterKeys
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+}
+SWAView >> updateTestFilterForSelection [
+	"Called after the selection changes (no-op without a provenance overlay):
+	 - select a test / TestCase -> green-filter to the methods it covers;
+	 - select a covered application method -> blue-filter to the tests that
+	   covered it (and their TestCase classes);
+	 - select anything else -> drop both filters."
+	| key |
+	coverageData ifNil: [^ self].
+	key := selectedNode ifNil: [nil] ifNotNil: [:n | n crossRefKey].
+	(self isTestKey: key) ifTrue: [
+		coveringTestFilter := nil.
+		^ self filterToTestKey: key].
+	(key notNil and: [selectedNode kind == #method and: [coverageData isCovered: key]]) ifTrue: [
+		testFilterKeys := nil.
+		^ self filterToCoveredMethodKey: key].
+	(testFilterKeys notNil or: [coveringTestFilter notNil]) ifTrue: [
+		self clearTestFilters]
 ]

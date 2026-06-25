@@ -151,15 +151,19 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:48'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:24'
 }
 SWACodeTreemapMorph >> coverageNoteForNode: aNode [
 	"A short per-node coverage/tally note for the selected-node meta line, or '' if
-	no overlay is active. With a SWACoverageData (provenance) overlay, a method node
-	also lists its covering tests (PathTools-style). Method nodes show their own
-	value; class/package nodes show the rolled-up (max) value over their methods."
+	no overlay is active. With a SWACoverageData (provenance) overlay, a test
+	method or TestCase class node reports how many methods it covers, while an
+	application method node lists its covering tests (PathTools-style). Method nodes
+	show their own value; class/package nodes show the rolled-up (max) value over
+	their methods."
 	| v isLeaf |
 	coverageKind ifNil: [^ ''].
+	(coverageData notNil and: [self isTestKey: aNode crossRefKey]) ifTrue: [
+		^ self testProvenanceNoteForNode: aNode].
 	v := self coverageValueForNode: aNode.
 	isLeaf := aNode kind == #method.
 	"Provenance: covering tests for a selected method."
@@ -177,19 +181,26 @@ SWACodeTreemapMorph >> coverageNoteForNode: aNode [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:48'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:24'
 }
 SWACodeTreemapMorph >> coverageProvenanceNoteForNode: aNode [
-	"For a method node under a SWACoverageData overlay: 'covered by N tests: a, b, ...'
-	(showing the stored sample) or 'not covered'."
-	| key count tests |
+	"For a method node under a SWACoverageData overlay: list the covering tests
+	and the distinct TestCase classes they belong to (PathTools-style), or
+	'not covered'."
+	| key count tests classes |
 	key := aNode crossRefKey.
 	key ifNil: [^ ''].
 	count := coverageData coveringTestCountFor: key.
 	count = 0 ifTrue: [^ 'not covered'].
 	tests := coverageData testsForMethod: key.
+	classes := coverageData testClassesForMethod: key.
 	^ 'covered by ', count printString, ' test',
-		(count = 1 ifTrue: [''] ifFalse: ['s']), ': ',
+		(count = 1 ifTrue: [''] ifFalse: ['s']),
+		' in ', classes size printString, ' TestCase',
+		(classes size = 1 ifTrue: [''] ifFalse: ['s']),
+		' (', ((classes asSortedCollection) inject: '' into: [:a :b |
+			a isEmpty ifTrue: [b] ifFalse: [a, ', ', b]]), ')',
+		': ',
 		((tests first: (5 min: tests size)) inject: '' into: [:a :b |
 			a isEmpty ifTrue: [b] ifFalse: [a, ', ', b]]),
 		(tests size > 5 ifTrue: [', ...'] ifFalse: [''])
@@ -318,4 +329,20 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 		'   ', authors size printString, ' authors',
 		'   ', aNode changeCount printString, ' versions',
 		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
+]
+
+{
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:24'
+}
+SWACodeTreemapMorph >> testProvenanceNoteForNode: aNode [
+	"For a selected executed test method / TestCase class under a provenance
+	overlay: report how many methods it covers (the green-highlighted set)."
+	| key methods |
+	key := aNode crossRefKey.
+	methods := coverageData methodsForTestOrClass: key.
+	^ (aNode kind == #method ifTrue: ['test '] ifFalse: ['TestCase ']),
+		'covers ', methods size printString, ' method',
+		(methods size = 1 ifTrue: [''] ifFalse: ['s']),
+		' (shown in green)'
 ]

@@ -593,11 +593,15 @@ SWATreemapMorph >> selectTileNode: aNodeOrNil [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
 }
 SWATreemapMorph >> selectedNode: aNodeOrNil [
-	"Set the selected node and refresh the chrome (selection line, meta, source)."
+	"Set the selected node and refresh the chrome (selection line, meta, source).
+	Under a provenance coverage overlay, selecting a test method or TestCase class
+	filters the green highlight to just that test's covered methods; selecting
+	anything else clears the filter."
 	selectedNode := aNodeOrNil.
+	self updateTestFilterForSelection.
 	self refreshChrome
 ]
 

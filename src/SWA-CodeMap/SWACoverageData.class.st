@@ -144,6 +144,17 @@ SWACoverageData >> isCovered: aMethodName [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
+}
+SWACoverageData >> isTestKey: aKey [
+	"True if aKey is the crossRefKey of a test method that ran ('TestClass>>selector')
+	or of a TestCase class whose tests ran (bare class name)."
+	aKey ifNil: [^ false].
+	^ (testIds includesKey: aKey) or: [self testClassNameSet includes: aKey]
+]
+
+{
 	#category : #persistence,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:45'
 }
@@ -213,6 +224,42 @@ SWACoverageData >> methodsForTest: aTestName [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
+}
+SWACoverageData >> methodsForTestClass: aClassName [
+	"Union of all methods ('Class>>selector') covered by any test method of the
+	named TestCase class. Best-effort: per-method test samples are capped at
+	maxTestsPerMethod, so a method covered ONLY by tests beyond the cap may be
+	missed (same caveat as methodsForTest:)."
+	| tids result |
+	tids := Set new.
+	testIds keysAndValuesDo: [:name :tid | | idx |
+		idx := name indexOfSubCollection: '>>'.
+		(idx > 0 and: [(name copyFrom: 1 to: idx - 1) = aClassName])
+			ifTrue: [tids add: tid]].
+	result := Set new.
+	coverage keysAndValuesDo: [:mid :entry |
+		((entry at: #tests) anySatisfy: [:tid | tids includes: tid])
+			ifTrue: [result add: (methodNames at: mid)]].
+	^ result
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
+}
+SWACoverageData >> methodsForTestOrClass: aKey [
+	"Methods covered by the test or TestCase identified by aKey. If aKey is a
+	'TestClass>>selector' test method key, answers just that test's methods; if
+	aKey is a bare TestCase class name, answers the union over all its test
+	methods. Answers an empty collection for anything else."
+	aKey ifNil: [^ #()].
+	(testIds includesKey: aKey) ifTrue: [^ self methodsForTest: aKey].
+	^ self methodsForTestClass: aKey
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:44'
 }
@@ -247,6 +294,36 @@ SWACoverageData >> resultMap [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
+}
+SWACoverageData >> testClassNameSet [
+	"A Set of the names of all TestCase classes whose tests ran (parsed from the
+	'TestClass>>selector' test keys). Used to tint TestCase class tiles blue."
+	| set |
+	set := Set new.
+	testNames do: [:each | | idx |
+		idx := each indexOfSubCollection: '>>'.
+		idx > 0 ifTrue: [set add: (each copyFrom: 1 to: idx - 1)]].
+	^ set
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
+}
+SWACoverageData >> testClassesForMethod: aMethodName [
+	"The distinct TestCase class names among the (sampled) covering tests of the
+	method. Derived from testsForMethod:, so subject to the per-method sample cap."
+	| set |
+	set := Set new.
+	(self testsForMethod: aMethodName) do: [:testKey | | idx |
+		idx := testKey indexOfSubCollection: '>>'.
+		idx > 0 ifTrue: [set add: (testKey copyFrom: 1 to: idx - 1)]].
+	^ set
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:44'
 }
@@ -255,6 +332,34 @@ SWACoverageData >> testIdFor: aTestName [
 	^ testIds at: aTestName ifAbsentPut: [
 		testNames add: aTestName.
 		testNames size]
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
+}
+SWACoverageData >> testKeySet [
+	"A Set of all executed test keys ('TestClass>>selector') seen in this run.
+	Used by the Code Map to tint test method tiles blue."
+	^ testNames asSet
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+}
+SWACoverageData >> testKeysForMethod: aMethodName [
+	"The crossRefKeys to highlight as 'covered this method': the (sampled) covering
+	test methods ('TestClass>>selector') AND their distinct TestCase class names, so
+	both the test tiles and their class tiles light up. Subject to the per-method
+	sample cap (same caveat as testsForMethod:)."
+	| set |
+	set := Set new.
+	(self testsForMethod: aMethodName) do: [:testKey |
+		set add: testKey.
+		(testKey indexOfSubCollection: '>>') > 0 ifTrue: [
+			set add: (testKey copyFrom: 1 to: (testKey indexOfSubCollection: '>>') - 1)]].
+	^ set
 ]
 
 {
