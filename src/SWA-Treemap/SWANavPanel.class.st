@@ -42,7 +42,12 @@ Class {
 		'savedWindowFrame',
 		'liveTally',
 		'coverageCancel',
-		'tallyButton'
+		'tallyButton',
+		'sourceRow',
+		'coveringTestsPane',
+		'coveringTestsTitle',
+		'provenanceEntries',
+		'provenanceIndex'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -476,6 +481,44 @@ SWANavPanel >> metaInfoContents [
 ]
 
 {
+	#category : #'covering tests pane',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 14:31'
+}
+SWANavPanel >> newCoveringTestsPane [
+	"A titled list pane (right of the source pane) showing, for the selected method,
+	the tests/TestCases that cover it -- or, for a selected test, the methods it
+	covers. Clicking an entry navigates the treemap to that node."
+	| column list |
+	coveringTestsTitle := StringMorph new
+		contents: 'Coverage';
+		font: ((TextStyle default fontOfPointSize: 11) emphasized: 1);
+		color: (Color gray: 0.9);
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself.
+	list := PluggableListMorph
+		on: self
+		list: #provenanceList
+		selected: #provenanceIndex
+		changeSelected: #provenanceIndex:.
+	list
+		color: (Color gray: 0.1);
+		textColor: (Color gray: 0.92);
+		hResizing: #spaceFill; vResizing: #spaceFill.
+	(list respondsTo: #highlightColor:) ifTrue: [list highlightColor: (Color h: 210 s: 0.6 v: 0.6)].
+	coveringTestsPane := list.
+	column := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		cellPositioning: #topLeft;
+		hResizing: #rigid; vResizing: #spaceFill;
+		width: 340;
+		yourself.
+	column addMorphBack: coveringTestsTitle; addMorphBack: list.
+	^ column
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
@@ -494,6 +537,32 @@ SWANavPanel >> newSourceMorph [
 ]
 
 {
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:59'
+}
+SWANavPanel >> newSourceRow [
+	"The bottom area: a left-to-right row with the source pane (spaceFill) and,
+	for the Code Map (which has coverage provenance), the covering-tests pane
+	(fixed width)."
+	| row |
+	sourceMorph ifNil: [sourceMorph := self newSourceMorph].
+	row := Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellPositioning: #topLeft;
+		cellInset: 4;
+		hResizing: #spaceFill; vResizing: #rigid;
+		height: 220;
+		yourself.
+	sourceMorph hResizing: #spaceFill; vResizing: #spaceFill.
+	row addMorphBack: sourceMorph.
+	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
+		row addMorphBack: self newCoveringTestsPane].
+	^ row
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
 }
@@ -504,16 +573,52 @@ SWANavPanel >> peerPanels [
 ]
 
 {
+	#category : #'covering tests pane',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+}
+SWANavPanel >> provenanceIndex [
+	"List-model selection index for the covering-tests pane."
+	^ provenanceIndex ifNil: [0]
+]
+
+{
+	#category : #'covering tests pane',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+}
+SWANavPanel >> provenanceIndex: anInteger [
+	"List-model click handler for the covering-tests pane: navigate the treemap to
+	the clicked test/method node (selecting it, which in turn re-fills this pane for
+	the newly selected node)."
+	| assoc |
+	provenanceIndex := anInteger.
+	(anInteger = 0 or: [provenanceEntries isNil]) ifTrue: [^ self].
+	assoc := provenanceEntries at: anInteger ifAbsent: [^ self].
+	(view respondsTo: #selectNodeForKey:)
+		ifTrue: [view selectNodeForKey: assoc value]
+]
+
+{
+	#category : #'covering tests pane',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+}
+SWANavPanel >> provenanceList [
+	"List-model contents for the covering-tests pane: the display labels of the
+	current selection's provenance entries."
+	^ (provenanceEntries ifNil: [#()]) collect: [:assoc | assoc key]
+]
+
+{
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:58'
 }
 SWANavPanel >> refresh [
-	"Re-pull all label strings from the view and reload the source pane (if shown).
-	The view calls this after any selection/zoom change."
+	"Re-pull all label strings from the view and reload the source + covering-tests
+	panes (if shown). The view calls this after any selection/zoom change."
 	breadcrumbMorph ifNotNil: [breadcrumbMorph contents: self breadcrumbContents].
 	selectionPathMorph ifNotNil: [selectionPathMorph contents: (self selectionPathContents ifNil: [''])].
 	metaInfoMorph ifNotNil: [metaInfoMorph contents: (self metaInfoContents ifNil: [''])].
-	self updateSource
+	self updateSource.
+	self updateCoveringTests
 ]
 
 {
@@ -707,17 +812,20 @@ SWANavPanel >> toggleFullScreen [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
 }
 SWANavPanel >> toggleSource [
-	"Show button: show/hide the source pane at the bottom of the panel. When shown,
-	load the view's currently selected source."
-	(sourceMorph notNil and: [sourceMorph owner notNil])
-		ifTrue: [sourceMorph delete]
+	"Show button: show/hide the bottom area at the bottom of the panel. The bottom
+	area is a horizontal row holding the source pane (left) and -- for views with
+	coverage provenance -- a covering-tests list pane (right). When shown, load the
+	current selection's source and provenance."
+	(sourceRow notNil and: [sourceRow owner notNil])
+		ifTrue: [sourceRow delete]
 		ifFalse: [
-			sourceMorph ifNil: [sourceMorph := self newSourceMorph].
-			self addMorphBack: sourceMorph.
-			self updateSource].
+			sourceRow ifNil: [sourceRow := self newSourceRow].
+			self addMorphBack: sourceRow.
+			self updateSource.
+			self updateCoveringTests].
 	self layoutChanged
 ]
 
@@ -742,6 +850,28 @@ SWANavPanel >> treemapCoverageStatus: aString [
 ]
 
 {
+	#category : #'covering tests pane',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:58'
+}
+SWANavPanel >> updateCoveringTests [
+	"If the covering-tests pane is showing, refill it from the view's current
+	selection (tests covering the selected method, or methods a selected test
+	covers) and update its title."
+	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
+	coveringTestsPane ifNil: [^ self].
+	provenanceEntries := (view respondsTo: #provenanceListForSelection)
+		ifTrue: [view provenanceListForSelection]
+		ifFalse: [#()].
+	provenanceIndex := 0.
+	coveringTestsTitle ifNotNil: [
+		coveringTestsTitle contents:
+			((view respondsTo: #provenanceListTitle)
+				ifTrue: [view provenanceListTitle]
+				ifFalse: ['Coverage'])].
+	coveringTestsPane updateList
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:54'
 }
@@ -758,12 +888,13 @@ SWANavPanel >> updateDepthLabel [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:58'
 }
 SWANavPanel >> updateSource [
-	"If the source pane is showing, reload it from the view's current selection."
-	(sourceMorph isNil or: [sourceMorph owner isNil]) ifTrue: [^ self].
-	sourceMorph setText: (self selectedSourceContents ifNil: [''])
+	"If the bottom area is showing, reload the source pane from the current selection."
+	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
+	sourceMorph ifNotNil: [
+		sourceMorph setText: (self selectedSourceContents ifNil: [''])]
 ]
 
 {

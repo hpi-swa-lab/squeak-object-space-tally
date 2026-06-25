@@ -139,6 +139,16 @@ SWAView >> coverageValueForNode: aNode [
 
 {
 	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:41'
+}
+SWAView >> coveringTestFilter [
+	"The set of test/TestCase crossRefKeys currently highlighted because a covered
+	method is selected (the tests that covered it), or nil for none."
+	^ coveringTestFilter
+]
+
+{
+	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
 SWAView >> crossReferenceFrom: aPeerView [
@@ -333,6 +343,55 @@ SWAView >> navPanel: aSWANavPanel [
 
 {
 	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+}
+SWAView >> provenanceListForSelection [
+	"For the covering-tests side pane. Returns an Array of associations
+	displayLabel -> crossRefKey describing the current selection's provenance under
+	a SWACoverageData overlay:
+	 - a covered application method -> the tests (and TestCase classes) that cover it;
+	 - a test method / TestCase class -> the methods it covers;
+	 - otherwise -> empty.
+	The key lets the panel navigate the treemap to the clicked entry."
+	| key |
+	coverageData ifNil: [^ #()].
+	selectedNode ifNil: [^ #()].
+	key := selectedNode crossRefKey.
+	key ifNil: [^ #()].
+	(self isTestKey: key) ifTrue: [
+		^ (coverageData methodsForTestOrClass: key) asSortedCollection asArray
+			collect: [:m | m -> m]].
+	(selectedNode kind == #method and: [coverageData isCovered: key]) ifTrue: [
+		| tests classes entries |
+		tests := coverageData testsForMethod: key.
+		classes := coverageData testClassesForMethod: key.
+		entries := OrderedCollection new.
+		classes asSortedCollection do: [:c | entries add: ('[', c, ']') -> c].
+		tests asSortedCollection do: [:t | entries add: ('   ', t) -> t].
+		^ entries asArray].
+	^ #()
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+}
+SWAView >> provenanceListTitle [
+	"A short heading for the covering-tests side pane describing what it lists for
+	the current selection."
+	| key |
+	(coverageData isNil or: [selectedNode isNil]) ifTrue: [^ 'Coverage'].
+	key := selectedNode crossRefKey.
+	key ifNil: [^ 'Coverage'].
+	(self isTestKey: key) ifTrue: [
+		^ 'Covers ', (coverageData methodsForTestOrClass: key) size printString, ' methods'].
+	(selectedNode kind == #method and: [coverageData isCovered: key]) ifTrue: [
+		^ 'Covered by ', (coverageData coveringTestCountFor: key) printString, ' tests'].
+	^ 'Coverage'
+]
+
+{
+	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
 SWAView >> rebuildEffectiveWeights [
@@ -373,6 +432,20 @@ SWAView >> rootNode [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+}
+SWAView >> selectNodeForKey: aCrossRefKey [
+	"Navigate to and select the node with the given crossRefKey (from the covering-
+	tests pane). No-op if not found. Zooms out to a node that contains it if it is
+	not under the current focus, so the tile becomes visible."
+	| node |
+	aCrossRefKey ifNil: [^ self].
+	node := self keyIndex at: aCrossRefKey ifAbsent: [^ self].
+	self selectedNode: node
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
@@ -383,13 +456,13 @@ SWAView >> selectedNode [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:40'
 }
 SWAView >> showCoverage: aCoverage [
 	"Overlay a SWACoverage result (its 'Class>>selector' -> value map) using the
 	green coverage ramp, with the usual max class-rollup. Pass nil to clear.
 	This overlay has no test<->method provenance, so no blue test tinting."
-	testKeys := nil. testFilterKeys := nil.
+	testKeys := nil. testFilterKeys := nil. coveringTestFilter := nil.
 	aCoverage ifNil: [coverageKind := nil. coverageData := nil. ^ self highlightWeights: nil].
 	highlightStyle := #coverage.
 	coverageData := nil.

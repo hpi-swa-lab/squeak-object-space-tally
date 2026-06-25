@@ -101,66 +101,38 @@ SWACoverage class >> everyTestClass [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:32'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:46'
 }
 SWACoverage class >> excludedPackagePatterns [
-	"Globs for packages that MUST NOT be instrumented during a coverage run: the
-	infrastructure the runner itself relies on (test framework, compiler, kernel,
-	collections, the morphic UI that draws progress, our own tools). Wrapping these
-	makes the system recurse through wrappers or grind to a halt -- the classic
-	self-sustaining-system trap. Conservative on purpose."
-	^ #(
-		'SUnit*' 'Tests*' '*Tests' '*Tests-*'
-		'Kernel*' 'Collections*' 'Compiler*' 'ShoutCore*'
-		'Morphic*' 'MorphicExtras*' 'ToolBuilder*' 'Tools*' 'ST80*'
-		'System*' 'Files*' 'FS-*' 'FileSystem*' 'Network*' 'Multilingual*'
-		'Graphics*' 'Balloon*' 'TrueType*' 'Environments*'
-		'Monticello*' 'Monticello*' 'Metacello*' 'Gofer*' 'Installer*'
-		'MethodMassage*' 'Traits*' 'SWA-*' 'SWATools' 'SWAGame*'
-		'MCP-*' 'OpenCode*' 'Services*' 'Etoys*' 'Nebraska*'
-		'VersionControl*' 'GitS*' 'OSProcess*' )
+	"Emptied by request: no packages are excluded from instrumentation by default.
+	(Previously excluded SUnit/Kernel/Collections/Morphic/Tools/our own tools etc.)
+	The only remaining guard is substratePackagePatterns -- also emptied -- so a
+	broad run is now unguarded. Restore from version history before running broadly."
+	^ #()
 ]
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:42'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:46'
 }
 SWACoverage class >> excludedTestCategoryPatterns [
-	"Globs for test CATEGORIES whose suites should NOT be auto-run in a whole-image
-	pass. These are system-infrastructure tests that LOAD/MERGE/INSTALL packages,
-	mutate the image, open UI, touch disk/network, or fork processes -- they pop up
-	merge dialogs and do package loading mid-run, which is exactly what hangs an
-	unattended pass. Matching by category is reliable because these tests share no
-	class-name token."
-	^ #(
-		'Tests-Monticello*' 'MonticelloTonel-Tests*' 'Monticello*'
-		'Metacello*' 'Gofer*' 'Tests-Installer*' 'Installer*'
-		'FileSystem-Git*' 'GitS*' 'VersionControl*' 'DiffMerge*'
-		'Tests-System*' 'Tests-Files*' 'Tests-VM*' 'Tests-Compiler*'
-		'Tests-Release*' 'Tests-Dependencies*' 'Tests-Environments*'
-		'Tests-FilePackage*' 'Tests-Digital Signatures*'
-		'Network*' 'WebClient*' 'SqueakSSL*' 'OSProcess*' 'CommandShell*'
-		'MorphicTests*' 'MorphicExtrasTests*' 'ToolsTests*' 'ST80Tests*'
-		'ST80-Menus-Tests*' 'GraphicsTests*' 'BalloonTests*' 'MultilingualTests*'
-		'HelpSystem-Tests*' 'Help-Squeak*' 'SystemChangeNotification-Tests*'
-		'FS-Tests*' 'KernelTests-Processes*' 'Etoys-Tests*'
-		'SqueakXR-Tests-Morphic*' )
+	"Emptied by request: no test CATEGORIES are excluded from whole-image runs.
+	(Previously excluded Monticello/Metacello/Installer/Network/OSProcess/Morphic/
+	etc. categories that load packages, open UI, or fork processes mid-run.)
+	Restore from version history before running unattended."
+	^ #()
 ]
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:34'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:46'
 }
 SWACoverage class >> excludedTestClassPatterns [
-	"Globs for TestCase classes whose suites should NOT be auto-run in a whole-image
-	pass: tests that open windows, prompt, fork processes, hit the network/VM, or are
-	otherwise known to hang or block an unattended run."
-	^ #(
-		'*UIManager*' '*Morphic*' '*Window*' '*Hand*' '*Drag*' '*Event*'
-		'*Process*' '*Delay*' '*Semaphore*' '*Socket*' '*Network*' '*HTTP*'
-		'*Web*' '*Sound*' '*Serial*' '*OSProcess*' '*CommandShell*'
-		'*Compiler*' '*Decompiler*' '*VM*' '*FileSystem*' '*File*'
-		'*Clipboard*' '*Display*' '*Project*' '*MVC*' )
+	"Emptied by request: no TestCase classes are excluded from whole-image runs.
+	(Previously excluded UI/Window/Hand/Event/Process/Delay/Socket/File/etc. tests
+	known to hang or block an unattended run.) Restore from version history before
+	running unattended."
+	^ #()
 ]
 
 {
@@ -376,27 +348,15 @@ SWACoverage class >> runProvenanceForPackages: pkgGlobs tests: testClasses then:
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:54'
+	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:46'
 }
 SWACoverage class >> substratePackagePatterns [
-	"Packages that MUST NEVER be instrumented under ANY setting (not even
-	#exclusions: #()). These are the foundation the wrap-and-replace machinery -- and
-	the entire running system -- depend on: wrapping them detours every basic
-	operation (at:, do:, +, =, hash...) through doesNotUnderstand:/executeMethod:,
-	which collapses the VM under overhead before a single test even runs. This is the
-	hard lesson from the whole-image crashes: you measure coverage of code UNDER
-	test, never the substrate it runs on. Standard coverage tools do the same.
-
-	A run that hits these simply does not cover them (they show as 'not covered'),
-	which is correct."
-	^ #(
-		'Kernel*' 'Collections*' 'Compiler*' 'ShoutCore*'
-		'System-Support' 'System-Object*' 'System-Finalization'
-		'Graphics-Primitives' 'Graphics-Display Objects'
-		'Files*' 'FS-*' 'FileSystem*'
-		'Multilingual*' 'Network-Kernel'
-		'Morphic-Kernel' 'Morphic-Support'
-		'Traits*' 'Environments*' )
+	"DANGER: emptied by request. Normally this is the hard VM-safety guard listing
+	packages that must NEVER be instrumented (Kernel/Collections/Compiler/
+	Morphic-Kernel/...). With it empty, a coverage run CAN crash the VM, because
+	wrapping the foundation detours every basic operation through the wrapper
+	machinery. Restore the real list from version history before running broadly."
+	^ #()
 ]
 
 {
