@@ -44,7 +44,8 @@ Class {
 	],
 	#classVars : [
 		'CurrentTestName',
-		'InMetaMode'
+		'InMetaMode',
+		'LogFileName'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -66,6 +67,50 @@ SWACoverage class >> allRunnableTestClasses [
 		tc isAbstract not and: [tc testSelectors notEmpty and: [
 			(nameExcl anySatisfy: [:g | g match: tc name]) not
 				and: [(catExcl anySatisfy: [:g | g match: cat]) not]]]]) asArray
+]
+
+{
+	#category : #bisecting,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:55'
+}
+SWACoverage class >> bisectWrapPackages: pkgGlobs toLog: aLogPath [
+	"CHILD bisection entry. Wrap every method of pkgGlobs, LOGGING each method right
+	before it is installed, then flush ONCE, log done, and quit. NO tests run -- this
+	isolates the install/WRAP explosion specifically. If a particular method's
+	installation blows up (memory/recursion/crash), the LAST 'WRAP' line in the log
+	names it.
+
+	The install loop runs GUARDED (InWrapper raised) so the loop's own sends are never
+	instrumented. Per-method logging is itself guarded (#log: uses #guardedDo:).
+	Quits without saving no matter what."
+	self logFileName: aLogPath.
+	Transcript ifNotNil: [[TranscriptStream redirectToStdOut: true] on: Error do: [:e | nil]].
+	[[| cov ms |
+	  SWAMethodWrapper resetGuard.
+	  SWACoverage log: '=== BISECT: selecting ', pkgGlobs printString, ' ==='.
+	  cov := SWACoverage new methodsForPackages: pkgGlobs.
+	  ms := cov methods asArray.
+	  SWACoverage log: '=== BISECT: wrapping ', ms size printString, ' methods one by one ==='.
+	  SWAMethodWrapper guardedDo: [
+		ms doWithIndex: [:m :i |
+			SWACoverage log: 'WRAP ', i printString, '/', ms size printString, '  ',
+				m methodClass name, '>>', m selector.
+			(SWACoverageWrapper new onClass: m methodClass selector: m selector data: nil)
+				installNoFlush].
+		SWAMethodWrapper flushSystemCache].
+	  SWACoverage log: '=== BISECT: all ', ms size printString, ' wrapped OK; uninstalling ==='.
+	  "uninstall everything cleanly (still guarded)"
+	  SWAMethodWrapper guardedDo: [
+		ms do: [:m | | w |
+			w := m methodClass methodDictionary at: m selector ifAbsent: [nil].
+			(w isKindOf: SWAMethodWrapper) ifTrue: [w uninstallNoFlush]].
+		SWAMethodWrapper flushSystemCache].
+	  SWACoverage log: '=== BISECT: DONE clean ===']
+		on: Error, Halt do: [:e |
+			SWACoverage log: '=== BISECT: ERROR ', e class name, ': ', e messageText printString, ' ===']]
+		ensure: [
+			SWACoverage log: '=== BISECT: quitting ==='.
+			Smalltalk snapshot: false andQuit: true]
 ]
 
 {
@@ -197,7 +242,7 @@ SWACoverage class >> generateAllTestsToFile: aFilePath [
 
 {
 	#category : #generating,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:30'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:09'
 }
 SWACoverage class >> generatePackages: pkgGlobs tests: testClasses toFile: aFilePath [
 	"STANDALONE scoped run: instrument pkgGlobs, run testClasses WITH provenance,
@@ -215,6 +260,7 @@ SWACoverage class >> generatePackages: pkgGlobs tests: testClasses toFile: aFile
 			tests: (SWACoverage testClassesForPackages: #('SqueakXR*'))
 			toFile: 'squeakxr-coverage.json'."
 	| cov panel work |
+	SWACoverage log: '=== STAGE: generate START -> ', aFilePath, ' ==='.
 	cov := SWACoverage new methodsForPackages: pkgGlobs.
 	panel := SWACoverageRunPanel new
 		openInWindowTitled: 'Coverage run -> ', aFilePath;
@@ -223,8 +269,10 @@ SWACoverage class >> generatePackages: pkgGlobs tests: testClasses toFile: aFile
 		panel status: 'Instrumented ', cov methods size printString, ' methods; running ',
 			testClasses size printString, ' test classes...'.
 		data := cov runWithProvenance: testClasses asArray panel: panel.
+		SWACoverage log: '=== STAGE: writing file ', aFilePath, ' ==='.
 		data writeToFile: aFilePath.
-		SWACoverage log: 'SWACoverage: wrote ', aFilePath.
+		SWACoverage log: '=== STAGE: generate DONE -- wrote ', data coveredMethodCount printString,
+			' methods, ', data testNames size printString, ' tests -> ', aFilePath, ' ==='.
 		panel finishAndClose: 'Done. Wrote ', data coveredMethodCount printString,
 			' methods, ', data testNames size printString, ' tests -> ', aFilePath].
 	"Headless: no World -> run inline. Otherwise fork below the UI so Stop works."
@@ -232,6 +280,66 @@ SWACoverage class >> generatePackages: pkgGlobs tests: testClasses toFile: aFile
 		ifTrue: [work value. ^ aFilePath].
 	work forkAt: Processor userBackgroundPriority.
 	^ aFilePath
+]
+
+{
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:41'
+}
+SWACoverage class >> generatePackages: pkgGlobs toFile: aFilePath forked: aBoolean [
+	"PARENT entry point. When aBoolean is true, run the whole coverage pass in a
+	FRESH, throwaway headless squeak image launched from disk -- the tests can fork,
+	pollute, or wedge that child all they like; THIS image is never touched, and we
+	get the result back as the JSON file the child writes. When false, behaves like
+	the in-image #generatePackages:tests:toFile: (kept for the safe/scoped case).
+
+	Mechanism (forked):
+	 1. Write a tiny .st bootstrap script (#runForkedCoverageForPackages:toFile:).
+	 2. Delete any stale output file, per-run log, and .out so the tailer starts clean.
+	 3. OSProcess command: launches '<vm> -nodisplay <thisImage> <script>'
+	    ASYNCHRONOUSLY, redirecting stdout+stderr to a '.out' file (a VM crash dump
+	    goes to stderr, not our per-line log). The returned ExternalOSProcess is
+	    captured so the tailer's STOP button can sigkill the child.
+	 4. If there is a World, open a live tailer watching the log + .out, holding the
+	    child process and script path so STOP can kill a wedged/thrashing child.
+
+	Requires the CURRENT image to have been SAVED with this code, since the child
+	loads the same image file from disk.
+
+	Example (whole image, from the live MCP image):
+		SWACoverage generatePackages: #('*')
+			toFile: 'squeak-coverage.json' forked: true."
+	| scriptPath cmd imageName logPath outPath proc |
+	aBoolean ifFalse: [
+		^ self generatePackages: pkgGlobs
+			tests: (self testClassesForPackages: pkgGlobs)
+			toFile: aFilePath].
+	imageName := SmalltalkImage current imageName.
+	scriptPath := aFilePath, '.run.st'.
+	logPath := self logFileNameForOutput: aFilePath.
+	outPath := aFilePath, '.out'.
+	(FileStream forceNewFileNamed: scriptPath)
+		nextPutAll: 'SWACoverage runForkedCoverageForPackages: ';
+		nextPutAll: pkgGlobs printString;
+		nextPutAll: ' toFile: ';
+		nextPutAll: aFilePath printString;
+		nextPutAll: '.';
+		close.
+	(FileDirectory default fileExists: aFilePath)
+		ifTrue: [FileDirectory default deleteFileNamed: aFilePath].
+	(FileDirectory default fileExists: logPath)
+		ifTrue: [FileDirectory default deleteFileNamed: logPath].
+	(FileDirectory default fileExists: outPath)
+		ifTrue: [FileDirectory default deleteFileNamed: outPath].
+	cmd := '"', self vmExecutablePath, '" -nodisplay "', imageName, '" "', scriptPath,
+		'" > "', outPath, '" 2>&1'.
+	SWACoverage log: '=== FORK PARENT: launching child -> ', cmd, ' ==='.
+	proc := OSProcess command: cmd.
+	(Smalltalk at: #World ifAbsent: [nil])
+		ifNil: [^ aFilePath].
+	^ (SWACoverageLogTailer openOn: logPath output: aFilePath stderr: outPath)
+		childProcess: proc scriptPath: scriptPath;
+		yourself
 ]
 
 {
@@ -257,16 +365,25 @@ SWACoverage class >> inMetaMode: aBoolean [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:42'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 16:11'
 }
 SWACoverage class >> infrastructureClasses [
 	"Classes that must NEVER be instrumented, regardless of package selection: the
-	coverage machinery and the SUnit runner. Wrapping these lets attribution recurse
-	through its own guard/bookkeeping. The meta-mode flag already prevents the worst
-	recursion, but excluding these is cleaner and much faster (you can't meaningfully
-	measure the measurer anyway). Always on, even with #exclusions: #()."
-	^ { SWACoverage. SWACoverageData. SWACoverageWrapper. SWATallyWrapper.
-		SWACoverageRunPanel.
+	instrumentation machinery and the SUnit runner. Wrapping these makes dispatch
+	recurse through its own machinery -- fatal.
+
+	CRITICAL: SWAMethodWrapper is the SHARED SUPERCLASS where the dispatch entry
+	#run:with:in:, #install, #forward:with:in:, #methodName and the guard now live.
+	It MUST be here: wrapping SWAMethodWrapper>>run:with:in: makes every subsequent
+	wrapper dispatch call a wrapped #run:with:in: -> infinite recursion -> OOM (found
+	by bisection, 2026-06-26). Listing it covers ALL wrapper subclasses because
+	#mustNotInstrument: also matches #inheritsFrom:. (The old list named the two
+	subclasses but not the new superclass, which is why '*' still blew up after the
+	refactor.)
+
+	Always on, even with #exclusions: #()."
+	^ { SWAMethodWrapper. SWACoverage. SWACoverageData.
+		SWACoverageWrapper. SWATallyWrapper. SWACoverageRunPanel.
 		TestCase. TestSuite. TestResult. TestCoverage }
 ]
 
@@ -304,16 +421,99 @@ SWACoverage class >> keyFromCoverallsPath: aPath [
 
 {
 	#category : #logging,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:51'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:33'
 }
 SWACoverage class >> log: aString [
-	"Write a progress line to the Transcript (visible in-image) AND to stdout
-	(visible on the command line / CI). Both are wrapped so a missing channel never
-	breaks a run. Used by the standalone generator for progress that shows up
-	headless."
-	[Transcript show: aString; cr] on: Error do: [:e | nil].
-	[FileStream stdout nextPutAll: aString; nextPut: Character lf; flush]
-		on: Error do: [:e | nil]
+	"Append one progress line to the log file (#logFileName). tail -f to watch a run.
+	Crash-safe: opens, appends at end, flushes, CLOSES per line.
+
+	Runs inside the BASE REENTRANCY GUARD (#guardedDo:) so the FileStream/Collections
+	sends it makes fall straight through their wrappers instead of re-entering them.
+	(This is plumbing -- the reentrancy guard -- NOT the coverage recording flag.)
+	Any file error is swallowed -- logging must never break a run."
+	SWAMethodWrapper guardedDo: [
+		[| f |
+		 f := FileStream fileNamed: SWACoverage logFileName.
+		 [f setToEnd; nextPutAll: aString; nextPut: Character lf; flush]
+			ensure: [f close]]
+			on: Error do: [:e | nil]]
+]
+
+{
+	#category : #logging,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:57'
+}
+SWACoverage class >> logFileName [
+	"Path of the coverage progress log. Stage/package/test-class lines are appended
+	here (see #log:). tail -f this file to watch a run; it survives a hard VM crash
+	because #log: opens/appends/flushes/closes per line.
+
+	Defaults to 'squeak-coverage.log' but can be redirected per run via #logFileName:
+	-- the forked child sets it to a per-run file derived from the output path (e.g.
+	morphic-coverage.json -> morphic-coverage.log)."
+	^ LogFileName ifNil: [LogFileName := 'squeak-coverage.log']
+]
+
+{
+	#category : #logging,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:57'
+}
+SWACoverage class >> logFileName: aStringOrNil [
+	"Redirect the progress log. nil restores the default ('squeak-coverage.log' via
+	#logFileName)."
+	LogFileName := aStringOrNil
+]
+
+{
+	#category : #logging,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:58'
+}
+SWACoverage class >> logFileNameForOutput: aFilePath [
+	"Derive a per-run log file name from a coverage output path by replacing the
+	extension with '.log': 'morphic-coverage.json' -> 'morphic-coverage.log'. If the
+	path has no '.', append '.log'."
+	| dotIndex |
+	dotIndex := aFilePath lastIndexOf: $..
+	^ dotIndex = 0
+		ifTrue: [aFilePath, '.log']
+		ifFalse: [(aFilePath copyFrom: 1 to: dotIndex - 1), '.log']
+]
+
+{
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:42'
+}
+SWACoverage class >> runForkedCoverageForPackages: pkgGlobs toFile: aFilePath [
+	"CHILD entry point. Runs in a FRESH, throwaway headless image launched from disk
+	by #generatePackages:toFile:forked:. Because this image is disposable, we DO NOT
+	care if the tests pollute it, fork the VM, or wedge the UI -- when this method
+	finishes (or fails) we quit WITHOUT saving, and the parent image is never touched.
+
+	Redirects the Transcript to stdout (#redirectToStdOut: true) so that anything the
+	tests (or the system) print to the Transcript is captured into the child's '.out'
+	file -- which the parent's tailer shows live in its second panel, on top of our
+	own structured per-line log. Then rebuilds the test classes from the globs,
+	runs the provenance coverage inline, writes the JSON, and quits.
+
+	Wrapped so ANY error still reaches the quit -- a child that hangs is worse than a
+	child that dies, and the parent only cares about the result file appearing."
+	| testClasses cov data |
+	self logFileName: (self logFileNameForOutput: aFilePath).
+	[TranscriptStream redirectToStdOut: true] on: Error do: [:e | nil].
+	[[SWACoverage log: '=== FORKED CHILD: START pkgs=', pkgGlobs printString, ' -> ', aFilePath, ' ==='.
+	  testClasses := self testClassesForPackages: pkgGlobs.
+	  SWACoverage log: '=== FORKED CHILD: ', testClasses size printString, ' test classes ==='.
+	  cov := SWACoverage new methodsForPackages: pkgGlobs.
+	  data := cov runWithProvenance: testClasses asArray panel: nil.
+	  SWACoverage log: '=== FORKED CHILD: writing ', aFilePath, ' ==='.
+	  data writeToFile: aFilePath.
+	  SWACoverage log: '=== FORKED CHILD: DONE -- ', data coveredMethodCount printString,
+		' methods, ', data testNames size printString, ' tests -> ', aFilePath, ' ===']
+		on: Error, Halt do: [:e |
+			SWACoverage log: '=== FORKED CHILD: ERROR ', e class name, ': ', e messageText printString, ' ===']]
+		ensure: [
+			SWACoverage log: '=== FORKED CHILD: quitting (no save) ==='.
+			Smalltalk snapshot: false andQuit: true]
 ]
 
 {
@@ -347,16 +547,54 @@ SWACoverage class >> runProvenanceForPackages: pkgGlobs tests: testClasses then:
 ]
 
 {
+	#category : #bisecting,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:55'
+}
+SWACoverage class >> spawnBisectForPackages: pkgGlobs tag: aTag [
+	"PARENT: launch a fresh headless child that wraps pkgGlobs method-by-method (no
+	tests), logging each method, to find which one explodes. aTag names the run's
+	files: bisect-<tag>.log (per-method WRAP lines) and bisect-<tag>.out (stdout/crash
+	dump). Returns the log path. Watch with: tail -f bisect-<tag>.log -- the last WRAP
+	line names the culprit if it dies."
+	| scriptPath logPath outPath cmd |
+	scriptPath := 'bisect-', aTag, '.run.st'.
+	logPath := 'bisect-', aTag, '.log'.
+	outPath := 'bisect-', aTag, '.out'.
+	(FileStream forceNewFileNamed: scriptPath)
+		nextPutAll: 'SWACoverage bisectWrapPackages: ', pkgGlobs printString,
+			' toLog: ', logPath printString, '.';
+		close.
+	(FileDirectory default fileExists: logPath) ifTrue: [FileDirectory default deleteFileNamed: logPath].
+	(FileDirectory default fileExists: outPath) ifTrue: [FileDirectory default deleteFileNamed: outPath].
+	cmd := '"', self vmExecutablePath, '" -nodisplay "', SmalltalkImage current imageName,
+		'" "', scriptPath, '" > "', outPath, '" 2>&1'.
+	OSProcess command: cmd.
+	^ logPath
+]
+
+{
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:46'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:26'
 }
 SWACoverage class >> substratePackagePatterns [
-	"DANGER: emptied by request. Normally this is the hard VM-safety guard listing
-	packages that must NEVER be instrumented (Kernel/Collections/Compiler/
-	Morphic-Kernel/...). With it empty, a coverage run CAN crash the VM, because
-	wrapping the foundation detours every basic operation through the wrapper
-	machinery. Restore the real list from version history before running broadly."
-	^ #()
+	"Packages that MUST NEVER be instrumented under ANY setting (not even
+	#exclusions: #()). These are the foundation the wrap-and-replace machinery -- and
+	the entire running system -- depend on: wrapping them detours every basic
+	operation (at:, do:, +, =, hash...) through doesNotUnderstand:/executeMethod:,
+	which collapses the VM under overhead before a single test even runs. This is the
+	hard lesson from the whole-image crashes: you measure coverage of code UNDER
+	test, never the substrate it runs on. Standard coverage tools do the same.
+
+	A run that hits these simply does not cover them (they show as 'not covered'),
+	which is correct."
+	^ #(
+		'Kernel*' 'Collections*' 'Compiler*' 'ShoutCore*'
+		'System-Support' 'System-Object*' 'System-Finalization'
+		'Graphics-Primitives' 'Graphics-Display Objects'
+		'Files*' 'FS-*' 'FileSystem*'
+		'Multilingual*' 'Network-Kernel'
+		'Morphic-Kernel' 'Morphic-Support'
+		'Traits*' 'Environments*' )
 ]
 
 {
@@ -404,6 +642,17 @@ SWACoverage class >> testCoverageForPackages: globCollection [
 ]
 
 {
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:50'
+}
+SWACoverage class >> vmExecutablePath [
+	"Absolute path of the squeak VM executable that is running THIS image, for
+	launching a forked child image. vmPath answers the bin directory; the executable
+	is 'squeak' inside it."
+	^ (Smalltalk vmPath, 'squeak')
+]
+
+{
 	#category : #'invocation tally',
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
 }
@@ -426,6 +675,17 @@ SWACoverage >> covers [
 	"The live TestCoverage wrappers (boolean mode), kept so a run can be driven
 	step by step (install, run some tests, collect partial, repeat)."
 	^ wrappers
+]
+
+{
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 13:28'
+}
+SWACoverage >> describeException: e [
+	"A short 'Class: message' string for a caught test exception, robust against a
+	broken #messageText (some exceptions raise while describing themselves)."
+	^ [e class name, ': ', (e messageText ifNil: ['<no message>'])]
+		on: Error do: [:e2 | e class name, ' (messageText failed)']
 ]
 
 {
@@ -600,8 +860,8 @@ SWACoverage >> methodsForAll [
 ]
 
 {
-	#category : #selecting,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:54'
+	#category : #instrumenting,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:08'
 }
 SWACoverage >> methodsForPackages: globCollection [
 	"Watch every method of every package whose name matches one of globCollection
@@ -611,21 +871,23 @@ SWACoverage >> methodsForPackages: globCollection [
 	   the VM (the whole-image-crash lesson);
 	 - the user exclusion list (#isExcluded:);
 	 - TestCase methods and the coverage/test infrastructure (#mustNotInstrument:).
-	Logs each package to the Transcript so a hang during selection is locatable."
+	Logs each package DIRECTLY to stdout (flag-guarded) so a hang/crash during
+	selection is locatable on the command line."
 	| infos |
 	infos := (PackageInfo allPackages select: [:p |
 		globCollection anySatisfy: [:g | g match: p packageName]])
 			asSortedCollection: [:a :b | a packageName <= b packageName].
 	methods := OrderedCollection new.
-	log ifTrue: [Transcript cr; show: '=== SWACoverage selecting methods from ',
-		infos size printString, ' candidate packages ==='; cr].
+	SWACoverage log: '=== STAGE: instrumenting -- selecting methods from ',
+		infos size printString, ' candidate packages ==='.
 	infos do: [:p |
 		(self isSubstrate: p packageName)
-			ifTrue: [log ifTrue: [Transcript show: '  SKIP (substrate): ', p packageName; cr]]
+			ifTrue: [SWACoverage log: '  SKIP (substrate): ', p packageName]
 			ifFalse: [
 				(self isExcluded: p packageName)
-					ifTrue: [log ifTrue: [Transcript show: '  SKIP (excluded): ', p packageName; cr]]
+					ifTrue: [SWACoverage log: '  SKIP (excluded): ', p packageName]
 					ifFalse: [ | added |
+						SWACoverage log: '  INSTRUMENTING package: ', p packageName.
 						added := 0.
 						p methods do: [:ref | | m |
 							m := ref compiledMethod.
@@ -633,8 +895,8 @@ SWACoverage >> methodsForPackages: globCollection [
 								and: [(ref actualClass inheritsFrom: TestCase) not]
 								and: [(self mustNotInstrument: m) not])
 								ifTrue: [methods add: m. added := added + 1]].
-						log ifTrue: [Transcript show: '  + ', p packageName, ' (', added printString, ' methods)'; cr]]]].
-	log ifTrue: [Transcript show: '=== total watched: ', methods size printString, ' methods ==='; cr].
+						SWACoverage log: '  + ', p packageName, ' (', added printString, ' methods)']]].
+	SWACoverage log: '=== STAGE: instrumenting done -- total watched: ', methods size printString, ' methods ==='.
 	^ self
 ]
 
@@ -691,6 +953,27 @@ SWACoverage >> runAllTests [
 ]
 
 {
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:53'
+}
+SWACoverage >> runOneTest: testCase named: testName [
+	"Run one test inside the MEASURING WINDOW -- #whileUnguardedDo: lowers the
+	reentrancy guard ONLY here, so the wrapped methods the test body exercises are
+	counted and attributed. Everything outside (the loop, logging, install/uninstall)
+	stays guarded and is never instrumented. Under a broad Exception handler; logs
+	'ok' / 'ERR <test> -- ...'. A 'RUN' with no following ok/ERR means a hard VM crash."
+	| failure |
+	failure := nil.
+	SWAMethodWrapper whileUnguardedDo: [
+		[testCase run] on: Exception do: [:e |
+			failure := self describeException: e.
+			e return: nil]].
+	failure isNil
+		ifTrue: [SWACoverage log: '    ok   ', testName]
+		ifFalse: [SWACoverage log: '    ERR  ', testName, ' -- ', failure]
+]
+
+{
 	#category : #'boolean coverage',
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:32'
 }
@@ -733,8 +1016,8 @@ SWACoverage >> runWithProvenance: testClasses [
 ]
 
 {
-	#category : #provenance,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:26'
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 16:53'
 }
 SWACoverage >> runWithProvenance: testClasses panel: aPanelOrNil [
 	"Core provenance run. Runs each test method individually, attributing every
@@ -743,43 +1026,64 @@ SWACoverage >> runWithProvenance: testClasses panel: aPanelOrNil [
 	Wrappers and the shared recording state are always cleaned up (ensure:). Answers
 	the SWACoverageData (partial if stopped).
 
-	Intended to run on a BACKGROUND process (see #generatePackages:tests:toFile:) so
-	the UI process stays live to deliver the Stop click and repaint; hence it does
-	NOT itself force a redraw."
-	| cov wrappers total done stopped testName |
+	FLAG MODEL: the ENTIRE runner loop runs GUARDED (InWrapper raised, via #guardedDo:)
+	-- ALL its scaffolding (logging, string building, AND #tc suite, which for some
+	test classes COMPILES methods and fires the wrapped Monticello system-change chain
+	-> segfault if unguarded) must never be instrumented. The measuring window is
+	opened (guard lowered) ONLY around #testCase run, in #runOneTest:named: via
+	#whileUnguardedDo:. CurrentTest says what to attribute to.
+
+	EVICTION (survival): every wrapper self-uninstalls after evictAt invocations.
+
+	BULK install/uninstall via #installNoFlush/#uninstallNoFlush + ONE #flushCache."
+	| cov wrappers total done stopped testName evictedCount |
 	cov := SWACoverageData new maxTestsPerMethod: maxTestsPerMethod.
 	watchedMethods := methods asArray.
+	SWACoverage log: '=== STAGE: building ', watchedMethods size printString, ' wrappers ==='.
 	wrappers := watchedMethods collect: [:m |
 		SWACoverageWrapper new onClass: m methodClass selector: m selector data: cov].
 	total := (testClasses inject: 0 into: [:sum :tc | sum + tc testSelectors size]) max: 1.
 	done := 0.
 	stopped := false.
-	log ifTrue: [Transcript cr; show: '=== SWACoverage provenance: ',
-		watchedMethods size printString, ' methods, ', total printString, ' tests ==='; cr].
+	SWACoverage log: '=== STAGE: provenance run -- ',
+		watchedMethods size printString, ' methods, ', total printString, ' tests, ',
+		testClasses size printString, ' test classes ==='.
 	SWACoverageWrapper resetRecordingState.
 	SWACoverageWrapper sink: cov.
-	[wrappers do: [:w | w install].
-	 testClasses do: [:tc |
-		stopped ifFalse: [
-			tc suite tests do: [:testCase |
-				(stopped not and: [aPanelOrNil notNil and: [aPanelOrNil stopRequested]])
-					ifTrue: [stopped := true].
+	[SWACoverage log: '=== STAGE: installing wrappers (no per-method flush) ==='.
+	 wrappers do: [:w | w installNoFlush].
+	 SWAMethodWrapper flushSystemCache.
+	 SWACoverage log: '=== STAGE: wrappers installed (', wrappers size printString, '); starting tests ==='.
+	 self withSuppressedUI: [
+		SWAMethodWrapper guardedDo: [
+			testClasses do: [:tc |
 				stopped ifFalse: [
-					testName := tc name, '>>', testCase selector.
-					SWACoverageWrapper currentTest: testName.
-					[testCase run] on: Error, Halt do: [:e | e return: nil].
-					SWACoverageWrapper currentTest: nil.
-					done := done + 1.
-					(aPanelOrNil notNil and: [done \\ 10 = 0]) ifTrue: [
-						aPanelOrNil status: 'Running tests: ', done printString, '/', total printString,
-							'  (', cov coveredMethodCount printString, ' methods covered)  -- ', tc name]]]]]]
+					SWACoverage log: '  TEST CLASS: ', tc name, ' (', tc testSelectors size printString, ' tests)'.
+					tc suite tests do: [:testCase |
+						(stopped not and: [aPanelOrNil notNil and: [aPanelOrNil stopRequested]])
+							ifTrue: [stopped := true].
+						stopped ifFalse: [
+							testName := tc name, '>>', testCase selector.
+							SWACoverage log: '    RUN  ', testName.
+							SWACoverageWrapper currentTest: testName.
+							self runOneTest: testCase named: testName.
+							SWACoverageWrapper currentTest: nil.
+							done := done + 1.
+							(aPanelOrNil notNil and: [done \\ 10 = 0]) ifTrue: [
+								aPanelOrNil status: 'Running tests: ', done printString, '/', total printString,
+									'  (', cov coveredMethodCount printString, ' methods covered)  -- ', tc name]]]]]]]]
 		ensure: [
+			SWACoverage log: '=== STAGE: uninstalling wrappers ==='.
 			SWACoverageWrapper resetRecordingState.
-			wrappers do: [:w | w uninstall]].
-	log ifTrue: [Transcript show: '=== provenance ',
-		(stopped ifTrue: ['STOPPED'] ifFalse: ['complete']), ': ',
+			wrappers do: [:w | w uninstallNoFlush].
+			SWAMethodWrapper flushSystemCache].
+	evictedCount := wrappers count: [:w | w evicted].
+	SWACoverage log: '=== STAGE: ', evictedCount printString, ' methods EVICTED (hot, >= ',
+		SWAMethodWrapper defaultEvictAt printString, ' calls) ==='.
+	SWACoverage log: '=== STAGE: provenance ',
+		(stopped ifTrue: ['STOPPED'] ifFalse: ['complete']), ' -- ',
 		cov coveredMethodCount printString, ' covered, ',
-		cov testNames size printString, ' tests ==='; cr].
+		cov testNames size printString, ' tests ==='.
 	^ cov
 ]
 
@@ -804,4 +1108,28 @@ SWACoverage >> uninstallTestCoverage [
 	#refreshBooleanResult after uninstall still works."
 	wrappers do: [:c | c uninstall].
 	^ self
+]
+
+{
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:27'
+}
+SWACoverage >> withSuppressedUI: aBlock [
+	"Evaluate aBlock with a non-interactive DummyUIManager installed on the current
+	project, restoring the previous one afterwards (ensure:).
+
+	WHY: a test may try to pop a menu / open a (pre-)Debugger / show a dialog. With
+	the real (Morphic/MVC) UIManager that builds an actual menu Form -- and under
+	instrumentation that path crashed the VM in PopUpMenu>>computeForm (the '*' run,
+	2026-06-26). DummyUIManager answers every UI request programmatically (menus ->
+	nil, choices -> a default index, confirm -> default), so such tests neither block
+	nor build UI. This lets us KEEP the menu/ToolBuilder/Debugger packages
+	INSTRUMENTED (we still measure their coverage) instead of excluding them -- we
+	just stop them from actually opening during the run."
+	| project saved |
+	project := Project current.
+	saved := project uiManager.
+	project instVarNamed: 'uiManager' put: DummyUIManager new.
+	^ [aBlock value]
+		ensure: [project instVarNamed: 'uiManager' put: saved]
 ]

@@ -21,14 +21,10 @@ Instance Variables
 "
 Class {
 	#name : #SWACoverageWrapper,
-	#superclass : #Object,
+	#superclass : #SWAMethodWrapper,
 	#instVars : [
-		'theClass',
-		'selector',
-		'originalMethod',
 		'data',
-		'lastTestId',
-		'methodNameString'
+		'lastTestId'
 	],
 	#classVars : [
 		'CurrentTest',
@@ -51,25 +47,28 @@ SWACoverageWrapper class >> currentTest: aTestNameOrNil [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:49'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:33'
 }
 SWACoverageWrapper class >> emit: aMethodName test: aTestName [
-	"Record one (test covers method) pair into the active sink. Only ever called with
-	Recording=true, so any instrumented collection/stream methods used here fall
-	through the wrappers harmlessly. Sink is a SWACoverageData set via #sink:."
+	"Record one (test covers method) pair into the active sink. Called from
+	#captureIn:, which the base template invokes inside #guardedDo: -- so the
+	reentrancy guard is raised and the dictionary/string sends in #recordTest:covers:
+	fall through their wrappers harmlessly. Sink is a SWACoverageData set via #sink:."
 	Sink ifNotNil: [Sink recordTest: aTestName covers: aMethodName]
 ]
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:49'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:27'
 }
 SWACoverageWrapper class >> resetRecordingState [
-	"Clear all shared recording state. Called before and after a run so a crash or
-	stray flag can't wedge attribution off."
+	"Clear all shared coverage state AND the base reentrancy guard, so a crash or a
+	stray flag can't wedge attribution off (Recording) or wedge every wrapper into
+	pass-through (InWrapper). Called before and after a run."
 	Recording := false.
 	CurrentTest := nil.
-	Sink := nil
+	Sink := nil.
+	SWAMethodWrapper resetGuard
 ]
 
 {
@@ -82,85 +81,51 @@ SWACoverageWrapper class >> sink: aCoverageDataOrNil [
 ]
 
 {
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:26'
+}
+SWACoverageWrapper class >> whileRecordingDo: aBlock [
+	"Open the recording-active LAYER (Recording=true) for the dynamic extent of aBlock
+	-- the measuring window -- restoring the previous value afterwards. Coverage only
+	attributes while this layer is on, so the runner wraps ONLY #testCase run with it;
+	all the runner's own scaffolding runs with Recording=false and is never
+	attributed.
+
+	NOTE: this is the SEMANTIC layer (what to capture), independent of the base
+	reentrancy guard (InWrapper, which prevents the wrapper recursing into itself).
+	Both must cooperate: capture happens only when Recording=true AND not InWrapper."
+	| was |
+	was := Recording.
+	Recording := true.
+	^ aBlock ensure: [Recording := was]
+]
+
+{
 	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:46'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:52'
 }
-SWACoverageWrapper >> doesNotUnderstand: aMessage [
-	"Forward any reflection the system does on the installed 'method'."
-	^ originalMethod perform: aMessage selector withArguments: aMessage arguments
-]
+SWACoverageWrapper >> captureIn: aReceiver [
+	"Coverage capture hook, called by the base template ONLY when not guarded -- i.e.
+	we are inside the measuring window the runner opened around #testCase run
+	(#whileUnguardedDo:). So we no longer need a separate Recording flag: being here
+	means 'attribute now'. We only need CurrentTest (what to attribute to) and the
+	de-dup (lastTestId == CurrentTest means already recorded for this test).
 
-{
-	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:46'
-}
-SWACoverageWrapper >> install [
-	theClass methodDictionary at: selector put: self.
-	theClass flushCache
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:48'
-}
-SWACoverageWrapper >> methodName [
-	"Precomputed 'Class>>selector' (built at install, never in the hot path)."
-	^ methodNameString
+	The base template raises InWrapper around this call, so the dictionary/string
+	sends in #emit:test: -> #recordTest:covers: fall through their wrappers."
+	(CurrentTest notNil and: [lastTestId ~~ CurrentTest]) ifTrue: [
+		lastTestId := CurrentTest.
+		SWACoverageWrapper emit: methodNameString test: CurrentTest]
 ]
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:48'
+	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:31'
 }
 SWACoverageWrapper >> onClass: aClass selector: aSelector data: aCoverageData [
-	"Precompute the 'Class>>selector' string NOW (at install, never in the hot path)
-	so #run:with:in: does zero string-building -- string ops like #, and #asString
-	are themselves instrumented and would re-enter the wrapper."
-	theClass := aClass.
-	selector := aSelector.
-	originalMethod := aClass >> aSelector.
+	"Coverage-specific init: base setup (class/selector/originalMethod/name) via
+	super, plus the coverage data sink and per-instance de-dup state."
+	self onClass: aClass selector: aSelector.
 	data := aCoverageData.
-	lastTestId := nil.
-	methodNameString := aClass name asString, '>>', aSelector
-]
-
-{
-	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:48'
-}
-SWACoverageWrapper >> run: aSelector with: anArray in: aReceiver [
-	"VM entry point for the wrapped send. Hot path is deliberately send-free until we
-	decide to record:
-	 - Recording (class var) read -> push literal variable, NO send
-	 - CurrentTest (class var) read -> NO send
-	 - lastTestId (ivar) read/compare with == -> NO send
-	 - ifTrue:/ifFalse:/and: with literal blocks -> inlined, NO send
-	So nested wrapped methods reached WHILE recording (which has Recording=true) fall
-	straight through to the forward, breaking the recursion that crashed whole-image
-	runs.
-
-	When we do record, we set Recording, emit one line to the shared sink, clear
-	Recording (ensure:), then forward. Both the sink write and the flag set happen
-	only with Recording already true, so they are immune to re-entry.
-
-	De-dup: lastTestId == CurrentTest means we already recorded this method for the
-	running test."
-	(Recording == true) ifFalse: [
-		(CurrentTest notNil and: [lastTestId ~~ CurrentTest]) ifTrue: [
-			lastTestId := CurrentTest.
-			Recording := true.
-			[SWACoverageWrapper emit: methodNameString test: CurrentTest]
-				ensure: [Recording := false]]].
-	^ aReceiver withArgs: anArray executeMethod: originalMethod
-]
-
-{
-	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:46'
-}
-SWACoverageWrapper >> uninstall [
-	"Restore the real method. Idempotent."
-	(theClass methodDictionary at: selector ifAbsent: [nil]) == self
-		ifTrue: [theClass methodDictionary at: selector put: originalMethod.
-			theClass flushCache]
+	lastTestId := nil
 ]
