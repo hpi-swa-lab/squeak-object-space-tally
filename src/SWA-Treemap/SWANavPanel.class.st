@@ -88,14 +88,16 @@ SWANavPanel class >> open [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:53'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:55'
 }
 SWANavPanel class >> openOnPackageNamed: aPackageName [
-	"Open a code-structure treemap (package -> classes -> methods) wrapped in a
-	SWANavPanel, rendered to full depth.
+	"Open a code-structure treemap (package -> classes -> categories -> methods)
+	wrapped in a SWANavPanel. Defaults to #class render depth (Full/nil is omitted
+	from the depth cycle -- it tiles the whole tree at once, which is unwieldy on a
+	broad glob); cycle deeper/shallower with the Depth button.
 
 	(SWANavPanel openOnPackageNamed: 'Morphic-Kernel')"
-	^ self openOnPackageNamed: aPackageName leafKind: nil
+	^ self openOnPackageNamed: aPackageName leafKind: #class
 ]
 
 {
@@ -364,15 +366,17 @@ SWANavPanel >> crossReferenceWith: aPeerPanel [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:54'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:55'
 }
 SWANavPanel >> cycleLeafKind [
 	"Depth button: cycle the view's render depth (leafKind) through
-	Full -> Package -> Class -> Category -> Method -> Full. Only affects rendering;
-	the tree and metric roll-ups are unchanged, so this is cheap to re-apply."
+	Package -> Class -> Category -> Method -> Package. (Full/nil is omitted -- it
+	renders the whole tree at once, which doesn't make sense here.) Only affects
+	rendering; the tree and metric roll-ups are unchanged, so this is cheap to
+	re-apply. If the view is currently at Full (nil), the first press goes to Package."
 	| order current next |
 	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
-	order := { nil. #package. #class. #category. #method }.
+	order := { #package. #class. #category. #method }.
 	current := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
 	next := order at: ((order indexOf: current) \\ order size) + 1.
 	view leafKind: next.

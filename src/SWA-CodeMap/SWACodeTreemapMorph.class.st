@@ -228,6 +228,55 @@ SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
 ]
 
 {
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:51'
+}
+SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
+	"On an AGGREGATE tile (class/category) under a loaded coverage overlay, paint a
+	horizontal proportional bar across the FULL tile width, left to right:
+	  GRAY   -- untouched methods (not covered at all),
+	  GREEN  -- covered methods,
+	  RED    -- evicted methods,
+	  BLUE   -- test methods.
+	The four segments sum to 100% of the width (sized by share of leaf-method
+	descendants). Pixel-fill only -- no extra morphs, no layout change. Leaf (method)
+	tiles fall through to #colorForNode:'s solid color (proportions answers nil).
+
+	To avoid DOUBLE representation, a node whose RENDERED children are also aggregates
+	(#hasRenderedAggregateChildrenUnder:) draws its bar DESATURATED, so the crisp,
+	full-saturation bars are the most-detailed VISIBLE level. This respects leafKind:
+	when rendering stops at #class, class tiles are the visible leaves and get the
+	crisp bar (their method children aren't drawn). Each segment's right edge is from
+	the running cumulative count so rounding leaves no gap."
+	| props total green red blue gray x right segs drawnSoFar fade mix |
+	props := self coverageProportionsForNode: aNode.
+	props ifNil: [^ self].
+	total := props fourth.
+	total = 0 ifTrue: [^ self].
+	green := props first. red := props second. blue := props third.
+	gray := total - (green + red + blue).
+	x := screenR left.
+	right := screenR right.
+	fade := self hasRenderedAggregateChildrenUnder: aNode.
+	mix := [:c | fade ifTrue: [c alphaMixed: 0.35 with: (Color gray: 0.25)] ifFalse: [c]].
+	segs := {
+		gray  -> (Color gray: 0.4).
+		green -> (mix value: (Color h: 120.0 s: 0.75 v: 0.85)).
+		red   -> (mix value: (Color h: 0.0 s: 0.8 v: 0.85)).
+		blue  -> (mix value: (Color h: 210.0 s: 0.6 v: 0.85)) }.
+	drawnSoFar := 0.
+	segs do: [:assoc | | n segRight |
+		n := assoc key.
+		n > 0 ifTrue: [
+			drawnSoFar := drawnSoFar + n.
+			segRight := screenR left + (screenR width * drawnSoFar / total) rounded.
+			segRight := segRight min: right.
+			aCanvas fillRectangle: (x @ screenR top corner: segRight @ screenR bottom)
+				color: assoc value.
+			x := segRight]]
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:06'
 }
@@ -243,6 +292,29 @@ SWACodeTreemapMorph >> exploreNode: aNode [
 SWACodeTreemapMorph >> formatWeight: aNumber [
 	"Code treemap weights are lines of code."
 	^ aNumber printString, ' LOC'
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:54'
+}
+SWACodeTreemapMorph >> hasRenderedAggregateChildrenUnder: aNode [
+	"True if aNode's bar DUPLICATES proportional BARS drawn by visible child tiles, so
+	it should be faded. A child draws a bar only if it is itself an aggregate (has
+	children) AND is rendered as a tile. Method leaves draw a solid color, not a bar,
+	so a category sitting directly over methods does NOT duplicate any child bar and
+	stays CRISP.
+
+	Fade iff:
+	 1. aNode's children are laid out as tiles (#shouldLayoutChildrenOf: aNode), and
+	 2. at least one of those rendered children is itself an aggregate (has children).
+	Respects leafKind through #shouldLayoutChildrenOf::
+	 - #package: package is a leaf -> false -> crisp.
+	 - #class:   package lays out class tiles (aggregates) -> faded; class is a leaf -> crisp.
+	 - #category:package/class faded; category is a leaf -> crisp.
+	 - nil:      package/class faded; category over methods -> children are leaves -> crisp."
+	(self shouldLayoutChildrenOf: aNode) ifFalse: [^ false].
+	^ aNode children anySatisfy: [:c | c children notEmpty]
 ]
 
 {

@@ -230,12 +230,11 @@ SWACoverageLogTailer >> logPath: aLogPath output: anOutputPath [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:55'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 11:15'
 }
 SWACoverageLogTailer >> markFinished: ok error: isError [
-	"Update the status banner text, optionally play a sound, and run onFinish once.
-	No color overrides -- the banner uses the theme default; the success/error
-	distinction is in the text."
+	"Update the status banner text and run onFinish once. No color overrides --
+	the banner uses the theme default; the success/error distinction is in the text."
 	| msg |
 	finishNotified ifTrue: [^ self].
 	finishNotified := true.
@@ -246,8 +245,6 @@ SWACoverageLogTailer >> markFinished: ok error: isError [
 			ifFalse: ['FINISHED (no output file found)']].
 	statusMorph contents: msg.
 	self setLabel: 'Coverage log: ', logPath, ' -- DONE'.
-	[(Smalltalk at: #SoundService ifAbsent: [nil]) ifNotNil: [:ss | ss default playSoundNamed: 'chirp']]
-		on: Error do: [:e | nil].
 	onFinish ifNotNil: [[onFinish value: ok] on: Error do: [:e | nil]]
 ]
 

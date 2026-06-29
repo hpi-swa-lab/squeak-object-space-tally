@@ -134,14 +134,23 @@ SWACoverage class >> currentTestName: aStringOrNil [
 
 {
 	#category : #generating,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:32'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 11:36'
 }
 SWACoverage class >> everyTestClass [
-	"EVERY concrete TestCase in the image with tests -- no exclusions. The standalone
-	generator runs them all; if something breaks or hangs we find out (the Stop
-	button and CI timeouts are the safety net, not a hand-maintained skip list)."
-	^ (TestCase allSubclasses select: [:tc |
-		tc isAbstract not and: [tc testSelectors notEmpty]]) asArray
+	"EVERY concrete TestCase in the image with tests, MINUS the do-not-EXECUTE
+	exclusions (#excludedTestClassPatterns / #excludedTestCategoryPatterns). The
+	Stop button and CI timeouts are the safety net for hangs; but a few suites
+	(e.g. InstallerTest) actively DAMAGE the image -- their generated tests do a
+	real network install + Monticello MERGE over your working copy -- so those are
+	hard-excluded from execution here, not left to a timeout."
+	| nameExcl catExcl |
+	nameExcl := self excludedTestClassPatterns.
+	catExcl := self excludedTestCategoryPatterns.
+	^ (TestCase allSubclasses select: [:tc | | cat |
+		cat := tc category ifNil: [''].
+		tc isAbstract not and: [tc testSelectors notEmpty and: [
+			(nameExcl anySatisfy: [:g | g match: tc name]) not
+			and: [(catExcl anySatisfy: [:g | g match: cat]) not]]]]) asArray
 ]
 
 {
@@ -170,14 +179,34 @@ SWACoverage class >> excludedTestCategoryPatterns [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:46'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:45'
 }
 SWACoverage class >> excludedTestClassPatterns [
-	"Emptied by request: no TestCase classes are excluded from whole-image runs.
-	(Previously excluded UI/Window/Hand/Event/Process/Delay/Socket/File/etc. tests
-	known to hang or block an unattended run.) Restore from version history before
-	running unattended."
-	^ #()
+	"TestCase class-NAME globs whose tests must NEVER be EXECUTED during a coverage
+	run (distinct from instrumentation exclusions -- these classes may still be
+	instrumented and measured when other tests exercise them; we just refuse to RUN
+	their own tests). Applied by #testClassesForPackages: and #everyTestClass, and
+	by #allRunnableTestClasses.
+
+	InstallerTest: its tests are GENERATED (InstallerTestSuite>>ensureTestMethods)
+	as 'test<pkg>  Installer new merge: #<pkg>' for every package-definition the
+	Installer knows. Each one does a REAL network install + Monticello MERGE into
+	the running image -- it pops the 'Merge FFI...' dialog and tries to overwrite
+	your local working-copy changes. Never run it unattended (or in a working image).
+	(InstallerUrlTest is harmless -- it only builds/asserts URL strings -- so it is
+	NOT excluded.)
+
+	DebuggerTests: its tests spawn INFINITE-LOOP processes ([...] repeat / whileTrue)
+	at several priorities and rely on a user-interrupt + the Debugger to break them.
+	Under instrumentation (every loop iteration dispatches through run:with:in:, and
+	the interrupt/Debugger path is itself wrapped, with a non-interactive
+	DummyUIManager) the interrupt never halts the loop -> the run HANGS. Measure it
+	when other tests touch it; never RUN its own tests in an unattended coverage run.
+
+	(Other UI/Window/Hand/Event/Process/Delay/Socket/File suites that hang or block
+	an unattended run were previously listed here; restore from version history
+	before a fully unattended whole-image run.)"
+	^ #('InstallerTest' 'DebuggerTests')
 ]
 
 {
@@ -241,6 +270,118 @@ SWACoverage class >> generateAllTestsToFile: aFilePath [
 ]
 
 {
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:51'
+}
+SWACoverage class >> generateInstrumenting: instrumentGlobs testSpecs: testSpecs toFile: aFilePath forked: aBoolean [
+	"PARENT entry point: instrument by package GLOBS, run an EXPLICIT set of tests
+	given as SPECS ('Class>>selector' or 'Class'). For pinpoint coverage runs.
+
+	forked: true  -> fresh throwaway headless image from disk (this image untouched),
+	                 live tailer if there is a World.
+	forked: false -> in-image: instrument, run the spec cases, write the JSON inline.
+
+	Requires the CURRENT image to have been SAVED with this code (the child loads the
+	same .image from disk).
+
+	Example -- instrument the WHOLE system, run ONE test method:
+		SWACoverage
+			generateInstrumenting: #('*')
+			testSpecs: #('DirectoryChooserDialogTest>>testTypeAndChooseDirectory')
+			toFile: 'dirchooser-coverage.json'
+			forked: true."
+	| scriptPath cmd imageName logPath outPath proc |
+	aBoolean ifFalse: [
+		| cov |
+		cov := SWACoverage new methodsForPackages: instrumentGlobs.
+		^ (cov runWithProvenanceTestCases: (self testCasesFromSpecs: testSpecs) panel: nil)
+			writeToFile: aFilePath; yourself].
+	imageName := SmalltalkImage current imageName.
+	scriptPath := aFilePath, '.run.st'.
+	logPath := self logFileNameForOutput: aFilePath.
+	outPath := aFilePath, '.out'.
+	(FileStream forceNewFileNamed: scriptPath)
+		nextPutAll: 'SWACoverage runForkedCoverageInstrumenting: ';
+		nextPutAll: instrumentGlobs printString;
+		nextPutAll: ' testSpecs: ';
+		nextPutAll: testSpecs printString;
+		nextPutAll: ' toFile: ';
+		nextPutAll: aFilePath printString;
+		nextPutAll: '.';
+		close.
+	(FileDirectory default fileExists: aFilePath)
+		ifTrue: [FileDirectory default deleteFileNamed: aFilePath].
+	(FileDirectory default fileExists: logPath)
+		ifTrue: [FileDirectory default deleteFileNamed: logPath].
+	(FileDirectory default fileExists: outPath)
+		ifTrue: [FileDirectory default deleteFileNamed: outPath].
+	cmd := '"', self vmExecutablePath, '" -nodisplay "', imageName, '" "', scriptPath,
+		'" > "', outPath, '" 2>&1'.
+	SWACoverage log: '=== FORK PARENT: launching child -> ', cmd, ' ==='.
+	proc := OSProcess command: cmd.
+	(Smalltalk at: #World ifAbsent: [nil])
+		ifNil: [^ aFilePath].
+	^ (SWACoverageLogTailer openOn: logPath output: aFilePath stderr: outPath)
+		childProcess: proc scriptPath: scriptPath;
+		yourself
+]
+
+{
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:44'
+}
+SWACoverage class >> generateInstrumenting: instrumentGlobs tests: testGlobs toFile: aFilePath forked: aBoolean [
+	"PARENT entry point with the two axes SEPARATED (see
+	#runForkedCoverageInstrumenting:tests:toFile:):
+	  - instrumentGlobs: package globs to WRAP and MEASURE;
+	  - testGlobs: package globs whose TestCase classes to RUN.
+
+	forked: true  -> spawn a fresh throwaway headless image from disk (THIS image is
+	                 never touched), open a live tailer if there is a World.
+	forked: false -> run in-image via #generatePackages:tests:toFile: (scoped/safe).
+
+	Requires the CURRENT image to have been SAVED with this code (the child loads the
+	same .image from disk).
+
+	Example -- run only Morphic tests, but measure coverage of the WHOLE system:
+		SWACoverage generateInstrumenting: #('*') tests: #('Morphic*')
+			toFile: 'morphic-tests-wholesystem-coverage.json' forked: true."
+	| scriptPath cmd imageName logPath outPath proc |
+	aBoolean ifFalse: [
+		^ self generatePackages: instrumentGlobs
+			tests: (self testClassesForPackages: testGlobs)
+			toFile: aFilePath].
+	imageName := SmalltalkImage current imageName.
+	scriptPath := aFilePath, '.run.st'.
+	logPath := self logFileNameForOutput: aFilePath.
+	outPath := aFilePath, '.out'.
+	(FileStream forceNewFileNamed: scriptPath)
+		nextPutAll: 'SWACoverage runForkedCoverageInstrumenting: ';
+		nextPutAll: instrumentGlobs printString;
+		nextPutAll: ' tests: ';
+		nextPutAll: testGlobs printString;
+		nextPutAll: ' toFile: ';
+		nextPutAll: aFilePath printString;
+		nextPutAll: '.';
+		close.
+	(FileDirectory default fileExists: aFilePath)
+		ifTrue: [FileDirectory default deleteFileNamed: aFilePath].
+	(FileDirectory default fileExists: logPath)
+		ifTrue: [FileDirectory default deleteFileNamed: logPath].
+	(FileDirectory default fileExists: outPath)
+		ifTrue: [FileDirectory default deleteFileNamed: outPath].
+	cmd := '"', self vmExecutablePath, '" -nodisplay "', imageName, '" "', scriptPath,
+		'" > "', outPath, '" 2>&1'.
+	SWACoverage log: '=== FORK PARENT: launching child -> ', cmd, ' ==='.
+	proc := OSProcess command: cmd.
+	(Smalltalk at: #World ifAbsent: [nil])
+		ifNil: [^ aFilePath].
+	^ (SWACoverageLogTailer openOn: logPath output: aFilePath stderr: outPath)
+		childProcess: proc scriptPath: scriptPath;
+		yourself
+]
+
+{
 	#category : #generating,
 	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:09'
 }
@@ -284,62 +425,25 @@ SWACoverage class >> generatePackages: pkgGlobs tests: testClasses toFile: aFile
 
 {
 	#category : #'forked child',
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:41'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:44'
 }
 SWACoverage class >> generatePackages: pkgGlobs toFile: aFilePath forked: aBoolean [
-	"PARENT entry point. When aBoolean is true, run the whole coverage pass in a
-	FRESH, throwaway headless squeak image launched from disk -- the tests can fork,
-	pollute, or wedge that child all they like; THIS image is never touched, and we
-	get the result back as the JSON file the child writes. When false, behaves like
-	the in-image #generatePackages:tests:toFile: (kept for the safe/scoped case).
+	"PARENT entry point (single-glob form): instrument AND run the same glob set.
+	Delegates to #generateInstrumenting:tests:toFile:forked: with
+	instrumentGlobs = testGlobs = pkgGlobs.
 
-	Mechanism (forked):
-	 1. Write a tiny .st bootstrap script (#runForkedCoverageForPackages:toFile:).
-	 2. Delete any stale output file, per-run log, and .out so the tailer starts clean.
-	 3. OSProcess command: launches '<vm> -nodisplay <thisImage> <script>'
-	    ASYNCHRONOUSLY, redirecting stdout+stderr to a '.out' file (a VM crash dump
-	    goes to stderr, not our per-line log). The returned ExternalOSProcess is
-	    captured so the tailer's STOP button can sigkill the child.
-	 4. If there is a World, open a live tailer watching the log + .out, holding the
-	    child process and script path so STOP can kill a wedged/thrashing child.
+	To instrument and test DIFFERENT scopes -- e.g. run only the Morphic tests but
+	measure coverage across the WHOLE system -- use the two-axis entry point:
+		SWACoverage generateInstrumenting: #('*') tests: #('Morphic*')
+			toFile: 'morphic-coverage.json' forked: true.
 
 	Requires the CURRENT image to have been SAVED with this code, since the child
 	loads the same image file from disk.
 
-	Example (whole image, from the live MCP image):
+	Example (whole image, both axes = '*'):
 		SWACoverage generatePackages: #('*')
 			toFile: 'squeak-coverage.json' forked: true."
-	| scriptPath cmd imageName logPath outPath proc |
-	aBoolean ifFalse: [
-		^ self generatePackages: pkgGlobs
-			tests: (self testClassesForPackages: pkgGlobs)
-			toFile: aFilePath].
-	imageName := SmalltalkImage current imageName.
-	scriptPath := aFilePath, '.run.st'.
-	logPath := self logFileNameForOutput: aFilePath.
-	outPath := aFilePath, '.out'.
-	(FileStream forceNewFileNamed: scriptPath)
-		nextPutAll: 'SWACoverage runForkedCoverageForPackages: ';
-		nextPutAll: pkgGlobs printString;
-		nextPutAll: ' toFile: ';
-		nextPutAll: aFilePath printString;
-		nextPutAll: '.';
-		close.
-	(FileDirectory default fileExists: aFilePath)
-		ifTrue: [FileDirectory default deleteFileNamed: aFilePath].
-	(FileDirectory default fileExists: logPath)
-		ifTrue: [FileDirectory default deleteFileNamed: logPath].
-	(FileDirectory default fileExists: outPath)
-		ifTrue: [FileDirectory default deleteFileNamed: outPath].
-	cmd := '"', self vmExecutablePath, '" -nodisplay "', imageName, '" "', scriptPath,
-		'" > "', outPath, '" 2>&1'.
-	SWACoverage log: '=== FORK PARENT: launching child -> ', cmd, ' ==='.
-	proc := OSProcess command: cmd.
-	(Smalltalk at: #World ifAbsent: [nil])
-		ifNil: [^ aFilePath].
-	^ (SWACoverageLogTailer openOn: logPath output: aFilePath stderr: outPath)
-		childProcess: proc scriptPath: scriptPath;
-		yourself
+	^ self generateInstrumenting: pkgGlobs tests: pkgGlobs toFile: aFilePath forked: aBoolean
 ]
 
 {
@@ -481,29 +585,73 @@ SWACoverage class >> logFileNameForOutput: aFilePath [
 
 {
 	#category : #'forked child',
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:42'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:44'
 }
 SWACoverage class >> runForkedCoverageForPackages: pkgGlobs toFile: aFilePath [
-	"CHILD entry point. Runs in a FRESH, throwaway headless image launched from disk
-	by #generatePackages:toFile:forked:. Because this image is disposable, we DO NOT
-	care if the tests pollute it, fork the VM, or wedge the UI -- when this method
-	finishes (or fails) we quit WITHOUT saving, and the parent image is never touched.
+	"CHILD entry point (single-glob form): instrument AND run the same glob set.
+	Kept for backward compatibility; delegates to the two-axis form with
+	instrumentGlobs = testGlobs = pkgGlobs. To instrument and test DIFFERENT scopes
+	(e.g. run only Morphic tests but measure the whole system), use
+	#runForkedCoverageInstrumenting:tests:toFile: directly (or the parent entry
+	#generateInstrumenting:tests:toFile:forked:)."
+	^ self runForkedCoverageInstrumenting: pkgGlobs tests: pkgGlobs toFile: aFilePath
+]
 
-	Redirects the Transcript to stdout (#redirectToStdOut: true) so that anything the
-	tests (or the system) print to the Transcript is captured into the child's '.out'
-	file -- which the parent's tailer shows live in its second panel, on top of our
-	own structured per-line log. Then rebuilds the test classes from the globs,
-	runs the provenance coverage inline, writes the JSON, and quits.
+{
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:51'
+}
+SWACoverage class >> runForkedCoverageInstrumenting: instrumentGlobs testSpecs: testSpecs toFile: aFilePath [
+	"CHILD entry point: instrument by package GLOBS, but run an EXPLICIT, hand-picked
+	set of tests given as SPECS (strings 'Class>>selector' or 'Class' for all its
+	methods; see #testCasesFromSpecs:). For pinpoint runs -- e.g. instrument the whole
+	system but run only DirectoryChooserDialogTest>>testTypeAndChooseDirectory.
 
-	Wrapped so ANY error still reaches the quit -- a child that hangs is worse than a
-	child that dies, and the parent only cares about the result file appearing."
+	Fresh throwaway headless image; quits without saving. See
+	#runForkedCoverageInstrumenting:tests:toFile: for the glob-based test selection."
+	| cases cov data |
+	self logFileName: (self logFileNameForOutput: aFilePath).
+	[TranscriptStream redirectToStdOut: true] on: Error do: [:e | nil].
+	[[SWACoverage log: '=== FORKED CHILD: START instrument=', instrumentGlobs printString,
+		' testSpecs=', testSpecs printString, ' -> ', aFilePath, ' ==='.
+	  cases := self testCasesFromSpecs: testSpecs.
+	  SWACoverage log: '=== FORKED CHILD: ', cases size printString, ' explicit test cases ==='.
+	  cov := SWACoverage new methodsForPackages: instrumentGlobs.
+	  data := cov runWithProvenanceTestCases: cases panel: nil.
+	  SWACoverage log: '=== FORKED CHILD: writing ', aFilePath, ' ==='.
+	  data writeToFile: aFilePath.
+	  SWACoverage log: '=== FORKED CHILD: DONE -- ', data coveredMethodCount printString,
+		' methods, ', data testNames size printString, ' tests -> ', aFilePath, ' ===']
+		on: Error, Halt do: [:e |
+			SWACoverage log: '=== FORKED CHILD: ERROR ', e class name, ': ', e messageText printString, ' ===']]
+		ensure: [
+			SWACoverage log: '=== FORKED CHILD: quitting (no save) ==='.
+			Smalltalk snapshot: false andQuit: true]
+]
+
+{
+	#category : #'forked child',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:44'
+}
+SWACoverage class >> runForkedCoverageInstrumenting: instrumentGlobs tests: testGlobs toFile: aFilePath [
+	"CHILD entry point with the two axes SEPARATED:
+	  - instrumentGlobs: which package methods to WRAP and MEASURE coverage of;
+	  - testGlobs: which TestCase classes to RUN.
+	So you can run a small, well-behaved test set (e.g. #('Morphic*')) while still
+	measuring coverage across the WHOLE system (instrument #('*')) -- or vice versa.
+
+	Runs in a FRESH, throwaway headless image launched from disk; quits WITHOUT
+	saving so the parent image is never touched. Wrapped so ANY error still reaches
+	the quit. See #runForkedCoverageForPackages:toFile: (the single-glob form, which
+	now delegates here with instrumentGlobs = testGlobs)."
 	| testClasses cov data |
 	self logFileName: (self logFileNameForOutput: aFilePath).
 	[TranscriptStream redirectToStdOut: true] on: Error do: [:e | nil].
-	[[SWACoverage log: '=== FORKED CHILD: START pkgs=', pkgGlobs printString, ' -> ', aFilePath, ' ==='.
-	  testClasses := self testClassesForPackages: pkgGlobs.
+	[[SWACoverage log: '=== FORKED CHILD: START instrument=', instrumentGlobs printString,
+		' tests=', testGlobs printString, ' -> ', aFilePath, ' ==='.
+	  testClasses := self testClassesForPackages: testGlobs.
 	  SWACoverage log: '=== FORKED CHILD: ', testClasses size printString, ' test classes ==='.
-	  cov := SWACoverage new methodsForPackages: pkgGlobs.
+	  cov := SWACoverage new methodsForPackages: instrumentGlobs.
 	  data := cov runWithProvenance: testClasses asArray panel: nil.
 	  SWACoverage log: '=== FORKED CHILD: writing ', aFilePath, ' ==='.
 	  data writeToFile: aFilePath.
@@ -599,7 +747,47 @@ SWACoverage class >> substratePackagePatterns [
 
 {
 	#category : #generating,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:41'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:49'
+}
+SWACoverage class >> testCasesFromSpecs: specCollection [
+	"Turn an explicit collection of test SPECS into concrete TestCase instances to RUN.
+	A spec is a String, either:
+	  'ClassName>>selector'  -> exactly that one test method, or
+	  'ClassName'            -> every test method of that class.
+	Unknown classes / selectors are skipped (logged). Honors #excludedTestClassPatterns
+	so a hand-picked spec can't accidentally run a do-not-execute class.
+
+	This is the EXPLICIT counterpart to #testClassesForPackages: -- use it when you
+	want to run a few specific tests (e.g. while debugging one method) but still
+	instrument a broad scope. Example:
+		SWACoverage testCasesFromSpecs:
+			#('DirectoryChooserDialogTest>>testTypeAndChooseDirectory')."
+	| cases nameExcl |
+	cases := OrderedCollection new.
+	nameExcl := self excludedTestClassPatterns.
+	specCollection do: [:spec | | parts clsName selName cls |
+		parts := spec subStrings: '>'.
+		clsName := (parts first) withBlanksTrimmed.
+		selName := parts size > 1 ifTrue: [(parts last) withBlanksTrimmed] ifFalse: [nil].
+		cls := Smalltalk at: clsName asSymbol ifAbsent: [nil].
+		(cls isNil or: [(cls inheritsFrom: TestCase) not])
+			ifTrue: [SWACoverage log: '  SKIP spec (no such TestCase): ', spec]
+			ifFalse: [
+				(nameExcl anySatisfy: [:g | g match: cls name])
+					ifTrue: [SWACoverage log: '  SKIP spec (excluded class): ', spec]
+					ifFalse: [
+						selName isNil
+							ifTrue: [cls testSelectors do: [:s | cases add: (cls selector: s)]]
+							ifFalse: [
+								(cls canUnderstand: selName asSymbol)
+									ifTrue: [cases add: (cls selector: selName asSymbol)]
+									ifFalse: [SWACoverage log: '  SKIP spec (no such test method): ', spec]]]]].
+	^ cases asArray
+]
+
+{
+	#category : #generating,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:38'
 }
 SWACoverage class >> testClassesForPackages: pkgGlobs [
 	"The concrete TestCase classes RELATED to the given package globs: those whose
@@ -607,16 +795,25 @@ SWACoverage class >> testClassesForPackages: pkgGlobs [
 	So 'JSON' picks up 'JSON-Tests'; 'SqueakXR*' picks up 'SqueakXR-Tests-Core' etc.
 		SWACoverage generatePackages: #('SqueakXR*')
 			tests: (SWACoverage testClassesForPackages: #('SqueakXR*'))
-			toFile: 'squeakxr-coverage.json'."
-	^ (TestCase allSubclasses select: [:tc | | cat |
+			toFile: 'squeakxr-coverage.json'.
+
+	Honors the do-not-EXECUTE exclusions (#excludedTestClassPatterns /
+	#excludedTestCategoryPatterns) -- e.g. InstallerTest, whose generated tests do a
+	real network install+merge into the image -- so they are never RUN even when a
+	package glob (or '*') would otherwise select them."
+	| nameExcl catExcl |
+	nameExcl := self excludedTestClassPatterns.
+	catExcl := self excludedTestCategoryPatterns.
+	^ (TestCase allSubclasses select: [:tc |
+		| cat keep |
 		cat := tc category ifNil: [''].
-		tc isAbstract not and: [tc testSelectors notEmpty and: [
-			pkgGlobs anySatisfy: [:g |
-				(g match: cat)
-					or: [cat = g
-					or: [cat beginsWith: g]
-					or: [cat beginsWith: ((g endsWith: '*')
-						ifTrue: [g allButLast] ifFalse: [g])]]]]]]) asArray
+		keep := tc isAbstract not and: [tc testSelectors notEmpty].
+		keep := keep and: [(nameExcl anySatisfy: [:g | g match: tc name]) not].
+		keep := keep and: [(catExcl anySatisfy: [:g | g match: cat]) not].
+		keep and: [pkgGlobs anySatisfy: [:g |
+			| stem |
+			stem := (g endsWith: '*') ifTrue: [g allButLast] ifFalse: [g].
+			(g match: cat) or: [cat = g] or: [cat beginsWith: g] or: [cat beginsWith: stem]]]]) asArray
 ]
 
 {
@@ -650,6 +847,22 @@ SWACoverage class >> vmExecutablePath [
 	launching a forked child image. vmPath answers the bin directory; the executable
 	is 'squeak' inside it."
 	^ (Smalltalk vmPath, 'squeak')
+]
+
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:50'
+}
+SWACoverage >> casesForTestClasses: testClasses [
+	"Expand whole TestCase CLASSES into a flat collection of one-selector TestCase
+	instances (via #suite, so each class's own suite-building rules apply), logging a
+	header per class. Used by #runWithProvenance:panel:."
+	| cases |
+	cases := OrderedCollection new.
+	testClasses do: [:tc |
+		SWACoverage log: '  TEST CLASS: ', tc name, ' (', tc testSelectors size printString, ' tests)'.
+		tc suite tests do: [:testCase | cases add: testCase]].
+	^ cases asArray
 ]
 
 {
@@ -974,6 +1187,76 @@ SWACoverage >> runOneTest: testCase named: testName [
 ]
 
 {
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:50'
+}
+SWACoverage >> runProvenanceCase: testCase into: cov done: done of: total panel: aPanelOrNil [
+	"Run ONE already-bound TestCase instance under the current (guarded) loop:
+	set CurrentTest, run it in the measuring window (#runOneTest:named: lowers the
+	guard around #testCase run), clear CurrentTest, and update the panel every 10."
+	| testName |
+	testName := testCase class name, '>>', testCase selector.
+	SWACoverage log: '    RUN  ', testName.
+	SWACoverageWrapper currentTest: testName.
+	self runOneTest: testCase named: testName.
+	SWACoverageWrapper currentTest: nil.
+	(aPanelOrNil notNil and: [done \\ 10 = 0]) ifTrue: [
+		aPanelOrNil status: 'Running tests: ', done printString, '/', total printString,
+			'  (', cov coveredMethodCount printString, ' methods covered)']
+]
+
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:24'
+}
+SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
+	"THE single provenance core. Runs a FLAT collection of TestCase instances (each
+	bound to one selector), attributing every watched method each test exercises to
+	that test, into a SWACoverageData. Both public runners delegate here:
+	  - #runWithProvenance:panel: expands whole test CLASSES to their cases;
+	  - #runWithProvenanceTestCases:panel: passes hand-picked cases through.
+
+	FLAG MODEL: the whole loop runs GUARDED (#guardedDo:); the measuring window is
+	opened ONLY around #testCase run (in #runOneTest:named:). Wrappers + recording
+	state are always cleaned up (ensure:). Answers the SWACoverageData (partial if
+	stopped). EVICTION: each wrapper self-uninstalls after evictAt calls; AFTER the
+	run we flag those methods in the data (#markEvicted:) so the analyse side can
+	paint them RED. This is end-of-run bookkeeping, NOT the capture hot path."
+	| cov wrappers total done evictedCount |
+	cov := SWACoverageData new maxTestsPerMethod: maxTestsPerMethod.
+	watchedMethods := methods asArray.
+	wrappers := watchedMethods collect: [:m |
+		SWACoverageWrapper new onClass: m methodClass selector: m selector data: cov].
+	total := testCases size max: 1.
+	done := 0.
+	SWACoverage log: '=== STAGE: provenance run -- ', watchedMethods size printString,
+		' methods, ', testCases size printString, ' test cases ==='.
+	SWACoverageWrapper resetRecordingState.
+	SWACoverageWrapper sink: cov.
+	[	wrappers do: [:w | w installNoFlush].
+		SWAMethodWrapper flushSystemCache.
+		SWACoverage log: '=== STAGE: wrappers installed (', wrappers size printString, '); starting tests ==='.
+		self withSuppressedUI: [SWAMethodWrapper guardedDo: [
+			testCases do: [:testCase |
+				(aPanelOrNil isNil or: [aPanelOrNil stopRequested not]) ifTrue: [
+					done := done + 1.
+					self runProvenanceCase: testCase into: cov done: done of: total panel: aPanelOrNil]]]]]
+		ensure: [
+			SWACoverage log: '=== STAGE: uninstalling wrappers ==='.
+			SWACoverageWrapper resetRecordingState.
+			wrappers do: [:w | w uninstallNoFlush].
+			SWAMethodWrapper flushSystemCache].
+	evictedCount := wrappers count: [:w | w evicted].
+	wrappers do: [:w | w evicted ifTrue: [cov markEvicted: w methodName]].
+	SWACoverage log: '=== STAGE: ', evictedCount printString, ' methods EVICTED (hot, >= ',
+		SWAMethodWrapper defaultEvictAt printString, ' calls) ==='.
+	SWACoverage log: '=== STAGE: provenance complete -- ',
+		cov coveredMethodCount printString, ' covered, ',
+		cov testNames size printString, ' tests ==='.
+	^ cov
+]
+
+{
 	#category : #'boolean coverage',
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:32'
 }
@@ -1017,74 +1300,29 @@ SWACoverage >> runWithProvenance: testClasses [
 
 {
 	#category : #running,
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 16:53'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:50'
 }
 SWACoverage >> runWithProvenance: testClasses panel: aPanelOrNil [
-	"Core provenance run. Runs each test method individually, attributing every
-	watched method it executes to that test, into a SWACoverageData. Polls the panel
-	for Stop before EACH test method (responsive cancel) and reports progress.
-	Wrappers and the shared recording state are always cleaned up (ensure:). Answers
-	the SWACoverageData (partial if stopped).
+	"Run whole test CLASSES with provenance: expand each to its one-selector cases
+	(#casesForTestClasses:, which logs a per-class header AND builds #suite under the
+	guard -- some classes COMPILE methods in #suite, firing the wrapped system-change
+	chain, so this must stay guarded), then delegate to the shared core
+	#runProvenanceCases:panel:. Answers the SWACoverageData."
+	^ SWAMethodWrapper guardedDo: [
+		self runProvenanceCases: (self casesForTestClasses: testClasses) panel: aPanelOrNil]
+]
 
-	FLAG MODEL: the ENTIRE runner loop runs GUARDED (InWrapper raised, via #guardedDo:)
-	-- ALL its scaffolding (logging, string building, AND #tc suite, which for some
-	test classes COMPILES methods and fires the wrapped Monticello system-change chain
-	-> segfault if unguarded) must never be instrumented. The measuring window is
-	opened (guard lowered) ONLY around #testCase run, in #runOneTest:named: via
-	#whileUnguardedDo:. CurrentTest says what to attribute to.
-
-	EVICTION (survival): every wrapper self-uninstalls after evictAt invocations.
-
-	BULK install/uninstall via #installNoFlush/#uninstallNoFlush + ONE #flushCache."
-	| cov wrappers total done stopped testName evictedCount |
-	cov := SWACoverageData new maxTestsPerMethod: maxTestsPerMethod.
-	watchedMethods := methods asArray.
-	SWACoverage log: '=== STAGE: building ', watchedMethods size printString, ' wrappers ==='.
-	wrappers := watchedMethods collect: [:m |
-		SWACoverageWrapper new onClass: m methodClass selector: m selector data: cov].
-	total := (testClasses inject: 0 into: [:sum :tc | sum + tc testSelectors size]) max: 1.
-	done := 0.
-	stopped := false.
-	SWACoverage log: '=== STAGE: provenance run -- ',
-		watchedMethods size printString, ' methods, ', total printString, ' tests, ',
-		testClasses size printString, ' test classes ==='.
-	SWACoverageWrapper resetRecordingState.
-	SWACoverageWrapper sink: cov.
-	[SWACoverage log: '=== STAGE: installing wrappers (no per-method flush) ==='.
-	 wrappers do: [:w | w installNoFlush].
-	 SWAMethodWrapper flushSystemCache.
-	 SWACoverage log: '=== STAGE: wrappers installed (', wrappers size printString, '); starting tests ==='.
-	 self withSuppressedUI: [
-		SWAMethodWrapper guardedDo: [
-			testClasses do: [:tc |
-				stopped ifFalse: [
-					SWACoverage log: '  TEST CLASS: ', tc name, ' (', tc testSelectors size printString, ' tests)'.
-					tc suite tests do: [:testCase |
-						(stopped not and: [aPanelOrNil notNil and: [aPanelOrNil stopRequested]])
-							ifTrue: [stopped := true].
-						stopped ifFalse: [
-							testName := tc name, '>>', testCase selector.
-							SWACoverage log: '    RUN  ', testName.
-							SWACoverageWrapper currentTest: testName.
-							self runOneTest: testCase named: testName.
-							SWACoverageWrapper currentTest: nil.
-							done := done + 1.
-							(aPanelOrNil notNil and: [done \\ 10 = 0]) ifTrue: [
-								aPanelOrNil status: 'Running tests: ', done printString, '/', total printString,
-									'  (', cov coveredMethodCount printString, ' methods covered)  -- ', tc name]]]]]]]]
-		ensure: [
-			SWACoverage log: '=== STAGE: uninstalling wrappers ==='.
-			SWACoverageWrapper resetRecordingState.
-			wrappers do: [:w | w uninstallNoFlush].
-			SWAMethodWrapper flushSystemCache].
-	evictedCount := wrappers count: [:w | w evicted].
-	SWACoverage log: '=== STAGE: ', evictedCount printString, ' methods EVICTED (hot, >= ',
-		SWAMethodWrapper defaultEvictAt printString, ' calls) ==='.
-	SWACoverage log: '=== STAGE: provenance ',
-		(stopped ifTrue: ['STOPPED'] ifFalse: ['complete']), ' -- ',
-		cov coveredMethodCount printString, ' covered, ',
-		cov testNames size printString, ' tests ==='.
-	^ cov
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:51'
+}
+SWACoverage >> runWithProvenanceTestCases: testCases panel: aPanelOrNil [
+	"Run an EXPLICIT, hand-picked collection of TestCase INSTANCES (each bound to one
+	selector, e.g. from #testCasesFromSpecs:) while instrumenting the current method
+	scope. Thin delegator to the shared core #runProvenanceCases:panel:. Use to run a
+	few specific tests (e.g. one method) but measure a broad instrumentation scope."
+	^ SWAMethodWrapper guardedDo: [
+		self runProvenanceCases: testCases asArray panel: aPanelOrNil]
 ]
 
 {

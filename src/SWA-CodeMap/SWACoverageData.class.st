@@ -75,21 +75,25 @@ SWACoverageData class >> fromJsonString: aJsonString [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:45'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:23'
 }
 SWACoverageData >> asJsonString [
 	"Serialise to the reusable, image-independent JSON form:
 	{ #format, #tests:[names], #methods:[names],
-	  #coverage:{ methodId(string): { count:N, tests:[testIds] } } }.
+	  #coverage:{ methodId(string): { count:N, tests:[testIds], evicted:true } } }.
 	Method/test ids are 1-based positions into the name arrays. JSON object keys
-	must be strings, so methodId keys are printed as strings."
+	must be strings, so methodId keys are printed as strings. #evicted is written
+	only for methods that were evicted (hot methods whose wrapper self-uninstalled)."
 	| dict cov |
 	cov := Dictionary new.
 	coverage keysAndValuesDo: [:mid :entry |
-		cov at: mid printString put: (Dictionary new
+		| e |
+		e := Dictionary new
 			at: 'count' put: (entry at: #count);
 			at: 'tests' put: (entry at: #tests) asArray;
-			yourself)].
+			yourself.
+		(entry at: #evicted ifAbsent: [false]) == true ifTrue: [e at: 'evicted' put: true].
+		cov at: mid printString put: e].
 	dict := Dictionary new
 		at: 'format' put: 'SWACoverageData/1';
 		at: 'maxTestsPerMethod' put: maxTestsPerMethod;
@@ -121,7 +125,7 @@ SWACoverageData >> coveringTestCountFor: aMethodName [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:44'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:19'
 }
 SWACoverageData >> initialize [
 	testNames := OrderedCollection new.
@@ -145,6 +149,18 @@ SWACoverageData >> isCovered: aMethodName [
 
 {
 	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:23'
+}
+SWACoverageData >> isEvicted: aMethodName [
+	"True if aMethodName ('Class>>selector') was evicted during the run."
+	| mid entry |
+	mid := methodIds at: aMethodName ifAbsent: [^ false].
+	entry := coverage at: mid ifAbsent: [^ false].
+	^ (entry at: #evicted ifAbsent: [false]) == true
+]
+
+{
+	#category : #querying,
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:22'
 }
 SWACoverageData >> isTestKey: aKey [
@@ -156,7 +172,7 @@ SWACoverageData >> isTestKey: aKey [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:45'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:23'
 }
 SWACoverageData >> loadFromJson: json [
 	"Populate from a parsed JSON object (see #asJsonString for the shape)."
@@ -173,10 +189,30 @@ SWACoverageData >> loadFromJson: json [
 	coverage := Dictionary new.
 	cov := json at: 'coverage' ifAbsent: [Dictionary new].
 	cov keysAndValuesDo: [:midStr :entry |
-		coverage at: midStr asNumber put: (Dictionary new
+		| e |
+		e := Dictionary new
 			at: #count put: (entry at: 'count');
 			at: #tests put: (entry at: 'tests') asOrderedCollection;
-			yourself)]
+			yourself.
+		(entry at: 'evicted' ifAbsent: [false]) == true ifTrue: [e at: #evicted put: true].
+		coverage at: midStr asNumber put: e]
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:23'
+}
+SWACoverageData >> markEvicted: aMethodName [
+	"Flag aMethodName ('Class>>selector') as EVICTED -- its wrapper self-uninstalled
+	after evictAt invocations (a hot method that stopped being measured). Set ONCE at
+	the END of a run by the runner (NOT in the capture hot path). Stored inline in the
+	method's coverage entry under #evicted; an evicted method was called >= evictAt
+	times so it has a coverage entry, but intern defensively."
+	| mid entry |
+	mid := self methodIdFor: aMethodName.
+	entry := coverage at: mid ifAbsentPut: [
+		Dictionary new at: #count put: 0; at: #tests put: OrderedCollection new; yourself].
+	entry at: #evicted put: true
 ]
 
 {

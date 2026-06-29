@@ -333,7 +333,7 @@ SWAMethodWrapper >> onClass: aClass selector: aSelector [
 
 {
 	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:52'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:59'
 }
 SWAMethodWrapper >> run: aSelector with: anArray in: aReceiver [
 	"THE shared template every wrapper runs. SEND-FREE on the hot path until we commit
@@ -345,7 +345,17 @@ SWAMethodWrapper >> run: aSelector with: anArray in: aReceiver [
 	    raised for everything except the code under test (#whileUnguardedDo: around
 	    #testCase run), so install/loop/log/uninstall never count, capture, or recurse.
 	 2. COUNT: count := count + 1 (Kernel-Numbers substrate, never wrapped).
-	 3. EVICT-AFTER-N: once past evictAt, mark evicted + uninstall no matter what.
+	 3. EVICT-AFTER-N: once past evictAt, mark evicted and restore the real method in
+	    the dict (#uninstallNoFlush). CRITICAL: do NOT #flushCache here. We are CURRENTLY
+	    EXECUTING inside this wrapper's own dispatch; flushing the global method cache
+	    (primitive 89) mid-frame, then continuing into #withArgs:executeMethod:, can
+	    corrupt the in-flight send and abort the VM with a recursive doesNotUnderstand:
+	    (seen as ByteSymbol DNU on the Slider/ScrollBar #sliderColor theme path, but
+	    only in long runs where a hot method actually reaches evictAt mid-test). Just
+	    swapping the dict entry stops wrapping on the NEXT send; the stale cache entry
+	    for THIS method is harmless (it points at this wrapper, which still forwards to
+	    originalMethod) and is cleared by the run's final bulk #flushSystemCache. Also
+	    do the eviction GUARDED so #uninstallNoFlush's sends never re-enter.
 	 4. CAPTURE: raise the guard, call the hook, RESTORE it (it was false here, since
 	    we only got past step 1 when unguarded). One block/ensure: allocation, and only
 	    in the measuring window -- not on the (vast majority) guarded pass-throughs.
@@ -354,8 +364,11 @@ SWAMethodWrapper >> run: aSelector with: anArray in: aReceiver [
 	InWrapper == true ifTrue: [
 		^ aReceiver withArgs: anArray executeMethod: originalMethod].
 	count := count + 1.
-	(evictAt notNil and: [count >= evictAt])
-		ifTrue: [evicted := true. self uninstall].
+	(evictAt notNil and: [count >= evictAt]) ifTrue: [
+		evicted := true.
+		InWrapper := true.
+		[self uninstallNoFlush] ensure: [InWrapper := false].
+		^ aReceiver withArgs: anArray executeMethod: originalMethod].
 	InWrapper := true.
 	[self captureIn: aReceiver] ensure: [InWrapper := false].
 	^ aReceiver withArgs: anArray executeMethod: originalMethod

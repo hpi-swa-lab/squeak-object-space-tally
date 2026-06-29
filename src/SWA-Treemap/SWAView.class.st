@@ -69,7 +69,7 @@ SWAView >> clearTestFilters [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:43'
 }
 SWAView >> colorForNode: aNode [
 	"Subclass's #baseColorForNode: with any active highlight on top. A tile lights
@@ -77,14 +77,47 @@ SWAView >> colorForNode: aNode [
 	weight in its subtree, so a class tile is as hot as its hottest matching method.
 	Non-matching tiles are dimmed. The matched-tile ramp depends on #highlightStyle
 	(#heat for cross-ref, #coverage for SWACoverage data).
-	Under a provenance overlay, executed tests / TestCase classes are tinted BLUE."
+	Under a provenance overlay, executed tests / TestCase classes are tinted BLUE.
+	A method that was EVICTED during the run (its wrapper self-uninstalled after
+	evictAt invocations -- a hot method that stopped being measured) is tinted RED,
+	taking priority over the green coverage ramp.
+	Under a loaded coverage overlay, AGGREGATE (non-leaf) tiles get a neutral GRAY
+	base -- the proportional green/red/blue/gray bar (#drawTileContent:in:on:) is
+	painted on top, so the base only shows if drawing the bar is skipped."
 	| base w |
 	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
+	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey])
+		ifTrue: [^ Color h: 0.0 s: 0.8 v: 0.85].   "evicted: red, overrides green"
+	(coverageData notNil and: [aNode children notEmpty])
+		ifTrue: [^ Color gray: 0.25].   "aggregate base under coverage overlay; bar drawn on top"
 	highlightWeights ifNil: [^ self baseColorForNode: aNode].
 	base := self baseColorForNode: aNode.
 	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
 	w ifNil: [^ (base alphaMixed: 0.25 with: (Color gray: 0.12))].
 	^ self highlightColorForWeight: w base: base
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
+}
+SWAView >> coverageClassOfNode: aNode [
+	"Classify a single (leaf) node under the active provenance overlay, mirroring the
+	priority in #colorForNode::
+	  #blue  -- an executed test method / TestCase class,
+	  #red   -- a method evicted during the run,
+	  #green -- a covered method,
+	  #none  -- not covered / not relevant.
+	Keyed by crossRefKey against the loaded SWACoverageData (node-identity-independent),
+	so it works while walking descendants. Used to build the proportional
+	green/red/blue bar on aggregate tiles."
+	| key |
+	key := aNode crossRefKey.
+	(self isTestKey: key) ifTrue: [^ #blue].
+	coverageData ifNil: [^ #none].
+	(coverageData isEvicted: key) ifTrue: [^ #red].
+	(coverageData isCovered: key) ifTrue: [^ #green].
+	^ #none
 ]
 
 {
@@ -123,6 +156,30 @@ SWAView >> coverageData [
 SWAView >> coverageKind [
 	"#boolean or #tally when a coverage overlay is active, else nil."
 	^ coverageKind
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
+}
+SWAView >> coverageProportionsForNode: aNode [
+	"For an AGGREGATE (non-leaf) tile under a loaded SWACoverageData overlay, answer
+	{ green. red. blue. total } -- the counts of leaf-method descendants in each
+	coverage class (see #coverageClassOfNode:). 'total' is ALL leaf descendants, so
+	uncovered methods leave empty (background) space in the bar. Answers nil for leaf
+	tiles or when no coverage overlay is active (let #colorForNode: paint solid)."
+	| green red blue total |
+	(coverageData isNil and: [testKeys isNil]) ifTrue: [^ nil].
+	aNode children isEmpty ifTrue: [^ nil].
+	green := 0. red := 0. blue := 0. total := 0.
+	self leavesUnder: aNode do: [:leaf |
+		total := total + 1.
+		(self coverageClassOfNode: leaf) caseOf: {
+			[#green] -> [green := green + 1].
+			[#red]   -> [red := red + 1].
+			[#blue]  -> [blue := blue + 1] }
+			otherwise: []].
+	^ { green. red. blue. total }
 ]
 
 {
@@ -322,6 +379,18 @@ SWAView >> keyIndex [
 	first access if missing). Lets other panels cross-reference us in O(1)."
 	keyIndex ifNil: [self rebuildKeyIndex].
 	^ keyIndex
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
+}
+SWAView >> leavesUnder: aNode do: aBlock [
+	"Evaluate aBlock with every LEAF node in aNode's subtree (depth-first). A leaf is
+	a node with no children (a method node on the code map)."
+	aNode children isEmpty
+		ifTrue: [aBlock value: aNode]
+		ifFalse: [aNode children do: [:c | self leavesUnder: c do: aBlock]]
 ]
 
 {
