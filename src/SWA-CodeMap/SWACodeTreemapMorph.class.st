@@ -151,6 +151,22 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 
 {
 	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:00'
+}
+SWACodeTreemapMorph >> coverageMetricLabel [
+	"Human label for the active coverage WEIGHT metric, used in the details box and
+	header instead of LOC. 'invocations' / 'covering tests' for a provenance overlay
+	(per the root's weight mode), 'invocations' for a live tally, else 'coverage'."
+	coverageData ifNotNil: [
+		(rootNode notNil and: [rootNode coverageWeightMode == #invocations])
+			ifTrue: [^ 'invocations'].
+		^ 'covering tests'].
+	coverageKind == #tally ifTrue: [^ 'invocations'].
+	^ 'coverage'
+]
+
+{
+	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:24'
 }
 SWACodeTreemapMorph >> coverageNoteForNode: aNode [
@@ -228,8 +244,42 @@ SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:00'
+}
+SWACodeTreemapMorph >> detailInfoString [
+	"Multi-line details for the Show-mode details box BESIDE the source (one
+	'label: value' per line). EXCLUDES the covered-methods/tests provenance (that
+	has its own pane). When a coverage overlay is active, leads with the coverage
+	METRIC (invocations / covering tests) and DROPS the LOC line -- LOC is not the
+	point in a coverage view. '' when nothing is selected.
+	(SWANavPanel content protocol.)"
+	| n when whenStr cov |
+	n := selectedNode ifNil: [^ ''].
+	when := n lastChanged.
+	whenStr := when
+		ifNil: ['?']
+		ifNotNil: [:t | t asDate printString, ' ', (t asTime print24)].
+	cov := self coverageValueForNode: n.
+	^ String streamContents: [:s |
+		s nextPutAll: n kind asString; nextPutAll: ': '; nextPutAll: n name; cr.
+		"Coverage metric first (and instead of LOC) when an overlay is active."
+		coverageKind notNil
+			ifTrue: [
+				s nextPutAll: self coverageMetricLabel; nextPutAll: ': ';
+					nextPutAll: (cov ifNil: ['0'] ifNotNil: [:v | v printString]); cr]
+			ifFalse: [
+				s nextPutAll: 'LOC: '; print: n loc; cr].
+		s nextPutAll: 'author: '; nextPutAll: (n lastAuthor ifNil: ['?']); cr.
+		s nextPutAll: 'changed: '; nextPutAll: whenStr; cr.
+		s nextPutAll: 'versions: '; print: n changeCount;
+			nextPutAll: ' ('; nextPutAll: (n avgChangeCount asFloat printShowingDecimalPlaces: 1);
+			nextPutAll: '/method)']
+]
+
+{
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:51'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:43'
 }
 SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	"On an AGGREGATE tile (class/category) under a loaded coverage overlay, paint a
@@ -238,39 +288,43 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	  GREEN  -- covered methods,
 	  RED    -- evicted methods,
 	  BLUE   -- test methods.
-	The four segments sum to 100% of the width (sized by share of leaf-method
-	descendants). Pixel-fill only -- no extra morphs, no layout change. Leaf (method)
-	tiles fall through to #colorForNode:'s solid color (proportions answers nil).
+	The segments sum to 100% of the width (sized by share of leaf-method
+	descendants). When a selection FILTER is active, each coloured class is split
+	into a bright sub-segment (methods matching the filter) and a DIMMED one (filtered
+	out), so the bar tracks the same bright/dark distinction the leaf tiles show.
+	Pixel-fill only -- no extra morphs, no layout change. Leaf tiles fall through to
+	#colorForNode:'s solid colour (proportions answers nil).
 
 	To avoid DOUBLE representation, a node whose RENDERED children are also aggregates
-	(#hasRenderedAggregateChildrenUnder:) draws its bar DESATURATED, so the crisp,
-	full-saturation bars are the most-detailed VISIBLE level. This respects leafKind:
-	when rendering stops at #class, class tiles are the visible leaves and get the
-	crisp bar (their method children aren't drawn). Each segment's right edge is from
-	the running cumulative count so rounding leaves no gap."
-	| props total green red blue gray x right segs drawnSoFar fade mix |
+	(#hasRenderedAggregateChildrenUnder:) draws its bar DESATURATED, so the crisp
+	bars are the most-detailed VISIBLE level."
+	| props total gray x segs drawnSoFar fade mix dim |
 	props := self coverageProportionsForNode: aNode.
 	props ifNil: [^ self].
-	total := props fourth.
+	total := props at: #total.
 	total = 0 ifTrue: [^ self].
-	green := props first. red := props second. blue := props third.
-	gray := total - (green + red + blue).
-	x := screenR left.
-	right := screenR right.
+	gray := total - ((props at: #green) + (props at: #greenDim)
+		+ (props at: #red) + (props at: #redDim)
+		+ (props at: #blue) + (props at: #blueDim)).
 	fade := self hasRenderedAggregateChildrenUnder: aNode.
 	mix := [:c | fade ifTrue: [c alphaMixed: 0.35 with: (Color gray: 0.25)] ifFalse: [c]].
+	dim := [:c | c alphaMixed: 0.25 with: (Color gray: 0.12)].
 	segs := {
-		gray  -> (Color gray: 0.4).
-		green -> (mix value: (Color h: 120.0 s: 0.75 v: 0.85)).
-		red   -> (mix value: (Color h: 0.0 s: 0.8 v: 0.85)).
-		blue  -> (mix value: (Color h: 210.0 s: 0.6 v: 0.85)) }.
+		gray                -> (Color gray: 0.4).
+		(props at: #green)    -> (mix value: (Color h: 120.0 s: 0.75 v: 0.85)).
+		(props at: #greenDim) -> (mix value: (dim value: (Color h: 120.0 s: 0.75 v: 0.85))).
+		(props at: #red)      -> (mix value: (Color h: 0.0 s: 0.8 v: 0.85)).
+		(props at: #redDim)   -> (mix value: (dim value: (Color h: 0.0 s: 0.8 v: 0.85))).
+		(props at: #blue)     -> (mix value: (Color h: 210.0 s: 0.6 v: 0.85)).
+		(props at: #blueDim)  -> (mix value: (dim value: (Color h: 210.0 s: 0.6 v: 0.85))) }.
+	x := screenR left.
 	drawnSoFar := 0.
 	segs do: [:assoc | | n segRight |
 		n := assoc key.
 		n > 0 ifTrue: [
 			drawnSoFar := drawnSoFar + n.
 			segRight := screenR left + (screenR width * drawnSoFar / total) rounded.
-			segRight := segRight min: right.
+			segRight := segRight min: screenR right.
 			aCanvas fillRectangle: (x @ screenR top corner: segRight @ screenR bottom)
 				color: assoc value.
 			x := segRight]]
@@ -359,23 +413,30 @@ SWACodeTreemapMorph >> metaInfoString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
 }
 SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
-	"Meta line for a single SELECTED node: kind, author, last-changed date, LOC,
-	and version churn (total versions over the subtree + average per method). When
-	a coverage/tally overlay is active, the node's coverage value is appended."
-	| author when whenStr cov |
+	"Meta line for a single SELECTED node: kind, author, last-changed date, then the
+	primary metric -- LOC normally, but the COVERAGE metric (invocations / covering
+	tests) when an overlay is active (LOC is not the point in a coverage view) --
+	and version churn. The coverage note (covering tests / covered methods) is
+	appended when an overlay is active."
+	| author when whenStr cov metric |
 	author := aNode lastAuthor ifNil: ['?'].
 	when := aNode lastChanged.
 	whenStr := when
 		ifNil: ['?']
 		ifNotNil: [:t | t asDate printString, ' ', (t asTime print24)].
+	metric := coverageKind notNil
+		ifTrue: [ | v |
+			v := self coverageValueForNode: aNode.
+			'   ', (v ifNil: ['0'] ifNotNil: [:x | x printString]), ' ', self coverageMetricLabel]
+		ifFalse: ['   ', aNode loc printString, ' LOC'].
 	cov := self coverageNoteForNode: aNode.
 	^ aNode kind asString, ' ', aNode name,
 		'   author: ', author,
 		'   changed: ', whenStr,
-		'   ', aNode loc printString, ' LOC',
+		metric,
 		'   ', aNode changeCount printString, ' versions',
 		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)',
 		(cov isEmpty ifTrue: [''] ifFalse: ['   >> ', cov])
@@ -383,24 +444,65 @@ SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:46'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
 }
 SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
-	"Meta line summarising a focused subtree: LOC, node count, distinct authors,
-	and version churn (total versions + average per method)."
-	| authors nodeCount |
+	"Meta line summarising a focused subtree: the primary metric (LOC normally, or
+	the total COVERAGE weight + covered-method count when an overlay is active --
+	LOC is not the point in a coverage view), node count, distinct authors, and
+	version churn. The coverage totals are summed from the treemap's own overlay
+	values, so they work for both the coverage-weighted openers and the Load/Cover
+	buttons (which overlay onto an LOC-built tree)."
+	| authors nodeCount covered totalWeight metric |
 	aNode ifNil: [^ ''].
 	authors := Set new.
 	nodeCount := 0.
+	covered := 0.
+	totalWeight := 0.
 	aNode withAllChildrenDo: [:n |
 		nodeCount := nodeCount + 1.
-		n lastAuthor ifNotNil: [:a | authors add: a]].
+		n lastAuthor ifNotNil: [:a | authors add: a].
+		(coverageKind notNil and: [n kind == #method]) ifTrue: [
+			(self coverageValueForNode: n) ifNotNil: [:v |
+				v > 0 ifTrue: [covered := covered + 1. totalWeight := totalWeight + v]]]].
+	metric := coverageKind notNil
+		ifTrue: ['   ', totalWeight printString,
+			' ', self coverageMetricLabel, '   ', covered printString, ' covered methods']
+		ifFalse: ['   ', aNode loc printString, ' LOC'].
 	^ aNode kind asString, ' ', aNode name,
-		'   ', aNode loc printString, ' LOC',
+		metric,
 		'   ', nodeCount printString, ' nodes',
 		'   ', authors size printString, ' authors',
 		'   ', aNode changeCount printString, ' versions',
 		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
+}
+SWACodeTreemapMorph >> runInfoString [
+	"Line 1 of the panel info area: GENERIC, whole-run info -- the coverage/tally
+	overlay status (if any) followed by a summary of the focused subtree (LOC /
+	nodes / authors / versions). Independent of the current selection, so it stays
+	put while the user clicks around. (SWANavPanel content protocol.)"
+	| base |
+	base := self metaInfoStringForSubtree: (currentNode ifNil: [rootNode]).
+	(coverageStatus isNil or: [coverageStatus isEmpty]) ifTrue: [^ base].
+	^ '[', coverageStatus, ']   ', base
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
+}
+SWACodeTreemapMorph >> selectionInfoString [
+	"Line 2 of the panel info area: info about the CURRENTLY SELECTED node only
+	(author / last changed / LOC / versions + any coverage value), or '' when
+	nothing is selected. (SWANavPanel content protocol.)"
+	^ selectedNode
+		ifNil: ['']
+		ifNotNil: [:n | self metaInfoStringForNode: n]
 ]
 
 {

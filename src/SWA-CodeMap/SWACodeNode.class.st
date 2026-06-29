@@ -19,7 +19,14 @@ Class {
 	#instVars : [
 		'subject',
 		'rollupLoc',
-		'rollupMethodCount'
+		'rollupMethodCount',
+		'coverageData',
+		'rollupCoverage',
+		'coverageWeightMode'
+	],
+	#classVars : [
+		'TestWeightFloorInvocations',
+		'TestWeightFloorTests'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -55,6 +62,42 @@ SWACodeNode class >> on: aSubject [
 }
 SWACodeNode class >> on: aSubject parent: aNode [
 	^ self new subject: aSubject; parent: aNode; yourself
+]
+
+{
+	#category : #'test-weight floor',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+}
+SWACodeNode class >> testWeightFloorInvocations [
+	"Minimum weight a test method gets in #invocations-weighted maps so tests stay
+	visible (default 300)."
+	^ TestWeightFloorInvocations ifNil: [300]
+]
+
+{
+	#category : #'test-weight floor',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+}
+SWACodeNode class >> testWeightFloorInvocations: anInteger [
+	TestWeightFloorInvocations := anInteger
+]
+
+{
+	#category : #'test-weight floor',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+}
+SWACodeNode class >> testWeightFloorTests [
+	"Minimum weight a test method gets in #tests-weighted maps so tests stay visible
+	(default 20)."
+	^ TestWeightFloorTests ifNil: [20]
+]
+
+{
+	#category : #'test-weight floor',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+}
+SWACodeNode class >> testWeightFloorTests: anInteger [
+	TestWeightFloorTests := anInteger
 ]
 
 {
@@ -175,6 +218,67 @@ SWACodeNode >> containmentGraph [
 				nextPutAll: ';'; nextPut: Character lf]].
 	dot nextPutAll: '}'; nextPut: Character lf.
 	^ { dot contents. ids. false }
+]
+
+{
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
+}
+SWACodeNode >> coverageData [
+	"The SWACoverageData driving coverage-WEIGHTED layout (tiles sized by covering-
+	test count instead of LOC), or nil for the normal LOC view. Set on the root by
+	SWANavPanel class>>openCoverage:onPackageNamed:; children inherit it by walking
+	up the parent chain, so lazily-built nodes see it without per-node wiring."
+	coverageData ifNotNil: [^ coverageData].
+	^ parent ifNil: [nil] ifNotNil: [parent coverageData]
+]
+
+{
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
+}
+SWACodeNode >> coverageData: aCoverageDataOrNil [
+	"Set the coverage data that drives coverage-weighted layout for this subtree.
+	Normally set only on the root node. Clears any cached coverage roll-up."
+	coverageData := aCoverageDataOrNil.
+	rollupCoverage := nil
+]
+
+{
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
+}
+SWACodeNode >> coverageWeight [
+	"Treemap weight for coverage-weighted layout: rolled-up covering-test COUNT over
+	the subtree. Sum over children (cached), so a class/package tile is sized by the
+	total covered counts of all its methods. Method leaves override with their own
+	count. Uncovered methods contribute 0, so they vanish from the layout."
+	^ rollupCoverage ifNil: [
+		rollupCoverage := self children inject: 0 into: [:sum :c | sum + c coverageWeight]]
+]
+
+{
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:37'
+}
+SWACodeNode >> coverageWeightMode [
+	"Which coverage metric drives tile size: #tests (distinct covering-test count,
+	the default) or #invocations (raw call count). Resolves up the parent chain like
+	#coverageData, so it need only be set on the root."
+	coverageWeightMode ifNotNil: [^ coverageWeightMode].
+	parent ifNotNil: [:p | ^ p coverageWeightMode].
+	^ #tests
+]
+
+{
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:37'
+}
+SWACodeNode >> coverageWeightMode: aSymbolOrNil [
+	"#tests (covering-test count) or #invocations (raw call count). Normally set only
+	on the root. Clears the cached coverage roll-up so the new metric takes effect."
+	coverageWeightMode := aSymbolOrNil.
+	rollupCoverage := nil
 ]
 
 {
@@ -542,11 +646,27 @@ SWACodeNode >> subject: anObject [
 ]
 
 {
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+}
+SWACodeNode >> testWeightFloor [
+	"Minimum coverage weight for a test method, so tests stay visible on the
+	coverage-weighted map (their real coverage weight is 0). Configurable per mode
+	via the class-side accessors."
+	^ self coverageWeightMode == #invocations
+		ifTrue: [self class testWeightFloorInvocations]
+		ifFalse: [self class testWeightFloorTests]
+]
+
+{
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:04'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
 }
 SWACodeNode >> totalSize [
-	"Treemap weight: rolled-up LOC over the subtree. (The treemap squarifies by
-	this value, so packages/classes/categories are sized by total lines of code.)"
+	"Treemap weight. Normally rolled-up LOC (sized by lines of code). When a
+	SWACoverageData is active (coverage-WEIGHTED view), tiles are sized by rolled-up
+	covering-test COUNT instead, and uncovered subtrees collapse to 0 width so the
+	layout shows only what the tests actually exercised."
+	self coverageData ifNotNil: [^ self coverageWeight].
 	^ self loc max: 1
 ]

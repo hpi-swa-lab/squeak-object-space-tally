@@ -75,15 +75,17 @@ SWACoverageData class >> fromJsonString: aJsonString [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
 }
 SWACoverageData >> asJsonString [
 	"Serialise to the reusable, image-independent JSON form:
 	{ #format, #tests:[names], #methods:[names],
-	  #coverage:{ methodId(string): { count:N, tests:[testIds], evicted:true } } }.
+	  #coverage:{ methodId(string): { count:N, tests:[testIds], evicted:true,
+	                                  invocations:N } } }.
 	Method/test ids are 1-based positions into the name arrays. JSON object keys
 	must be strings, so methodId keys are printed as strings. #evicted is written
-	only for methods that were evicted (hot methods whose wrapper self-uninstalled)."
+	only for methods that were evicted (hot methods whose wrapper self-uninstalled).
+	#invocations (raw call count) is written only when recorded."
 	| dict cov |
 	cov := Dictionary new.
 	coverage keysAndValuesDo: [:mid :entry |
@@ -93,6 +95,7 @@ SWACoverageData >> asJsonString [
 			at: 'tests' put: (entry at: #tests) asArray;
 			yourself.
 		(entry at: #evicted ifAbsent: [false]) == true ifTrue: [e at: 'evicted' put: true].
+		entry at: #invocations ifPresent: [:n | e at: 'invocations' put: n].
 		cov at: mid printString put: e].
 	dict := Dictionary new
 		at: 'format' put: 'SWACoverageData/1';
@@ -124,6 +127,17 @@ SWACoverageData >> coveringTestCountFor: aMethodName [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
+}
+SWACoverageData >> hasInvocationData [
+	"True if any method carries a raw invocation count (i.e. this data was generated
+	by a runner that records invocations). Old JSON files answer false, so the view
+	can fall back to covering-test weighting and tell the user."
+	^ coverage anySatisfy: [:entry | entry includesKey: #invocations]
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:19'
 }
@@ -134,6 +148,35 @@ SWACoverageData >> initialize [
 	testIds := Dictionary new.
 	coverage := Dictionary new.
 	maxTestsPerMethod := 10
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:35'
+}
+SWACoverageData >> invocationCountFor: aMethodName [
+	"How many times the method was actually invoked during the run (0 if unknown --
+	not recorded, or coverage generated before invocation counting existed). A lower
+	bound for evicted methods (counting stopped at the eviction cap)."
+	| mid |
+	mid := methodIds at: aMethodName ifAbsent: [^ 0].
+	^ (coverage at: mid ifAbsent: [^ 0]) at: #invocations ifAbsent: [0]
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:35'
+}
+SWACoverageData >> invocationMap [
+	"A flat 'Class>>selector' -> raw invocation count map, for driving the
+	invocation-count-WEIGHTED treemap (tiles sized by how many times each method was
+	actually called). Methods with no recorded invocation count are absent."
+	| map |
+	map := Dictionary new.
+	coverage keysAndValuesDo: [:mid :entry |
+		entry at: #invocations ifPresent: [:n |
+			map at: (methodNames at: mid) put: n]].
+	^ map
 ]
 
 {
@@ -172,7 +215,7 @@ SWACoverageData >> isTestKey: aKey [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
 }
 SWACoverageData >> loadFromJson: json [
 	"Populate from a parsed JSON object (see #asJsonString for the shape)."
@@ -195,6 +238,7 @@ SWACoverageData >> loadFromJson: json [
 			at: #tests put: (entry at: 'tests') asOrderedCollection;
 			yourself.
 		(entry at: 'evicted' ifAbsent: [false]) == true ifTrue: [e at: #evicted put: true].
+		entry at: 'invocations' ifPresent: [:n | e at: #invocations put: n].
 		coverage at: midStr asNumber put: e]
 ]
 
@@ -293,6 +337,25 @@ SWACoverageData >> methodsForTestOrClass: aKey [
 	aKey ifNil: [^ #()].
 	(testIds includesKey: aKey) ifTrue: [^ self methodsForTest: aKey].
 	^ self methodsForTestClass: aKey
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:35'
+}
+SWACoverageData >> recordInvocationCount: anInteger for: aMethodName [
+	"Store the RAW invocation count (how many times the method was actually called
+	during the run, as tracked by SWAMethodWrapper>>count) for aMethodName. Set
+	ONCE at the end of a run by the runner, alongside #markEvicted:. Distinct from
+	#count, which is the number of distinct COVERING TESTS. A method that hit the
+	eviction cap stopped counting at evictAt, so its invocation count is a lower
+	bound (the method is also flagged #evicted). Zero counts are skipped."
+	| mid entry |
+	anInteger <= 0 ifTrue: [^ self].
+	mid := self methodIdFor: aMethodName.
+	entry := coverage at: mid ifAbsentPut: [
+		Dictionary new at: #count put: 0; at: #tests put: OrderedCollection new; yourself].
+	entry at: #invocations put: anInteger
 ]
 
 {

@@ -379,6 +379,21 @@ SWATreemapMorph >> flushCache [
 ]
 
 {
+	#category : #caching,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:50'
+}
+SWATreemapMorph >> flushCacheKeepingSelection [
+	"Drop the cached Form so the next draw rebuilds it, but KEEP the overlay's hover/
+	selection (the white selection border). Use this when only COLORS change (e.g. a
+	coverage filter re-tints tiles) -- the layout and tile rectangles are unchanged,
+	so the selection is still valid. (#flushCache also clears the hover, which is
+	only correct when the LAYOUT changes, i.e. zoom in/out.)"
+	cachedForm := nil.
+	resizeDeferring := false.
+	self changed
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:10'
 }

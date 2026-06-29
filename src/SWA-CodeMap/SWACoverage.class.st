@@ -1207,7 +1207,7 @@ SWACoverage >> runProvenanceCase: testCase into: cov done: done of: total panel:
 
 {
 	#category : #provenance,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:24'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
 }
 SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 	"THE single provenance core. Runs a FLAT collection of TestCase instances (each
@@ -1221,7 +1221,9 @@ SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 	state are always cleaned up (ensure:). Answers the SWACoverageData (partial if
 	stopped). EVICTION: each wrapper self-uninstalls after evictAt calls; AFTER the
 	run we flag those methods in the data (#markEvicted:) so the analyse side can
-	paint them RED. This is end-of-run bookkeeping, NOT the capture hot path."
+	paint them RED. This is end-of-run bookkeeping, NOT the capture hot path.
+	INVOCATIONS: we also persist each wrapper's raw call count (#count) so the view
+	can size tiles by actual invocation count, not just covering-test count."
 	| cov wrappers total done evictedCount |
 	cov := SWACoverageData new maxTestsPerMethod: maxTestsPerMethod.
 	watchedMethods := methods asArray.
@@ -1248,6 +1250,8 @@ SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 			SWAMethodWrapper flushSystemCache].
 	evictedCount := wrappers count: [:w | w evicted].
 	wrappers do: [:w | w evicted ifTrue: [cov markEvicted: w methodName]].
+	"Persist raw invocation counts (lower bound for evicted methods)."
+	wrappers do: [:w | cov recordInvocationCount: w count for: w methodName].
 	SWACoverage log: '=== STAGE: ', evictedCount printString, ' methods EVICTED (hot, >= ',
 		SWAMethodWrapper defaultEvictAt printString, ' calls) ==='.
 	SWACoverage log: '=== STAGE: provenance complete -- ',

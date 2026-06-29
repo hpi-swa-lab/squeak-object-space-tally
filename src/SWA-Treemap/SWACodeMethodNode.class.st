@@ -78,6 +78,25 @@ SWACodeMethodNode >> computeChangeCount [
 ]
 
 {
+	#category : #'coverage-weight',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+}
+SWACodeMethodNode >> coverageWeight [
+	"Leaf coverage weight: covering-test count (#tests) or raw call count
+	(#invocations); 0 if uncovered or no coverage data. Test methods aren't in the
+	coverage map, so a covered-weight of 0 on a known test key is floored to
+	#testWeightFloor to keep tests visible."
+	| key cov w |
+	cov := self coverageData ifNil: [^ 0].
+	key := self crossRefKey.
+	w := self coverageWeightMode == #invocations
+		ifTrue: [cov invocationCountFor: key]
+		ifFalse: [cov coveringTestCountFor: key].
+	(w = 0 and: [cov isTestKey: key]) ifTrue: [^ self testWeightFloor].
+	^ w
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:56'
 }

@@ -49,6 +49,19 @@ SWAView >> baseColorForNode: aNode [
 
 {
 	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:42'
+}
+SWAView >> bumpKey: aCoverageClass dim: aBoolean [
+	"The proportions-Dictionary key for a leaf of the given coverage class
+	(#green/#red/#blue), choosing the dimmed variant when aBoolean. nil for #none."
+	aCoverageClass == #green ifTrue: [^ aBoolean ifTrue: [#greenDim] ifFalse: [#green]].
+	aCoverageClass == #red ifTrue: [^ aBoolean ifTrue: [#redDim] ifFalse: [#red]].
+	aCoverageClass == #blue ifTrue: [^ aBoolean ifTrue: [#blueDim] ifFalse: [#blue]].
+	^ nil
+]
+
+{
+	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
 SWAView >> clearCrossReference [
@@ -69,7 +82,7 @@ SWAView >> clearTestFilters [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:43'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:00'
 }
 SWAView >> colorForNode: aNode [
 	"Subclass's #baseColorForNode: with any active highlight on top. A tile lights
@@ -78,21 +91,27 @@ SWAView >> colorForNode: aNode [
 	Non-matching tiles are dimmed. The matched-tile ramp depends on #highlightStyle
 	(#heat for cross-ref, #coverage for SWACoverage data).
 	Under a provenance overlay, executed tests / TestCase classes are tinted BLUE.
-	A method that was EVICTED during the run (its wrapper self-uninstalled after
-	evictAt invocations -- a hot method that stopped being measured) is tinted RED,
-	taking priority over the green coverage ramp.
+	A method that was EVICTED during the run is tinted RED, taking priority over the
+	green coverage ramp. Both red and green leaf tiles DIM when an active selection
+	filter excludes them (#isFilteredOut:): selecting a test keeps its covered
+	methods bright; selecting a method keeps only that method bright.
 	Under a loaded coverage overlay, AGGREGATE (non-leaf) tiles get a neutral GRAY
 	base -- the proportional green/red/blue/gray bar (#drawTileContent:in:on:) is
 	painted on top, so the base only shows if drawing the bar is skipped."
-	| base w |
+	| base w red |
 	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
-	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey])
-		ifTrue: [^ Color h: 0.0 s: 0.8 v: 0.85].   "evicted: red, overrides green"
+	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey]) ifTrue: [
+		red := Color h: 0.0 s: 0.8 v: 0.85.
+		^ (self isFilteredOut: aNode)
+			ifTrue: [red alphaMixed: 0.25 with: (Color gray: 0.12)]
+			ifFalse: [red]].
 	(coverageData notNil and: [aNode children notEmpty])
 		ifTrue: [^ Color gray: 0.25].   "aggregate base under coverage overlay; bar drawn on top"
 	highlightWeights ifNil: [^ self baseColorForNode: aNode].
 	base := self baseColorForNode: aNode.
 	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
+	"A leaf excluded by the active selection filter dims even if it has a weight."
+	(w notNil and: [aNode isLeaf and: [self isFilteredOut: aNode]]) ifTrue: [w := nil].
 	w ifNil: [^ (base alphaMixed: 0.25 with: (Color gray: 0.12))].
 	^ self highlightColorForWeight: w base: base
 ]
@@ -160,26 +179,29 @@ SWAView >> coverageKind [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:42'
 }
 SWAView >> coverageProportionsForNode: aNode [
 	"For an AGGREGATE (non-leaf) tile under a loaded SWACoverageData overlay, answer
-	{ green. red. blue. total } -- the counts of leaf-method descendants in each
-	coverage class (see #coverageClassOfNode:). 'total' is ALL leaf descendants, so
-	uncovered methods leave empty (background) space in the bar. Answers nil for leaf
-	tiles or when no coverage overlay is active (let #colorForNode: paint solid)."
-	| green red blue total |
+	the leaf-method counts per coverage class, split into BRIGHT (matching the active
+	selection filter) and DIM (filtered out), as a Dictionary:
+	  #green #greenDim #red #redDim #blue #blueDim #total.
+	'total' is ALL leaf descendants, so uncovered methods leave empty (background)
+	space in the bar. With no filter active everything is bright (the *Dim entries
+	are 0). Answers nil for leaf tiles or when no coverage overlay is active (let
+	#colorForNode: paint solid)."
+	| counts |
 	(coverageData isNil and: [testKeys isNil]) ifTrue: [^ nil].
 	aNode children isEmpty ifTrue: [^ nil].
-	green := 0. red := 0. blue := 0. total := 0.
-	self leavesUnder: aNode do: [:leaf |
-		total := total + 1.
-		(self coverageClassOfNode: leaf) caseOf: {
-			[#green] -> [green := green + 1].
-			[#red]   -> [red := red + 1].
-			[#blue]  -> [blue := blue + 1] }
-			otherwise: []].
-	^ { green. red. blue. total }
+	counts := Dictionary new.
+	#(green greenDim red redDim blue blueDim total) do: [:k | counts at: k put: 0].
+	self leavesUnder: aNode do: [:leaf | | class dim |
+		counts at: #total put: (counts at: #total) + 1.
+		class := self coverageClassOfNode: leaf.
+		class ~~ #none ifTrue: [
+			dim := self isFilteredOut: leaf.
+			(self bumpKey: class dim: dim) ifNotNil: [:k | counts at: k put: (counts at: k) + 1]]].
+	^ counts
 ]
 
 {
@@ -245,7 +267,7 @@ SWAView >> effectiveWeightOf: aNode [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:51'
 }
 SWAView >> filterToCoveredMethodKey: aMethodKey [
 	"Restrict the blue test highlight to just the tests (and their TestCase classes)
@@ -255,13 +277,13 @@ SWAView >> filterToCoveredMethodKey: aMethodKey [
 	coveringTestFilter := aMethodKey
 		ifNil: [nil]
 		ifNotNil: [:key | coverageData testKeysForMethod: key].
-	self flushCache.
+	self flushCacheKeepingSelection.
 	self changed
 ]
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:51'
 }
 SWAView >> filterToTestKey: aTestOrClassKey [
 	"Restrict the green coverage highlight to just the methods covered by the given
@@ -273,7 +295,7 @@ SWAView >> filterToTestKey: aTestOrClassKey [
 		ifNotNil: [:key |
 			testFilterKeys := (coverageData methodsForTestOrClass: key) asSet].
 	self rebuildEffectiveWeights.
-	self flushCache.
+	self flushCacheKeepingSelection.
 	self changed
 ]
 
@@ -357,6 +379,24 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 	self rebuildEffectiveWeights.
 	self flushCache.
 	self changed
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:37'
+}
+SWAView >> isFilteredOut: aNode [
+	"True if an active provenance filter excludes aNode (so its tile should dim).
+	 - test selected (testFilterKeys): a method not among the selected test's
+	   covered methods is out;
+	 - covered method selected (coveringTestFilter): only the selected method itself
+	   stays bright;
+	 - no filter: nothing is filtered out."
+	testFilterKeys notNil ifTrue: [
+		^ (testFilterKeys includes: aNode crossRefKey) not].
+	coveringTestFilter notNil ifTrue: [
+		^ aNode crossRefKey ~= (selectedNode ifNil: [nil] ifNotNil: [:n | n crossRefKey])].
+	^ false
 ]
 
 {
@@ -541,23 +581,38 @@ SWAView >> showCoverage: aCoverage [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:27'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:02'
 }
 SWAView >> showCoverageData: aCoverageData [
-	"Overlay a SWACoverageData: covered application methods are tinted green by
-	covering-test count, and executed test methods / TestCase classes are tinted
-	BLUE (see #colorForNode:). Selecting a test filters the green highlight to that
-	test's covered methods; selecting a covered method filters the blue tests to
-	those that covered it. Pass nil to clear."
+	"Overlay a SWACoverageData graded by COVERING-TEST count (the default metric).
+	See #showCoverageData:weightMode: for the invocation-count metric."
+	^ self showCoverageData: aCoverageData weightMode: #tests
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:02'
+}
+SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
+	"Overlay a SWACoverageData: covered application methods are tinted green graded
+	by the chosen metric -- #tests (covering-test count) or #invocations (raw call
+	count) -- and executed test methods / TestCase classes are tinted BLUE. So the
+	overlay VALUES (tint + the coverage-value shown in the header/details) match the
+	tile SIZING when the view is coverage-weighted. #invocations silently falls back
+	to test count if the data carries no invocation counts. Pass nil data to clear."
+	| useInvocations |
 	testFilterKeys := nil. coveringTestFilter := nil.
 	aCoverageData ifNil: [
 		coverageData := nil. coverageKind := nil. testKeys := nil.
 		^ self highlightWeights: nil].
 	coverageData := aCoverageData.
-	coverageKind := #tally.   "graded green by covering-test count"
+	coverageKind := #tally.   "graded green by the chosen count"
 	highlightStyle := #coverage.
 	testKeys := aCoverageData testKeySet , aCoverageData testClassNameSet.
-	self highlightWeights: aCoverageData resultMap
+	useInvocations := aWeightMode == #invocations and: [aCoverageData hasInvocationData].
+	self highlightWeights: (useInvocations
+		ifTrue: [aCoverageData invocationMap]
+		ifFalse: [aCoverageData resultMap])
 ]
 
 {
