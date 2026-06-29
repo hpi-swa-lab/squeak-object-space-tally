@@ -50,15 +50,37 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:41'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:03'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	^ #(
-		(#codeKind  'By kind (package/class/category/method)')
-		(#loc       'By LOC (heat)')
-		(#avgloc    'By avg LOC / method')
-		(#versions  'By avg versions / method')
-		(#recency   'By recency (last changed)')
-		(#author    'By author (last changed)')
+		(#codeKind         'By kind (package/class/category/method)')
+		(#byteComposition  'By byte composition (doc/string/code bar)')
+		(#loc              'By LOC (heat)')
+		(#avgloc           'By avg LOC / method')
+		(#versions         'By avg versions / method')
+		(#recency          'By recency (last changed)')
+		(#author           'By author (last changed)')
 	)
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:12'
+}
+SWACodeTreemapOverlay >> sizeModeOptions [
+	"Live tile-SIZE (weight) metrics for the Code Map. The two DYNAMIC metrics --
+	invocation count and covering-test count -- come from a loaded profile/coverage
+	data set (st-spy / SUnit coverage), so they are only offered when such data is
+	present."
+	| opts |
+	opts := OrderedCollection withAll: #(
+		(#methods   'Number of methods')
+		(#loc       'Lines of code')
+		(#bytes     'Source byte size')).
+	(treemapMorph respondsTo: #coverageData) ifTrue: [
+		treemapMorph coverageData ifNotNil: [
+			opts add: #(#invocations 'Execution: call count');
+				add: #(#tests 'Execution: covering tests')]].
+	^ opts asArray
 ]

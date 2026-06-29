@@ -11,9 +11,85 @@ Class {
 		'cachedTimeStamp',
 		'cachedChangeCount'
 	],
+	#classVars : [
+		'ByteAnalysisCache'
+	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:33'
+}
+SWACodeMethodNode class >> byteAnalysisCache [
+	"A WeakIdentityKeyDictionary mapping a CompiledMethod to its cached byte
+	analysis Array { docBytes. stringBytes. codeBytes }. Keyed on the method
+	OBJECT so the entry survives tree rebuilds (every byte-mode reopen builds
+	fresh transient nodes) yet is collected automatically when the method is
+	recompiled or removed -- no manual flushing."
+	^ ByteAnalysisCache ifNil: [ByteAnalysisCache := WeakIdentityKeyDictionary new]
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:32'
+}
+SWACodeMethodNode class >> classifyBytes: aSourceString [
+	"Single left-to-right pass over Smalltalk method source, assigning EVERY
+	character to exactly one bucket. Answer an Array { docBytes. stringBytes.
+	codeBytes } whose sum equals aSourceString size.
+
+	Three lexical states: code (selector / keywords / whitespace / char literals),
+	inComment (between double quotes, doubled to escape), and inString (between
+	single quotes, doubled to escape). A delimiter character is charged to the
+	region it opens or closes, so doc and string fully account for their own
+	syntax. A single quote inside a comment is ordinary comment text and vice
+	versa. A dollar sign starts a character literal, so the next character is
+	swallowed as code and a following quote does not open a string."
+	| doc str code state i size ch dq sq |
+	doc := str := code := 0.
+	size := aSourceString size.
+	dq := Character value: 34.   "double quote"
+	sq := $'.
+	state := #code.
+	i := 1.
+	[i <= size] whileTrue: [
+		ch := aSourceString at: i.
+		state == #code ifTrue: [
+			ch == dq
+				ifTrue: [doc := doc + 1. state := #inComment]
+				ifFalse: [ch == sq
+					ifTrue: [str := str + 1. state := #inString]
+					ifFalse: [code := code + 1.
+						(ch == $$ and: [i < size]) ifTrue: [
+							i := i + 1. code := code + 1]]]]
+		ifFalse: [state == #inComment
+			ifTrue: [doc := doc + 1.
+				ch == dq ifTrue: [
+					(i < size and: [(aSourceString at: i + 1) == dq])
+						ifTrue: [i := i + 1. doc := doc + 1]
+						ifFalse: [state := #code]]]
+			ifFalse: [
+				str := str + 1.
+				ch == sq ifTrue: [
+					(i < size and: [(aSourceString at: i + 1) == sq])
+						ifTrue: [i := i + 1. str := str + 1]
+						ifFalse: [state := #code]]]].
+		i := i + 1].
+	^ { doc. str. code }
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:33'
+}
+SWACodeMethodNode class >> flushByteAnalysisCache [
+	"Drop the whole byte-analysis cache. Normally unnecessary (the weak dictionary
+	self-evicts as methods are collected), but handy when developing the classifier
+	itself so changed logic re-runs over every method."
+	ByteAnalysisCache := nil
+]
 
 {
 	#category : #jump,
@@ -33,6 +109,60 @@ SWACodeMethodNode >> buildChildren [
 ]
 
 {
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:51'
+}
+SWACodeMethodNode >> byteAnalysis [
+	"Array { docBytes. stringBytes. codeBytes } for this method, fetched from (or
+	computed into) the shared weak cache keyed on the CompiledMethod. Falls back to
+	classifying this node's already-cached source when no live method is available
+	(e.g. a stale reference), without polluting the cache.
+
+	The cached entry is VALIDATED against the current source length: if they
+	disagree (the method was recompiled and the entry is stale, or source could not
+	be read when first cached) the analysis is recomputed and the entry refreshed.
+	This guarantees doc+string+code always equals byteSize."
+	| method cached src |
+	src := self source.
+	method := [subject compiledMethod] on: Error do: [:e | nil].
+	method ifNil: [^ SWACodeMethodNode classifyBytes: src].
+	cached := SWACodeMethodNode byteAnalysisCache at: method ifAbsent: [nil].
+	(cached notNil and: [(cached first + (cached at: 2) + cached last) = src size])
+		ifTrue: [^ cached].
+	^ SWACodeMethodNode byteAnalysisCache
+		at: method
+		put: (SWACodeMethodNode classifyBytes: src)
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:35'
+}
+SWACodeMethodNode >> byteComposition [
+	"Array { docBytes. stringBytes. codeBytes } for this leaf -- its own analysis."
+	^ self byteAnalysis
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:33'
+}
+SWACodeMethodNode >> byteSize [
+	"Total source-text byte size of this method (plain String size). Equals
+	docBytes + stringBytes + codeBytes."
+	^ self source size
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:34'
+}
+SWACodeMethodNode >> byteWeight [
+	"Leaf treemap weight in byte-composition mode: this method's source byte size."
+	^ self byteSize
+]
+
+{
 	#category : #metrics,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
 }
@@ -41,6 +171,16 @@ SWACodeMethodNode >> changeCount [
 	Scanning the version history is expensive, so the result is cached (the 'versions'
 	color mode colours every node, which would otherwise re-scan the whole package)."
 	^ cachedChangeCount ifNil: [cachedChangeCount := self computeChangeCount]
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:33'
+}
+SWACodeMethodNode >> codeBytes [
+	"Source-text bytes that are neither documentation nor string literals -- the
+	actual code (selector, keywords, char literals, whitespace, etc.)."
+	^ self byteAnalysis last
 ]
 
 {
@@ -79,17 +219,22 @@ SWACodeMethodNode >> computeChangeCount [
 
 {
 	#category : #'coverage-weight',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:17'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
 }
 SWACodeMethodNode >> coverageWeight [
-	"Leaf coverage weight: covering-test count (#tests) or raw call count
-	(#invocations); 0 if uncovered or no coverage data. Test methods aren't in the
-	coverage map, so a covered-weight of 0 on a known test key is floored to
-	#testWeightFloor to keep tests visible."
-	| key cov w |
+	"Leaf dynamic weight: covering-test count (#tests) or raw call count
+	(#invocations); 0 if uncovered or no coverage data. The mode comes from
+	#weightMetric when it is itself a dynamic metric (the live 'Size' menu), else
+	from the legacy #coverageWeightMode. Test methods aren't in the coverage map, so
+	a covered-weight of 0 on a known test key is floored to #testWeightFloor to keep
+	tests visible."
+	| key cov w mode |
 	cov := self coverageData ifNil: [^ 0].
 	key := self crossRefKey.
-	w := self coverageWeightMode == #invocations
+	mode := (self weightMetric == #invocations or: [self weightMetric == #tests])
+		ifTrue: [self weightMetric]
+		ifFalse: [self coverageWeightMode].
+	w := mode == #invocations
 		ifTrue: [cov invocationCountFor: key]
 		ifFalse: [cov coveringTestCountFor: key].
 	(w = 0 and: [cov isTestKey: key]) ifTrue: [^ self testWeightFloor].
@@ -105,6 +250,16 @@ SWACodeMethodNode >> crossRefKey [
 	('ClassName class>>selector' for class-side methods). subject is a
 	MethodReference; actualClass already yields the metaclass for class-side."
 	^ subject actualClass name asString, '>>', subject selector
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:33'
+}
+SWACodeMethodNode >> docBytes [
+	"Source-text bytes that are method-comment documentation (the double-quoted
+	regions, delimiters included)."
+	^ self byteAnalysis first
 ]
 
 {
@@ -210,6 +365,16 @@ SWACodeMethodNode >> source [
 SWACodeMethodNode >> sourceString [
 	"The method source string for display in the source pane."
 	^ self source
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:33'
+}
+SWACodeMethodNode >> stringBytes [
+	"Source-text bytes that are string literals (the single-quoted regions,
+	delimiters included)."
+	^ self byteAnalysis at: 2
 ]
 
 {

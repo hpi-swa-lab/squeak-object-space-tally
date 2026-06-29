@@ -18,13 +18,17 @@ SWACodeClassNode >> browse [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:49'
 }
 SWACodeClassNode >> buildChildren [
-	"One SWACodeCategoryNode per method category, instance side then class side.
+	"A SWACodeCommentNode for the class comment (when present), then one
+	SWACodeCategoryNode per method category, instance side then class side.
 	Class-side categories are flagged static (UML 'static')."
-	| nodes |
+	| nodes comment |
 	nodes := OrderedCollection new.
+	comment := [subject organization classComment] on: Error do: [:e | nil].
+	(comment notNil and: [comment asString withBlanksTrimmed notEmpty]) ifTrue: [
+		nodes add: (SWACodeCommentNode on: subject parent: self)].
 	subject organization categories do: [:cat |
 		(subject organization listAtCategoryNamed: cat) isEmpty ifFalse: [
 			nodes add: ((SWACodeCategoryNode on: cat parent: self)

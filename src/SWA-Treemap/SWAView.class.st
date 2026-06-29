@@ -591,7 +591,7 @@ SWAView >> showCoverageData: aCoverageData [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:02'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:22'
 }
 SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 	"Overlay a SWACoverageData: covered application methods are tinted green graded
@@ -599,16 +599,26 @@ SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 	count) -- and executed test methods / TestCase classes are tinted BLUE. So the
 	overlay VALUES (tint + the coverage-value shown in the header/details) match the
 	tile SIZING when the view is coverage-weighted. #invocations silently falls back
-	to test count if the data carries no invocation counts. Pass nil data to clear."
+	to test count if the data carries no invocation counts. Pass nil data to clear.
+
+	Also pushes the data onto the ROOT NODE (when it understands #coverageData:), so
+	the #invocations/#tests SIZE metrics actually have weights to lay out -- without
+	this the 'Load' path tinted tiles but every coverage weight rolled up to 0,
+	collapsing those size metrics to an empty map."
 	| useInvocations |
 	testFilterKeys := nil. coveringTestFilter := nil.
 	aCoverageData ifNil: [
 		coverageData := nil. coverageKind := nil. testKeys := nil.
+		(rootNode respondsTo: #coverageData:) ifTrue: [rootNode coverageData: nil].
 		^ self highlightWeights: nil].
 	coverageData := aCoverageData.
 	coverageKind := #tally.   "graded green by the chosen count"
 	highlightStyle := #coverage.
 	testKeys := aCoverageData testKeySet , aCoverageData testClassNameSet.
+	(rootNode respondsTo: #coverageData:) ifTrue: [
+		rootNode coverageData: aCoverageData.
+		(rootNode respondsTo: #coverageWeightMode:) ifTrue: [
+			rootNode coverageWeightMode: aWeightMode]].
 	useInvocations := aWeightMode == #invocations and: [aCoverageData hasInvocationData].
 	self highlightWeights: (useInvocations
 		ifTrue: [aCoverageData invocationMap]

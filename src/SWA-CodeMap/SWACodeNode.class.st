@@ -22,7 +22,9 @@ Class {
 		'rollupMethodCount',
 		'coverageData',
 		'rollupCoverage',
-		'coverageWeightMode'
+		'coverageWeightMode',
+		'weightMetric',
+		'rollupBytes'
 	],
 	#classVars : [
 		'TestWeightFloorInvocations',
@@ -142,6 +144,37 @@ SWACodeNode >> buildChildren [
 	"Answer an OrderedCollection of child SWACodeNodes. Subclasses override.
 	Leaf nodes answer an empty collection."
 	^ OrderedCollection new
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:35'
+}
+SWACodeNode >> byteComposition [
+	"Rolled-up { docBytes. stringBytes. codeBytes } over this subtree, summing the
+	leaves. Used to paint the composition bar on aggregate tiles. Recomputed each
+	call (cheap relative to drawing); method leaves override with their own analysis."
+	| doc str code |
+	doc := str := code := 0.
+	self children do: [:c | | comp |
+		comp := c byteComposition.
+		doc := doc + comp first.
+		str := str + (comp at: 2).
+		code := code + comp last].
+	^ { doc. str. code }
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:34'
+}
+SWACodeNode >> byteWeight [
+	"Treemap weight for byte-composition layout: rolled-up source byte size over the
+	subtree. Sum over children (cached), so a class/package tile is sized by the
+	total source bytes of all its methods. Method leaves override with their own
+	byteSize."
+	^ rollupBytes ifNil: [
+		rollupBytes := self children inject: 0 into: [:sum :c | sum + c byteWeight]]
 ]
 
 {
@@ -365,6 +398,17 @@ SWACodeNode >> estimatedNodeCount [
 ]
 
 {
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
+}
+SWACodeNode >> flushSizeRollups [
+	"Drop the metric-dependent roll-up caches (#rollupBytes, #rollupCoverage). The
+	#rollupLoc and #rollupMethodCount caches are metric-stable, so they are kept."
+	rollupBytes := nil.
+	rollupCoverage := nil
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
@@ -519,7 +563,7 @@ SWACodeNode >> openTreemap [
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:49'
 }
 SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 	"Open a squarified treemap of this code subtree (tiles sized by LOC). The full
@@ -527,7 +571,7 @@ SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 	at aLeafKindOrNil (e.g. #class to show packages+classes but no methods); nil
 	lays out the full tree down to methods. The shared SWANavPanel supplies the
 	window chrome. A single progress bar covers the build + layout phases."
-	| treemap overlay panel window total label |
+	| treemap overlay panel window total label bounds |
 	total := (self estimatedNodeCount max: 1) * 2.   "build pass + layout pass"
 	treemap := SWACodeTreemapMorph on: self.
 	treemap leafKind: aLeafKindOrNil.
@@ -561,8 +605,13 @@ SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 		ifNotNil: [:k | 'Code Treemap: ', self name, '  (LOC, to ', k, ')'].
 	window := panel openInWindow.
 	window setLabel: label.
-	window extent: (Display extent * 0.7) rounded.
-	window center: Display center.
+	"Default bounds: sized so the wrapped header + info lines + map fit without the
+	visualization overflowing the bottom. Clipped to the screen if smaller."
+	bounds := SWANavPanel defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
+	window bounds: bounds.
+	"Stop the window from shrinking narrower than one full button row (the bar
+	wraps above that floor); does not force it WIDER than the default."
+	panel enforceMinimumWindowWidth.
 	^ window
 ]
 
@@ -606,6 +655,20 @@ SWACodeNode >> selfSize [
 	"LOC owned directly by this node (non-leaf nodes own none; method leaves own
 	their lines)."
 	^ self isLeaf ifTrue: [self loc] ifFalse: [0]
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
+}
+SWACodeNode >> setWeightMetric: aSymbol [
+	"Set the size metric on this (root) node AND clear the size roll-up caches over
+	the WHOLE already-built subtree, so a live switch -- especially between the two
+	dynamic metrics #invocations and #tests, which share the #rollupCoverage cache,
+	or between byte/non-byte -- takes effect on the next layout. LOC and
+	method-count caches are metric-stable and kept."
+	weightMetric := aSymbol.
+	self withAllChildrenDo: [:n | n flushSizeRollups]
 ]
 
 {
@@ -660,13 +723,51 @@ SWACodeNode >> testWeightFloor [
 
 {
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:12'
 }
 SWACodeNode >> totalSize [
-	"Treemap weight. Normally rolled-up LOC (sized by lines of code). When a
-	SWACoverageData is active (coverage-WEIGHTED view), tiles are sized by rolled-up
-	covering-test COUNT instead, and uncovered subtrees collapse to 0 width so the
-	layout shows only what the tests actually exercised."
-	self coverageData ifNotNil: [^ self coverageWeight].
+	"Treemap weight, selected by #weightMetric (the live 'Size' menu):
+	  #methods      -- number of method leaves in the subtree,
+	  #loc          -- rolled-up lines of code (the default),
+	  #bytes        -- rolled-up source byte size (doc/string/code bar),
+	  #invocations  -- rolled-up dynamic CALL count (needs profile/coverage data),
+	  #tests        -- rolled-up distinct covering-test count (needs coverage data).
+	The two dynamic metrics require a loaded SWACoverageData; uncovered subtrees
+	collapse to 0 width there. The static metrics floor at 1 so a tile never
+	vanishes for lack of code."
+	| metric |
+	metric := self weightMetric.
+	(metric == #invocations or: [metric == #tests]) ifTrue: [^ self coverageWeight].
+	metric == #methods ifTrue: [^ self methodCount max: 1].
+	metric == #bytes ifTrue: [^ self byteWeight max: 1].
 	^ self loc max: 1
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:34'
+}
+SWACodeNode >> weightMetric [
+	"Which metric sizes the treemap tiles: nil/#loc (lines of code, the default and
+	historical behaviour) or #bytes (source-text byte size, with the
+	doc/string/code composition bar). Resolves up the parent chain like
+	#coverageData, so it need only be set on the root. Coverage weighting, when a
+	SWACoverageData is present, takes priority over this in #totalSize."
+	weightMetric ifNotNil: [^ weightMetric].
+	parent ifNotNil: [:p | ^ p weightMetric].
+	^ #loc
+]
+
+{
+	#category : #'byte-metrics',
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
+}
+SWACodeNode >> weightMetric: aSymbolOrNil [
+	"Set the active size metric (#structure/#methods/#loc/#bytes/#invocations/#tests).
+	Normally set on the root; resolves down via #weightMetric. Clears the byte and
+	coverage roll-up caches so a switch between #invocations and #tests (or in/out of
+	#bytes) recomputes."
+	weightMetric := aSymbolOrNil.
+	rollupBytes := nil.
+	rollupCoverage := nil
 ]

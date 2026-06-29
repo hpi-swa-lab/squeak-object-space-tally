@@ -538,6 +538,15 @@ SWATreemapMorph >> minTileForLabel [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+}
+SWATreemapMorph >> overlayMorph [
+	"The transparent event/menu overlay sitting on top of the tiles."
+	^ overlayMorph
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }
 SWATreemapMorph >> overlayMorph: aMorph [

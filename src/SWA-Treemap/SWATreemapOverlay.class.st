@@ -42,6 +42,28 @@ SWATreemapOverlay >> clearHover [
 ]
 
 {
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+}
+SWATreemapOverlay >> colorMenuMorph [
+	"Build the Color (instant recolor) menu from #colorModeOptions, ticking the
+	current mode. Single source of truth shared by the context menu and the header
+	'Color' button. Answers nil when the view offers no color options."
+	| opts current menu |
+	opts := self colorModeOptions.
+	opts isEmpty ifTrue: [^ nil].
+	current := treemapMorph colorMode.
+	menu := MenuMorph new defaultTarget: self.
+	opts do: [:pair | | mode label |
+		mode := pair first.
+		label := current == mode
+			ifTrue: ['* ', pair second]
+			ifFalse: ['   ', pair second].
+		menu add: label selector: #setColorMode: argument: mode].
+	^ menu
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
 }
@@ -200,6 +222,30 @@ SWATreemapOverlay >> mouseMove: evt [
 ]
 
 {
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+}
+SWATreemapOverlay >> popUpColorMenu [
+	"Pop up the Color menu standalone (header 'Color' button)."
+	| menu |
+	menu := self colorMenuMorph.
+	menu ifNotNil: [menu popUpInWorld: self world]
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+}
+SWATreemapOverlay >> popUpSizeMenu [
+	"Pop up the Size menu standalone (header 'Size' button). Reachable even when the
+	layout collapsed to nothing (e.g. a size metric with zero total weight left the
+	canvas black), which the tile-based right-click menu cannot do."
+	| menu |
+	menu := self sizeMenuMorph.
+	menu ifNotNil: [menu popUpInWorld: self world]
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:21'
 }
@@ -209,30 +255,67 @@ SWATreemapOverlay >> setColorMode: aSymbol [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:03'
+}
+SWATreemapOverlay >> setSizeMode: aSymbol [
+	"Switch the tile size (weight) metric and relayout. Only meaningful for views
+	whose morph understands #weightMetric: (the Code Map); a no-op otherwise."
+	(treemapMorph respondsTo: #weightMetric:) ifTrue: [
+		treemapMorph weightMetric: aSymbol]
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
 }
 SWATreemapOverlay >> showMenuFor: aNode event: evt [
-	"Show a context menu for the given node. Generic items (title, go back, color
-	modes) plus domain items via the #addMenuItems:for: hook."
-	| menu colorMenu current opts |
+	"Show a context menu for the given node. Generic items (title, go back, then the
+	Size and Color submenus, both built by the shared #sizeMenuMorph/#colorMenuMorph)
+	plus domain items via the #addMenuItems:for: hook."
+	| menu sizeMenu colorMenu |
 	menu := MenuMorph new defaultTarget: self.
 	menu addTitle: (aNode name ifNil: ['?']).
 	menu add: 'go back' target: treemapMorph selector: #zoomOut.
 	menu addLine.
 	self addMenuItems: menu for: aNode.
-	opts := self colorModeOptions.
-	opts isEmpty ifFalse: [
-		menu addLine.
-		current := treemapMorph colorMode.
-		colorMenu := MenuMorph new defaultTarget: self.
-		opts do: [:pair | | mode label |
-			mode := pair first.
-			label := current == mode
-				ifTrue: ['* ', pair second]
-				ifFalse: ['   ', pair second].
-			colorMenu add: label selector: #setColorMode: argument: mode].
-		menu add: 'Color' subMenu: colorMenu].
+	sizeMenu := self sizeMenuMorph.
+	sizeMenu ifNotNil: [menu addLine. menu add: 'Size' subMenu: sizeMenu].
+	colorMenu := self colorMenuMorph.
+	colorMenu ifNotNil: [menu addLine. menu add: 'Color' subMenu: colorMenu].
 	menu popUpEvent: evt in: self world
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+}
+SWATreemapOverlay >> sizeMenuMorph [
+	"Build the Size (tile-WEIGHT metric) menu from #sizeModeOptions, ticking the
+	current metric. Single source of truth shared by the context menu and the
+	header 'Size' button. Answers nil when the view offers no size options."
+	| opts current menu |
+	opts := self sizeModeOptions.
+	opts isEmpty ifTrue: [^ nil].
+	current := (treemapMorph respondsTo: #weightMetric)
+		ifTrue: [treemapMorph weightMetric] ifFalse: [nil].
+	menu := MenuMorph new defaultTarget: self.
+	opts do: [:pair | | mode label |
+		mode := pair first.
+		label := current == mode
+			ifTrue: ['* ', pair second]
+			ifFalse: ['   ', pair second].
+		menu add: label selector: #setSizeMode: argument: mode].
+	^ menu
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:03'
+}
+SWATreemapOverlay >> sizeModeOptions [
+	"Hook: { sizeModeSymbol. menuLabel } pairs for the Size submenu (the live tile
+	WEIGHT metric). Default: empty (no Size submenu). Subclasses override."
+	^ #()
 ]
 
 {
