@@ -10,6 +10,12 @@ roots and builds a tree of space usage you can explore three ways:
 - **Treemap**, a squarified treemap where area = byte size, with zoom and tooltips
 - **Diff**, compares two tallies to isolate exactly what your app allocated
 
+The treemap shares a common view (`SWAView`) and nav panel (`SWANavPanel`) with
+its sibling tools -- the **st-spy** message-tally profiler and the static **Code
+Map** -- so any two open panels can be **cross-referenced**: e.g. colour the Code
+Map by measured memory, or highlight which methods the profiler sampled. See the
+[docs](doc/SWASpaceTally.md#cross-referencing-the-views).
+
 
 ![](squeak-object-space-tally.png)
 
@@ -38,7 +44,8 @@ spaceTally openExplorer.
 spaceTally openTreemap.
 ```
 
-Or from the world menu: **open... -> Space Tally**.
+Or from the world menu: **open... -> Space Tally** (or **Code Map** for the
+static package/class/method treemap).
 
 
 ## Authors

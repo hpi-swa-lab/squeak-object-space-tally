@@ -66,6 +66,80 @@ One can also directly start the space tally on a collections of instances. In th
 ![](swaspacetally-instances.png)
 
 
+## Shared View Architecture
+
+SWASpaceTally is one of three sibling tools that all visualise a tree of nodes as
+a navigable treemap (or flamegraph): the **Space Tally** (memory), **st-spy** (a
+sampling message-tally profiler), and the **Code Map** (the static
+package/class/method structure). Rather than duplicate the tree, layout, and
+navigation code three times, they share two small abstractions.
+
+### `SWANode` -- the common tree contract
+
+All three data models subclass `SWANode`, which owns the `parent`/`children`
+structure and the shared tree protocol (`depth`, `pathString`, `isLeaf`,
+`withAllChildrenDo:`). Subclasses fill in three things:
+
+| Subclass | `name` | `totalSize` (treemap weight) | `crossRefKey` |
+|---|---|---|---|
+| `SWASpaceTallyNode` | class / slot label | bytes | class name (class-granular) |
+| `SWAStSpyNode` | frame name | sample count | `'Class>>selector'` or nil |
+| `SWACodeNode` (and `SWACodeClassNode`/`SWACodeMethodNode`) | class / selector | lines of code | class name, or `'Class>>selector'` |
+
+### `SWAView` -- the common morph
+
+Both the treemap (`SWATreemapMorph`) and the st-spy flamegraph
+(`SWAStSpyFlamegraphMorph`) subclass `SWAView`, a `Morph` that holds the shared
+state (`rootNode`, selection, render cache, the chrome link to the nav panel) and
+the cross-reference machinery. Subclasses only supply layout-specific state and a
+`baseColorForNode:` palette.
+
+### `SWANavPanel` -- the chrome
+
+A `SWANavPanel` wraps any `SWAView` and adds the header chrome shared by all three
+tools: **Back / Browse / Show** (source), an optional **Depth** cutoff, a
+breadcrumb, a fullscreen toggle, and -- when the view is cross-referenceable --
+**X-ref / Clear** buttons.
+
+The whole-image code map has its own Apps-menu entry:
+
+> **open... -> Code Map**
+
+```smalltalk
+SWANavPanel openOnPackageNamed: '*' leafKind: #class.
+```
+
+
+## Cross-Referencing the Views
+
+Because all three tools speak the same `crossRefKey` vocabulary -- class names are
+unique, methods are `'Class>>selector'` -- an open panel can be **cross-referenced**
+against another open panel. This answers questions that span two views, e.g.:
+
+- *"Colour the static Code Map by how much memory each class measured in the
+  Space Tally."*
+- *"Highlight in the Code Map exactly which methods the st-spy profiler sampled,
+  and how hot they were."*
+
+### How it works
+
+1. Each `SWAView` builds a `keyIndex` (a `crossRefKey -> node` dictionary) eagerly
+   in `setRoot:`, so peers can look its nodes up in O(1).
+2. Pressing **X-ref** on a panel finds the other open panels
+   (`SWANavPanel openPanels`); with one peer it links directly, with several it
+   asks which.
+3. The peer's `keyIndex` is pushed across as a `key -> weight` map (weight = the
+   peer node's `totalSize`: bytes / samples / loc).
+4. That map is **rolled up the tree** so an ancestor tile lights up when any
+   descendant matches. The rolled-up weight is the **max** of a node's own match
+   and its descendants' -- so a *class* tile is exactly as hot as its hottest
+   matching *method*, never averaged down.
+5. `colorForNode:` then tints matching tiles on a log-scaled cold->hot ramp and
+   dims everything that matched nothing, so the shared structure pops out.
+
+**Clear** removes the highlight. The mechanism is symmetric: either view can be
+the source or the target.
+
 
 ## Quick Start
 
@@ -180,22 +254,25 @@ The tree is now a proper hierarchy where `totalSize` at any node equals
 
 ```mermaid
 flowchart TD
-    START([Start]) --> INIT["Initialize:<br/>seen = {self, queue, roots, ...}<br/>queue = empty<br/>visitCount = 0"]
-    INIT --> ROOTS["Enqueue root objects<br/>(Classes, Globals, Processes, ...)"]
-    ROOTS --> CHECK{queue not empty<br/>AND visitCount < max<br/>AND deadline not reached?}
+    START([Start]) --> UNIV["Snapshot closed universe:<br/>GC, then deepUniverse =<br/>all live objects (allObjectsOrNil)"]
+    UNIV --> INIT["Initialize:<br/>seen = {self, queue, roots, ...}<br/>queue = empty<br/>visitCount = 0"]
+    INIT --> ROOTS["Enqueue root objects<br/>(Display, ActiveWorld, ..., Classes)"]
+    ROOTS --> CHECK{queue not empty<br/>AND visitCount < maxVisits?<br/>(maxVisits nil = unlimited)}
     CHECK -- No --> TRUNC["Mark remaining queue<br/>nodes as truncated"]
     TRUNC --> ROLLUP["Post-order rollUp:<br/>totalSize = selfSize +<br/>sum children totalSize"]
     ROLLUP --> DONE([Return tree])
     CHECK -- Yes --> DEQUEUE["node = queue removeFirst<br/>visitCount += 1"]
-    DEQUEUE --> DEPTH{"node depth<br/>>= maxDepth?"}
-    DEPTH -- Yes --> MARK["Mark node truncated"] --> CHECK
-    DEPTH -- No --> ENUM["Enumerate referents of node.object:<br/>- named instVars (by name)<br/>- indexed slots ([N])<br/>- compiled code literals"]
+    DEQUEUE --> ENUM["Enumerate referents of node.object:<br/>- named instVars (by name)<br/>- indexed slots ([N], strong only)<br/>- compiled code literals<br/>- class pointer (Behaviors only)"]
     ENUM --> EACH{"For each referent"}
-    EACH -- "Already seen<br/>(or immediate/nil)" --> SKIP[Skip] --> EACH
+    EACH -- "Not in universe,<br/>already seen,<br/>or immediate/nil" --> SKIP[Skip] --> EACH
     EACH -- "New object" --> CREATE["Create child node<br/>Record edge label<br/>Add to seen<br/>Add to queue"]
     CREATE --> EACH
     EACH -- "Done" --> CHECK
 ```
+
+There is no depth or wall-clock cutoff: the closed `deepUniverse` snapshot plus
+the `seen` set (each object claimed once) make the BFS finite on its own.
+`maxVisits` is optional and only used to deliberately bound a run for testing.
 
 ### Slot Enumeration
 
@@ -212,6 +289,19 @@ All slot access goes through `thisContext` mirror primitives, bypassing
 any `instVarAt:` overrides on proxies, futures, or contexts. This is
 the same technique the system's own `SpaceTally` uses.
 
+Two special cases:
+
+- **Weak slots are not followed.** For a weak class the indexed (variable) part
+  holds weak references, which do not express ownership; following them would
+  impose a misleading parent. Only the strong named instVars of a weak object
+  are walked. Anything reachable solely through a weak slot is claimed later via
+  a strong path, or lands in *LostAndFound* (see below).
+- **The class pointer is followed for classes/metaclasses.** A class's class
+  header field is not an instVar/index/literal slot, so it would otherwise never
+  be traversed and every metaclass (plus the class-instance-var state it holds:
+  singletons, caches, registries) would be unreachable. For `Behavior`s only we
+  add a `<class>` edge: `Foo -> Foo class -> Metaclass`.
+
 ### Edge Labels
 
 Each child node records how it was reached from its parent:
@@ -219,6 +309,50 @@ Each child node records how it was reached from its parent:
 - `'array'`, `'globals'`, `'x'` -- named instance variable
 - `'[14]'` -- indexed slot at position 14
 - `'#literals[3]'` -- compiled method literal at index 3
+
+
+## Termination: the Closed Universe
+
+Every walk begins by snapshotting a **closed universe**: a garbage collection
+followed by `SystemNavigation default allObjectsOrNil` (primitive 178), stored in
+the `deepUniverse` identity dictionary *before any walker state is allocated*.
+The BFS then only ever follows objects that are members of this universe, and the
+`seen` set claims each object exactly once. Because the universe is finite and
+fixed up front, the walk is guaranteed to terminate without any depth cap, visit
+cap, or wall-clock deadline.
+
+Two consequences:
+
+- The walker's own scaffolding (nodes, collections, dictionaries) is created
+  *after* the snapshot, so it is never in the universe and can never be mistaken
+  for a real object or re-tallied.
+- If the heap can't be snapshotted (low memory -> `allObjectsOrNil` returns nil),
+  the walk aborts with an error rather than running without the guarantee.
+
+`maxVisits` is **optional** (nil = unlimited, the normal case). Set it to a
+positive integer only to deliberately bound a run -- a quick partial walk or a
+test. A bounded walk that stops early records `limitHit := #maxVisits`, marks the
+unvisited queue nodes as truncated, and (in Find Deep mode) skips the sweep,
+since reachability is then unknown.
+
+
+## Find Deep: the LostAndFound Sweep
+
+After a *complete* walk, **Find Deep** mode sweeps the whole universe for objects
+no root ever reached and buckets them under a synthetic `LostAndFound` node --
+making orphan cycles, retained-only graphs, and VM-internal scaffolding visible.
+
+An object is "lost" iff it is in `deepUniverse` and **not** in `seen`. The sweep
+is O(N) over the universe (no reverse pointer-finding). To keep the UI usable,
+the flat list of lost objects is grouped into one bin per class
+(`ClassName (count)`, sorted by count). The sweep only runs when the walk
+completed; an incomplete walk can't distinguish "unreachable" from "not yet
+visited", so it is skipped and the title shows a loud `WARNING`.
+
+```smalltalk
+SWASpaceTally walkDeep openExplorer.   "default roots + sweep"
+SWASpaceTally exploreDeep.             "walkDeep + explorer"
+```
 
 
 ## Charging Rule
@@ -242,12 +376,94 @@ On the development image (ARM64 Cog JIT, ~2.3M live objects, 222 MB heap):
 - Full walk (~1.17M reachable objects): ~7 seconds
 - Diff computation: ~2 seconds additional (dominated by `allObjects` set building)
 
-The walk is allocation-heavy: one `SWASpaceTally` instance + one
-`OrderedCollection` per visited object. The `seen` IdentityDictionary is
-pre-sized to avoid mid-walk rehashing (which once crashed the VM at ~6M
-entries).
+The walk is allocation-heavy: one `SWASpaceTallyNode` per visited object (its
+children collection is allocated lazily). The `seen` IdentityDictionary is
+pre-sized to the exact universe size -- reached objects are a subset of the
+universe, so there is no mid-walk rehashing (uncontrolled rehashing once crashed
+the VM at ~6M entries).
+
+
+## Walking an Image File: the Simulator Walker
+
+`SWASimSpaceTally` walks the heap of a Squeak **image file on disk** rather than
+the running image, by loading it into a `StackInterpreterSimulator` (from
+VMMaker) and traversing the simulated object memory. This lets you analyze an
+image without booting it -- useful for crashed, headless, or foreign images.
+
+```smalltalk
+"From a file chooser (Apps menu: 'Space Tally (image file)'):"
+SWASimSpaceTally chooseImageAndExplore.
+
+"Or directly:"
+(SWASimSpaceTally onImage: 'some.image') findDeep: true; walk; openExplorer.
+```
+
+It is a subclass of `SWASpaceTally` and shares the same `walk` template method;
+only the object-access primitives differ. Where the live walker uses
+`thisContext` mirror primitives and dedups on object identity, the sim walker
+goes through a `SimObjectMirror` over the simulated memory manager and dedups on
+**oop** (the simulated object's address). The subclass customizes the walk only
+through the template hooks (`captureUniverse`, `newSeenOfSize:`, `makeRootNode`,
+`seedRoots`, `expandNode:`, `findLostObjects`, ...).
+
+A few sim-specific details:
+
+- **Roots are resolved inside the simulated image** (host globals don't translate
+  to sim oops): `Display`, `ActiveWorld`, every `Process`, `Processor`, the
+  simulated `Smalltalk`, the class table (`classTableRootObj`, a hidden root that
+  holds every class -- not reachable from `specialObjectsArray`), and the special
+  objects array.
+- **Byte sizes are header-inclusive** (`bytesInBody:`), matching the simulator's
+  own accounting.
+- **VM-internal objects are labelled by role.** The memory manager's own
+  scaffolding (free lists, remembered set, class-table pages, index/bitmap word
+  arrays) has no real Smalltalk class -- the VM reports `bad class`. These are
+  relabelled `<VM: freeLists>`, `<VM: classTablePage>`, etc., so nothing shows up
+  as "bad class".
+
+### How the External-Image Approach Works
+
+The live walker can only ever see the heap it is running in. To analyze a
+*different* image -- one on disk, possibly crashed, headless, or from another VM
+generation -- we need a way to read that image's objects without executing it.
+`SWASimSpaceTally` does this by reusing the VM's own object memory code as a
+library:
+
+1. **Load, don't run.** `openSimulatorOn:` creates a `StackInterpreterSimulator`
+   (the bytecode interpreter VMMaker uses for development), configures it for a
+   64-bit Spur heap with multiple bytecode sets, and calls `openOn:extraMemory:`.
+   This deserializes the image file into the simulator's object memory but never
+   starts the interpreter -- we only want a quiescent heap to traverse.
+
+2. **Mirror, don't message.** The objects in that heap are not real Smalltalk
+   objects in our image; they are addresses (*oops*) into the simulator's memory.
+   We can't send them messages. Instead, every node wraps a `SimObjectMirror`,
+   which answers questions about an oop by calling the simulator's memory manager
+   directly: `fetchClassOf:`, `numSlotsOf:`, `bytesInBody:`, `fetchPointer:ofObject:`,
+   `nameOfClass:`, and so on. The mirror is the sim analogue of the live walker's
+   `thisContext` slot-access primitives.
+
+3. **Dedup on oop, not identity.** A simulated object is identified by its oop
+   (an `Integer` address), so the dedup map is a plain value-keyed `Dictionary`
+   rather than an `IdentityDictionary`. Forwarders (Spur's lazy-become pointers)
+   are resolved with `followOop:` so a moved object is only counted once.
+
+4. **Same algorithm, same tree.** Apart from those access details, everything is
+   shared with the live walker via the `walk` template method: the closed-universe
+   snapshot (`allObjectsDo:` over the simulated memory), the BFS, weak-slot
+   skipping, the class-pointer edge, the LostAndFound sweep, and the resulting
+   explorer/treemap/diff tooling all work identically.
+
+**Tradeoffs.** The approach needs VMMaker loaded (the dependency is resolved
+lazily, so the package loads fine without it -- it only bites when you actually
+open an image). Traversal is slower than the live walk because every slot access
+is an interpreted memory-manager call rather than a primitive. In exchange you
+get total isolation: you can inspect an image that won't boot, and the analyzed
+heap is completely separate from the heap you are analyzing it in -- the walker's
+own allocations can never perturb the numbers.
+
 
 ## Interesting Findings
 
-- Each Morphic window in Squeak holds a rather large bitmap to display it's drop shadow. 
+- Each Morphic window in Squeak holds a rather large bitmap to display its drop shadow.
 
