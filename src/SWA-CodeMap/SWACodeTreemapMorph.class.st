@@ -5,11 +5,27 @@ Class {
 	#name : #SWACodeTreemapMorph,
 	#superclass : #SWATreemapMorph,
 	#instVars : [
-		'coverageStatus'
+		'coverageStatus',
+		'dupScores',
+		'dupSimilarity',
+		'dupMinLoc',
+		'dupDiffTarget'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:06'
+}
+SWACodeTreemapMorph >> aboutToStyle: aStyler [
+	"Suppress Shout syntax styling while an inline DIFF is shown (otherwise the
+	styler would repaint over TextDiffBuilder's removed/inserted-line colors).
+	Otherwise behave exactly like the superclass."
+	dupDiffTarget notNil ifTrue: [^ false].
+	^ super aboutToStyle: aStyler
+]
 
 {
 	#category : #accessing,
@@ -37,7 +53,7 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:03'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:23'
 }
 SWACodeTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch on the active color mode."
@@ -46,6 +62,7 @@ SWACodeTreemapMorph >> baseColorForNode: aNode [
 	colorMode == #versions ifTrue: [^ self colorByVersions: aNode].
 	colorMode == #recency ifTrue: [^ self colorByRecency: aNode].
 	colorMode == #author ifTrue: [^ self colorByAuthor: aNode].
+	colorMode == #duplication ifTrue: [^ self colorByDuplication: aNode].
 	colorMode == #byteComposition ifTrue: [^ Color gray: 0.18].   "bar drawn on top"
 	^ self colorByKind: aNode
 ]
@@ -61,6 +78,17 @@ SWACodeTreemapMorph >> byteCompositionMode [
 	by author, kind, recency, etc. (and conversely see the composition bar on a
 	LOC-sized layout)."
 	^ self colorMode == #byteComposition
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:23'
+}
+SWACodeTreemapMorph >> collectMethodLeavesFrom: aNode into: aCollection [
+	"Depth-first collect all SWACodeMethodNode leaves under aNode."
+	(aNode isKindOf: SWACodeMethodNode)
+		ifTrue: [aCollection add: aNode]
+		ifFalse: [aNode children do: [:c | self collectMethodLeavesFrom: c into: aCollection]]
 ]
 
 {
@@ -90,6 +118,26 @@ SWACodeTreemapMorph >> colorByAvgLoc: aNode [
 	t := (avg / 40.0) min: 1.0.
 	"hue 120 (green) down to 0 (red)"
 	^ Color h: 120 * (1.0 - t) s: 0.6 v: 0.85
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:58'
+}
+SWACodeTreemapMorph >> colorByDuplication: aNode [
+	"Tile base color in #duplication mode.
+
+	METHOD LEAVES get the solid duplication heat (#dupHeatColorForScore: of their
+	own max Jaccard score): dark slate when unique, yellow->red as the best match
+	approaches an exact copy.
+
+	AGGREGATE tiles (package / class / category) get a neutral DARK base; the
+	proportional 'percent of methods duplicated' bar (#drawDuplicationBar:in:on:) is
+	painted on TOP in #drawTileContent:in:on:, so the base only shows through where
+	the bar is skipped (e.g. tile too small)."
+	(aNode isKindOf: SWACodeMethodNode)
+		ifFalse: [^ Color h: 220 s: 0.18 v: 0.22].
+	^ self dupHeatColorForScore: (self dupScoreForNode: aNode)
 ]
 
 {
@@ -169,6 +217,59 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 	t := t min: 1.0.
 	"hue 120 (green) down to 0 (red)"
 	^ Color h: 120 * (1.0 - t) s: 0.6 v: 0.85
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:34'
+}
+SWACodeTreemapMorph >> colorMode: aSymbol [
+	"Override to (re)compute the Jaccard duplication scores when entering
+	#duplication mode, before the superclass triggers a re-render. Also refresh the
+	nav-panel chrome so the details box and the side pane immediately reflect the
+	new mode for the current selection (super only flushes the tile cache)."
+	aSymbol == #duplication ifTrue: [self computeDuplicationScores].
+	super colorMode: aSymbol.
+	self refreshChrome
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:45'
+}
+SWACodeTreemapMorph >> computeDuplicationScores [
+	"Build the per-method duplication cache. For every NON-TRIVIAL method leaf in
+	the map (>= dupMinLoc non-blank lines -- this excludes one-liner accessors,
+	which are near-identical by nature and would otherwise dominate the picture) we
+	store, keyed by crossRefKey, an Array of  score -> partnerNode  associations for
+	every OTHER eligible method whose Jaccard similarity is >= dupListFloor, sorted
+	by descending score (first = best match). Coloring uses the first (max) score;
+	the side pane lists them all; link WIDTH uses the shared-LOC estimate (see
+	dupSharedLocBetween:and:), not the raw ratio. Shingles are computed once per
+	eligible method (O(n)); the pairwise pass is O(n^2)."
+	| sim leaves shingles floor minLoc |
+	sim := self dupSimilarity.
+	floor := self dupListFloor.
+	minLoc := self dupMinLoc.
+	leaves := OrderedCollection new.
+	self collectMethodLeavesFrom: currentNode into: leaves.
+	"Accessor exception: drop trivial methods before we even compare."
+	leaves := leaves reject: [:n | n loc < minLoc].
+	leaves := leaves asArray.
+	dupScores := Dictionary new.
+	shingles := leaves collect: [:n | sim shinglesFor: n sourceString].
+	1 to: leaves size do: [:i |
+		| si matches |
+		si := shingles at: i.
+		matches := OrderedCollection new.
+		si isEmpty ifFalse: [
+			1 to: leaves size do: [:j |
+				i = j ifFalse: [
+					| sc |
+					sc := (sim jaccardBetween: si and: (shingles at: j)) asFloat.
+					sc >= floor ifTrue: [matches add: sc -> (leaves at: j)]]]].
+		matches := matches asSortedCollection: [:a :b | a key >= b key].
+		dupScores at: (leaves at: i) crossRefKey put: matches asArray]
 ]
 
 {
@@ -267,7 +368,7 @@ SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:37'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:34'
 }
 SWACodeTreemapMorph >> detailInfoString [
 	"Multi-line details for the Show-mode details box BESIDE the source (one
@@ -275,7 +376,9 @@ SWACodeTreemapMorph >> detailInfoString [
 	has its own pane). When a coverage overlay is active, leads with the coverage
 	METRIC (invocations / covering tests) and DROPS the LOC line. In
 	byte-composition mode, leads with the source byte size and its doc/string/code
-	split. '' when nothing is selected. (SWANavPanel content protocol.)"
+	split. In #duplication mode, leads with the Jaccard duplication score and the
+	best-matching method. '' when nothing is selected. (SWANavPanel content
+	protocol.)"
 	| n when whenStr cov comp |
 	n := selectedNode ifNil: [^ ''].
 	when := n lastChanged.
@@ -285,6 +388,15 @@ SWACodeTreemapMorph >> detailInfoString [
 	cov := self coverageValueForNode: n.
 	^ String streamContents: [:s |
 		s nextPutAll: n kind asString; nextPutAll: ': '; nextPutAll: n name; cr.
+		"Duplication score first when in duplication mode."
+		colorMode == #duplication ifTrue: [
+			| score best |
+			score := self dupScoreForNode: n.
+			s nextPutAll: 'duplication: '; print: (score * 100) rounded; nextPutAll: '%'; cr.
+			best := self dupPartnerForNode: n.
+			best ifNotNil: [
+				s nextPutAll: 'best match:'; cr;
+					nextPutAll: '  '; nextPutAll: best crossRefKey; cr]].
 		"Coverage metric first (and instead of LOC) when an overlay is active."
 		coverageKind notNil
 			ifTrue: [
@@ -347,8 +459,41 @@ SWACodeTreemapMorph >> drawByteCompositionBar: aNode in: screenR on: aCanvas [
 ]
 
 {
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:58'
+}
+SWACodeTreemapMorph >> drawDuplicationBar: aNode in: screenR on: aCanvas [
+	"Paint a horizontal proportional bar across the FULL tile width for an AGGREGATE
+	node (package / class / category) in #duplication mode:
+	  HEAT  -- the share of eligible methods in the subtree that are duplicated,
+	           tinted by the AVERAGE clone strength of those methods (yellow->red),
+	  DARK  -- the remaining (unique) methods.
+	So a class half of whose methods are clones shows a half-width hot bar; a class
+	with no duplication stays dark. To avoid DOUBLE representation, a node whose
+	RENDERED children are themselves aggregates draws its bar DESATURATED, so the
+	crisp bars are the most-detailed VISIBLE level (cf. byte-composition mode)."
+	| comp affected total avgScore fade heat affRight |
+	comp := self dupCompositionForNode: aNode.
+	affected := comp at: 1.
+	total := comp at: 2.
+	total = 0 ifTrue: [^ self].
+	avgScore := affected = 0 ifTrue: [0.0] ifFalse: [(comp at: 3) / affected].
+	fade := self hasRenderedAggregateChildrenUnder: aNode.
+	"affected segment color: duplication heat at the average score, faded if needed."
+	heat := self dupHeatColorForScore: avgScore.
+	fade ifTrue: [heat := heat alphaMixed: 0.4 with: (Color gray: 0.22)].
+	"dark base for the whole tile (unique remainder shows through)."
+	aCanvas fillRectangle: screenR color: (Color h: 220 s: 0.18 v: 0.22).
+	affected = 0 ifTrue: [^ self].
+	affRight := screenR left + (screenR width * affected / total) rounded.
+	affRight := affRight min: screenR right.
+	aCanvas fillRectangle: (screenR left @ screenR top corner: affRight @ screenR bottom)
+		color: heat
+]
+
+{
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:36'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:59'
 }
 SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	"Extra per-tile content painted over the fill, before frame/label.
@@ -357,6 +502,10 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	proportional bar (#drawByteCompositionBar:in:on:) on EVERY tile -- both method
 	leaves (their own analysis) and aggregates (rolled up) -- then return. This is
 	the new, additive mode and is independent of the coverage overlay.
+
+	DUPLICATION mode (#colorMode == #duplication): on AGGREGATE tiles paint the
+	'percent of methods duplicated' proportional bar (#drawDuplicationBar:in:on:);
+	method leaves keep their solid heat color, so fall through. Then return.
 
 	Otherwise, under a loaded COVERAGE overlay, paint a horizontal proportional bar
 	across an AGGREGATE tile, left to right:
@@ -368,11 +517,15 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	#colorForNode:'s solid colour (proportions answers nil).
 
 	To avoid DOUBLE representation, a node whose RENDERED children are also aggregates
-	(#hasRenderedAggregateChildrenUnder:) draws its bar DESATURATED, so the crisp
-	bars are the most-detailed VISIBLE level."
+	(#hasRenderedAggregateChildrenUnder:) draws its bar DESATURATED, so the
+	crisp bars are the most-detailed VISIBLE level."
 	| props total gray x segs drawnSoFar fade mix dim |
 	self byteCompositionMode ifTrue: [
 		^ self drawByteCompositionBar: aNode in: screenR on: aCanvas].
+	colorMode == #duplication ifTrue: [
+		(aNode isKindOf: SWACodeMethodNode) ifFalse: [
+			self drawDuplicationBar: aNode in: screenR on: aCanvas].
+		^ self].
 	props := self coverageProportionsForNode: aNode.
 	props ifNil: [^ self].
 	total := props at: #total.
@@ -402,6 +555,185 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 			aCanvas fillRectangle: (x @ screenR top corner: segRight @ screenR bottom)
 				color: assoc value.
 			x := segRight]]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:58'
+}
+SWACodeTreemapMorph >> dupCompositionForNode: aNode [
+	"Roll up duplication over aNode's subtree for the aggregate bar. Returns an
+	Array { affectedMethods. totalMethods. summedScore } where:
+	 - totalMethods  = eligible (>= dupMinLoc) method leaves under aNode,
+	 - affectedMethods = those with at least one near-duplicate (a non-empty match
+	   list in the cache),
+	 - summedScore   = sum of each affected method's MAX Jaccard score (so the
+	   affected segment can be tinted by the AVERAGE clone strength).
+	Methods excluded by the accessor LOC floor are simply absent from the cache and
+	thus counted in neither total nor affected, which is what we want."
+	| affected total summed |
+	dupScores isNil ifTrue: [^ { 0. 0. 0.0 }].
+	(aNode isKindOf: SWACodeMethodNode) ifTrue: [
+		| matches |
+		matches := dupScores at: aNode crossRefKey ifAbsent: [^ { 0. 0. 0.0 }].
+		"not in cache (filtered out) -> contributes nothing"
+		^ matches isEmpty
+			ifTrue: [{ 0. 1. 0.0 }]
+			ifFalse: [{ 1. 1. matches first key }]].
+	affected := 0. total := 0. summed := 0.0.
+	aNode children do: [:c |
+		| comp |
+		comp := self dupCompositionForNode: c.
+		affected := affected + (comp at: 1).
+		total := total + (comp at: 2).
+		summed := summed + (comp at: 3)].
+	^ { affected. total. summed }
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:05'
+}
+SWACodeTreemapMorph >> dupDiffTarget [
+	"The near-duplicate method node the source pane is currently diffing the
+	selection AGAINST, or nil for a plain source view."
+	^ dupDiffTarget
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:05'
+}
+SWACodeTreemapMorph >> dupDiffTarget: aMethodNodeOrNil [
+	"Set the partner method to diff the current selection against (from a click in
+	the duplicates side pane) and refresh the source pane so it shows the inline
+	diff. Refreshing chrome re-pulls #selectedSourceString, which now returns the
+	diff Text."
+	dupDiffTarget := aMethodNodeOrNil.
+	self refreshChrome
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:58'
+}
+SWACodeTreemapMorph >> dupHeatColorForScore: score [
+	"The duplication heat ramp shared by leaf tiles and aggregate bars:
+	  score < 0.5  -> cool gray-blue (unique-ish), slightly bluer the lower,
+	  0.5 .. 1.0   -> yellow -> orange -> red (likely copy; 1.0 = vivid red)."
+	| t |
+	score < 0.5 ifTrue: [^ Color h: 220 s: 0.25 v: 0.30 + (score * 0.2)].
+	t := ((score - 0.5) / 0.5) min: 1.0.
+	^ Color h: 60 * (1.0 - t) s: 0.85 v: 0.95
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+}
+SWACodeTreemapMorph >> dupListFloor [
+	"Minimum Jaccard score for a match to be recorded/listed in the duplication
+	pane. Below this we don't consider two methods related at all."
+	^ 0.5
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+}
+SWACodeTreemapMorph >> dupMatchesForNode: aNode [
+	"Array of  score -> partnerMethodNode  associations (best first) for a method
+	leaf, or #() for non-methods / no matches / cache not built."
+	dupScores isNil ifTrue: [^ #()].
+	(aNode isKindOf: SWACodeMethodNode) ifFalse: [^ #()].
+	^ dupScores at: aNode crossRefKey ifAbsent: [#()]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:45'
+}
+SWACodeTreemapMorph >> dupMinLoc [
+	"Minimum non-blank LOC for a method to take part in duplication analysis at all.
+	Below this (one-line accessors, trivial forwarders) methods are near-identical
+	by nature and only add noise, so we ignore them. 4 keeps real logic, drops the
+	'foo ^ foo' / 'foo: x  foo := x' boilerplate."
+	^ dupMinLoc ifNil: [4]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:46'
+}
+SWACodeTreemapMorph >> dupMinLoc: anInteger [
+	"Set the accessor-exception LOC floor and recompute if currently in duplication
+	mode."
+	dupMinLoc := anInteger.
+	colorMode == #duplication ifTrue: [
+		self computeDuplicationScores.
+		self flushCache.
+		self refreshChrome]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+}
+SWACodeTreemapMorph >> dupPartnerForNode: aNode [
+	"The best-matching partner method node for a method leaf, or nil."
+	| matches |
+	dupScores isNil ifTrue: [^ nil].
+	(aNode isKindOf: SWACodeMethodNode) ifFalse: [^ nil].
+	matches := dupScores at: aNode crossRefKey ifAbsent: [^ nil].
+	^ matches isEmpty ifTrue: [nil] ifFalse: [matches first value]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+}
+SWACodeTreemapMorph >> dupScoreForNode: aNode [
+	"Max Jaccard similarity for aNode. Method leaves read the cache (first/best
+	match); container nodes roll up to the max score among their descendant methods
+	so a class/category lights up when it contains a near-duplicate. Returns 0.0
+	when unknown (cache not built or no methods/matches)."
+	dupScores isNil ifTrue: [^ 0.0].
+	(aNode isKindOf: SWACodeMethodNode) ifTrue: [
+		| matches |
+		matches := dupScores at: aNode crossRefKey ifAbsent: [^ 0.0].
+		^ matches isEmpty ifTrue: [0.0] ifFalse: [matches first key]].
+	^ aNode children
+		inject: 0.0
+		into: [:mx :c | mx max: (self dupScoreForNode: c)]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:46'
+}
+SWACodeTreemapMorph >> dupSharedLocBetween: nodeA and: nodeB [
+	"Estimated number of DUPLICATED lines between two methods: the Jaccard score
+	(fraction of shared shingles) times the smaller method's LOC. This is the
+	'impact' of the clone -- a 100% match on a 2-line accessor shares ~2 lines; a
+	90% match on a 40-line method shares ~36. Link width uses this, so big copied
+	methods draw heavy lines and small ones stay thin regardless of percentage."
+	| score |
+	(nodeA isNil or: [nodeB isNil]) ifTrue: [^ 0].
+	score := 0.0.
+	(self dupMatchesForNode: nodeA) do: [:m |
+		m value crossRefKey = nodeB crossRefKey ifTrue: [score := m key]].
+	^ (score * (nodeA loc min: nodeB loc)) rounded
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:23'
+}
+SWACodeTreemapMorph >> dupSimilarity [
+	"The SWACodeSimilarity engine, lazily created. k=4 is a reasonable default
+	for Smalltalk; threshold 0 here because we want a score for EVERY method (the
+	color gradient does the thresholding visually)."
+	^ dupSimilarity ifNil: [dupSimilarity := SWACodeSimilarity new k: 4; threshold: 0.0; yourself]
 ]
 
 {
@@ -552,6 +884,44 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 ]
 
 {
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+}
+SWACodeTreemapMorph >> provenanceListForSelection [
+	"Mode-aware side pane. In #duplication mode the corner pane lists the selected
+	method's near-duplicates as  'NN%  Class>>selector' -> crossRefKey  (clickable
+	to navigate). In every other mode fall back to the coverage provenance."
+	colorMode == #duplication ifTrue: [
+		| node |
+		node := self selectedNode.
+		(node isNil or: [(node isKindOf: SWACodeMethodNode) not]) ifTrue: [^ #()].
+		^ (self dupMatchesForNode: node) collect: [:assoc |
+			| pct partner |
+			pct := (assoc key * 100) rounded.
+			partner := assoc value.
+			(pct printString, '%  ', partner crossRefKey) -> partner crossRefKey]].
+	^ super provenanceListForSelection
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+}
+SWACodeTreemapMorph >> provenanceListTitle [
+	"Mode-aware title for the side pane."
+	colorMode == #duplication ifTrue: [
+		| node n |
+		node := self selectedNode.
+		(node isNil or: [(node isKindOf: SWACodeMethodNode) not])
+			ifTrue: [^ 'Duplicates'].
+		n := (self dupMatchesForNode: node) size.
+		^ n = 0
+			ifTrue: ['No near-duplicates']
+			ifFalse: [n printString, ' near-duplicate', (n = 1 ifTrue: [''] ifFalse: ['s'])]].
+	^ super provenanceListTitle
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
 }
@@ -564,6 +934,44 @@ SWACodeTreemapMorph >> runInfoString [
 	base := self metaInfoStringForSubtree: (currentNode ifNil: [rootNode]).
 	(coverageStatus isNil or: [coverageStatus isEmpty]) ifTrue: [^ base].
 	^ '[', coverageStatus, ']   ', base
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:06'
+}
+SWACodeTreemapMorph >> selectedNode: aNodeOrNil [
+	"Selecting a different node clears any active duplication diff target, so the
+	source pane reverts to plain source until the user picks a new partner from the
+	duplicates pane."
+	dupDiffTarget := nil.
+	super selectedNode: aNodeOrNil
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:06'
+}
+SWACodeTreemapMorph >> selectedSourceString [
+	"Source text for the Show pane. In #duplication mode, when a near-duplicate has
+	been picked in the side pane (#dupDiffTarget), show the INLINE DIFF between the
+	selected method and that partner -- the same styled removed/inserted-line view
+	the versions browser uses (via TextDiffBuilder). A 2-line header names the two
+	methods. Otherwise fall back to the plain selected-method source."
+	| sel |
+	sel := self selectedNode.
+	(dupDiffTarget notNil
+		and: [sel notNil]
+		and: [sel isKindOf: SWACodeMethodNode]
+		and: [dupDiffTarget isKindOf: SWACodeMethodNode]) ifTrue: [
+			| header diff |
+			header := ('" ', sel crossRefKey, '  (selected)', String cr,
+				'  vs ', dupDiffTarget crossRefKey, ' "', String cr, String cr) asText.
+			diff := TextDiffBuilder
+				buildDisplayPatchFrom: dupDiffTarget sourceString
+				to: sel sourceString.
+			^ header, diff].
+	^ super selectedSourceString
 ]
 
 {

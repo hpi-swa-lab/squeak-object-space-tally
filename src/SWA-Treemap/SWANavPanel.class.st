@@ -50,7 +50,8 @@ Class {
 		'savedWindowFrame',
 		'liveTally',
 		'coverageCancel',
-		'tallyButton'
+		'tallyButton',
+		'sourceSplitter'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -629,6 +630,25 @@ SWANavPanel >> exportCoverage [
 
 {
 	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
+}
+SWANavPanel >> growSourceRowBy: deltaPixels [
+	"Grow (deltaPixels > 0) or shrink the Show row's height by the given amount,
+	driven by the splitter handle. Clamped to [120 .. panelHeight - 140] so the row
+	stays usable and never swallows the treemap view above it."
+	| newH maxH |
+	sourceRow ifNil: [^ self].
+	sourceRow owner ifNil: [^ self].
+	maxH := (self height - 140) max: 120.
+	newH := (sourceRow height + deltaPixels max: 120) min: maxH.
+	newH = sourceRow height ifTrue: [^ self].
+	sourceRow height: newH.
+	sourceMorph ifNotNil: [sourceMorph height: newH].
+	self layoutChanged
+]
+
+{
+	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:45'
 }
 SWANavPanel >> headerNaturalWidth [
@@ -877,16 +897,24 @@ SWANavPanel >> provenanceIndex [
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:06'
 }
 SWANavPanel >> provenanceIndex: anInteger [
-	"List-model click handler for the covering-tests pane: navigate the treemap to
-	the clicked test/method node (selecting it, which in turn re-fills this pane for
-	the newly selected node)."
+	"List-model click handler for the side pane. Normally navigates the treemap to
+	the clicked test/method node. In #duplication mode, instead of navigating away
+	we DIFF the current selection against the clicked near-duplicate (set it as the
+	view's diff target, which re-renders the source pane as an inline diff)."
 	| assoc |
 	provenanceIndex := anInteger.
 	(anInteger = 0 or: [provenanceEntries isNil]) ifTrue: [^ self].
 	assoc := provenanceEntries at: anInteger ifAbsent: [^ self].
+	((view respondsTo: #colorMode) and: [view colorMode == #duplication]
+		and: [view respondsTo: #dupDiffTarget:]) ifTrue: [
+			| node |
+			node := (view respondsTo: #keyIndex)
+				ifTrue: [view keyIndex at: assoc value ifAbsent: [nil]]
+				ifFalse: [nil].
+			^ view dupDiffTarget: node].
 	(view respondsTo: #selectNodeForKey:)
 		ifTrue: [view selectNodeForKey: assoc value]
 ]
@@ -1171,18 +1199,24 @@ SWANavPanel >> toggleFullScreen [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:02'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
 }
 SWANavPanel >> toggleSource [
 	"Show button: show/hide the bottom area at the bottom of the panel. The bottom
 	area is a horizontal row holding -- for the Code Map -- a details box (left), the
 	source pane (center), and a covering-tests list pane (right); other views get
-	just the source pane. When shown, load the current selection's source, details,
-	and provenance."
+	just the source pane. A draggable splitter handle is inserted ABOVE the row so
+	the user can resize it taller (e.g. to read an inline diff). When shown, load the
+	current selection's source, details, and provenance."
 	(sourceRow notNil and: [sourceRow owner notNil])
-		ifTrue: [sourceRow delete]
+		ifTrue: [
+			sourceSplitter ifNotNil: [sourceSplitter delete].
+			sourceRow delete]
 		ifFalse: [
 			sourceRow ifNil: [sourceRow := self newSourceRow].
+			sourceSplitter ifNil: [
+				sourceSplitter := SWASourceSplitter new panel: self; yourself].
+			self addMorphBack: sourceSplitter.
 			self addMorphBack: sourceRow.
 			self updateSource.
 			self updateDetails.
