@@ -648,6 +648,15 @@ SWACodeNode >> printOn: aStream [
 ]
 
 {
+	#category : #tree,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 10:00'
+}
+SWACodeNode >> root [
+	"Walk the parent chain to the top SWACodeRootNode (its parent is nil)."
+	^ parent isNil ifTrue: [self] ifFalse: [parent root]
+]
+
+{
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:04'
 }
