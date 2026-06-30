@@ -67,9 +67,17 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:23'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
+	"Color (base-tint) modes for the Code Map. Most are intrinsic (kind, LOC,
+	duplication, ...). The two DATA-DRIVEN entries -- test coverage and invocation
+	tally -- acquire their data lazily when picked: choosing 'By test coverage' with
+	no coverage loaded runs the shown packages' related tests (forked, Stop-able);
+	'By invocation tally' colors by whatever invocation data is present (drive the
+	live counting from the interactive Tally button). Once loaded, picking them just
+	recolors -- and they coexist with each other and with duplication, so you can
+	flip between overlays without re-acquiring."
 	^ #(
 		(#codeKind         'By kind (package/class/category/method)')
 		(#byteComposition  'By byte composition (doc/string/code bar)')
@@ -79,6 +87,8 @@ SWACodeTreemapOverlay >> colorModeOptions [
 		(#recency          'By recency (last changed)')
 		(#author           'By author (last changed)')
 		(#duplication      'By duplication (Jaccard clone heat)')
+		(#coverage         'By test coverage (green covered + blue tests)')
+		(#tally            'By invocation tally (call-count heat)')
 	)
 ]
 

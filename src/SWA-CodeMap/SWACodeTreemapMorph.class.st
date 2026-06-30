@@ -8,7 +8,8 @@ Class {
 		'coverageStatus',
 		'dupScores',
 		'dupSimilarity',
-		'dupMinLoc'
+		'dupMinLoc',
+		'dupLoaded'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -219,22 +220,40 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 ]
 
 {
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:34'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:23'
 }
 SWACodeTreemapMorph >> colorMode: aSymbol [
-	"Override to (re)compute the Jaccard duplication scores when entering
-	#duplication mode, before the superclass triggers a re-render. Also refresh the
-	nav-panel chrome so the details box and the side pane immediately reflect the
-	new mode for the current selection (super only flushes the tile cache)."
-	aSymbol == #duplication ifTrue: [self computeDuplicationScores].
+	"Code Map color-mode entry point. Most modes just set the base tint (handled by
+	super + #baseColorForNode:). Three are DATA-DRIVEN and acquire/apply lazily:
+
+	  #duplication -- (re)compute the Jaccard clone scores unless data was LOADED
+	                  from a file (#dupLoaded), then color by clone heat.
+	  #coverage    -- color by SUnit test coverage (green covered + blue tests). If
+	                  no coverage data is loaded yet, ask the nav panel to RUN the
+	                  shown packages' related tests (forked, Stop-able); once data
+	                  exists, just (re)apply the test-count overlay.
+	  #tally       -- color by invocation COUNT. Uses whatever invocation data is
+	                  present (drive live counting from the Tally button / load a
+	                  file); if none is present, says so and leaves the mode alone.
+
+	Coverage and tally are HIGHLIGHT overlays (orthogonal to the base colorMode and
+	to each other and to duplication), so switching among them never discards the
+	other's loaded data -- the menus keep offering every overlay you've acquired.
+
+	Refreshes the nav-panel chrome so the details box / side pane reflect the new
+	mode for the current selection (super only flushes the tile cache)."
+	aSymbol == #duplication ifTrue: [
+		dupLoaded == true ifFalse: [self computeDuplicationScores]].
+	aSymbol == #coverage ifTrue: [^ self enterCoverageColorMode].
+	aSymbol == #tally ifTrue: [^ self enterTallyColorMode].
 	super colorMode: aSymbol.
 	self refreshChrome
 ]
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:46'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:43'
 }
 SWACodeTreemapMorph >> computeDuplicationScores [
 	"Build the per-method duplication cache, showing a progress bar across the
@@ -257,8 +276,13 @@ SWACodeTreemapMorph >> computeDuplicationScores [
 	uses the shared-LOC estimate.
 
 	PROGRESS: bar runs 0..(n + shingleBudget); COMPARE position is shingleBudget + i
-	matching the 'Comparing i / n' caption, with a remaining-time ETA."
+	matching the 'Comparing i / n' caption, with a remaining-time ETA.
+
+	This is a FRESH compute, so any previously LOADED data is dropped (#dupLoaded
+	false); the offline counterpart that fills the same cache is
+	#loadDuplicationData:."
 	| sim leaves shingles index floor minLoc n shingleBudget |
+	dupLoaded := false.
 	sim := self dupSimilarity.
 	floor := self dupListFloor.
 	minLoc := self dupMinLoc.
@@ -787,6 +811,44 @@ SWACodeTreemapMorph >> dupSimilarity [
 ]
 
 {
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:23'
+}
+SWACodeTreemapMorph >> enterCoverageColorMode [
+	"Color by SUnit test coverage. If coverage data is already loaded, (re)apply the
+	covering-test overlay and recolor. Otherwise ask the nav panel to RUN the shown
+	packages' related tests (forked, Stop-able) and overlay the result -- a no-op
+	with a status note if there is no panel to drive the run."
+	self coverageData
+		ifNotNil: [
+			colorMode := #coverage.
+			self showCoverageData: self coverageData weightMode: #tests.
+			self refreshChrome]
+		ifNil: [
+			navPanel notNil
+				ifTrue: [navPanel acquireTestCoverageThenColor]
+				ifFalse: [self coverageStatus: 'Coverage: load or run coverage data first']]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:23'
+}
+SWACodeTreemapMorph >> enterTallyColorMode [
+	"Color by invocation COUNT. Uses whatever invocation data is loaded (live Tally
+	button, or a file that carries call counts). If the current coverage data has no
+	invocation counts, leave the mode unchanged and say so -- live counting is driven
+	interactively by the Tally button, not acquired from here."
+	(self coverageData notNil and: [self coverageData hasInvocationData])
+		ifTrue: [
+			colorMode := #tally.
+			self showCoverageData: self coverageData weightMode: #invocations.
+			self refreshChrome]
+		ifFalse: [
+			self coverageStatus: 'Tally: no invocation data -- press the Tally button to count, or load a file with call counts']
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:06'
 }
@@ -840,6 +902,47 @@ SWACodeTreemapMorph >> hasRenderedAggregateChildrenUnder: aNode [
 SWACodeTreemapMorph >> initialize [
 	super initialize.
 	colorMode := #codeKind
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:42'
+}
+SWACodeTreemapMorph >> loadDuplicationData: aSWADuplicationData [
+	"Populate the duplication cache (#dupScores) from a previously GENERATED,
+	persisted SWADuplicationData instead of running #computeDuplicationScores now.
+	This is the offline counterpart, mirroring #showCoverageData: for coverage:
+	expensive scans (big packages) are generated once to a file and reloaded here.
+
+	dupScores is  crossRefKey -> Array of (score -> partnerNode). We resolve each
+	stored partner crossRefKey to the ACTUAL method node in the current tree (by
+	identity, so #rectForNode: finds it and links are drawn). Partners NOT in the
+	current tree become a lightweight SWADuplicationPartnerStub: still listed in the
+	details side-pane, but never drawn on the map (Jens's call) since they have no
+	tile. Pass nil to clear.
+
+	Sets #dupLoaded so entering #duplication colorMode keeps this data instead of
+	recomputing."
+	| keyIndex allLeaves |
+	aSWADuplicationData ifNil: [dupScores := nil. dupLoaded := false. ^ self changed].
+	"index every method leaf in the WHOLE tree by crossRefKey for identity resolution
+	(rootNode, not currentNode, so partners outside the current zoom still resolve)"
+	allLeaves := OrderedCollection new.
+	self collectMethodLeavesFrom: rootNode into: allLeaves.
+	keyIndex := Dictionary new.
+	allLeaves do: [:m | keyIndex at: m crossRefKey put: m].
+	dupScores := Dictionary new.
+	aSWADuplicationData matchesByKeyDo: [:methodKey :keyMatches |
+		dupScores at: methodKey put: (keyMatches collect: [:assoc |
+			| partnerKey partnerNode |
+			partnerKey := assoc value.
+			partnerNode := keyIndex at: partnerKey ifAbsent: [
+				SWADuplicationPartnerStub new
+					crossRefKey: partnerKey
+					loc: (aSWADuplicationData locForKey: partnerKey)].
+			assoc key -> partnerNode]) asArray].
+	dupLoaded := true.
+	self changed
 ]
 
 {
@@ -931,6 +1034,17 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 		'   ', authors size printString, ' authors',
 		'   ', aNode changeCount printString, ' versions',
 		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
+}
+SWACodeTreemapMorph >> noteColorMode: aSymbol [
+	"Record the active color mode WITHOUT re-dispatching its acquire/apply logic.
+	Used by acquisition callbacks (e.g. coverage finished running) that have already
+	applied the overlay and just need the menu tick to reflect the mode."
+	colorMode := aSymbol
 ]
 
 {
