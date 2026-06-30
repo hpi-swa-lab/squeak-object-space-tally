@@ -84,15 +84,18 @@ SWATreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas origin: or
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 13:01'
 }
 SWATreemapOverlay >> drawOn: aCanvas [
-	"Draw a white border on the selected tile and fading cyan borders on all
-	ancestor tiles. Domain-specific extras are added via the
-	#drawExtraHighlightsFor:on:origin: hook (default no-op)."
+	"Draw a white border on the selected (hovered) tile and fading cyan borders on
+	all ancestor tiles, plus a RED border on any secondary-selection tile (drawn
+	first so it always shows even when nothing is hovered). Domain-specific extras
+	are added via the #drawExtraHighlightsFor:on:origin: hook (default no-op)."
 	| origin screenR node r alpha parentColor selectedNode |
-	hoveredTile ifNil: [^ self].
 	origin := self position.
+	"--- Secondary selection: red border (hover-independent) ---"
+	self drawSecondarySelectionOn: aCanvas origin: origin.
+	hoveredTile ifNil: [^ self].
 	selectedNode := hoveredTile key.
 	"--- Selected tile: white border ---"
 	screenR := hoveredTile value translateBy: origin.
@@ -110,6 +113,25 @@ SWATreemapOverlay >> drawOn: aCanvas [
 		node := node parent].
 	"--- Domain extras (e.g. SpaceTally other-parent lines) ---"
 	self drawExtraHighlightsFor: selectedNode on: aCanvas origin: origin
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 13:01'
+}
+SWATreemapOverlay >> drawSecondarySelectionOn: aCanvas origin: origin [
+	"Draw a RED border around the view's secondary-selection tile, if any. Unlike
+	the white primary-selection/hover border this is driven by #secondarySelection
+	(not hover), so it persists while the mouse is elsewhere. General mechanism: any
+	view can set a secondary selection; the duplication view sets it to the
+	near-duplicate being diffed against the primary selection."
+	| sec r |
+	(treemapMorph respondsTo: #secondarySelection) ifFalse: [^ self].
+	sec := treemapMorph secondarySelection.
+	sec ifNil: [^ self].
+	r := treemapMorph rectForNode: sec.
+	r ifNil: [^ self].
+	aCanvas frameRectangle: (r translateBy: origin) width: 2 color: Color red
 ]
 
 {

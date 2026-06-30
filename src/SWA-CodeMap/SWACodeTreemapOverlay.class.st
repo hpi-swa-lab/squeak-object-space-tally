@@ -132,33 +132,92 @@ SWACodeTreemapOverlay >> drawAllDuplicationLinksOn: aCanvas origin: origin [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:51'
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:52'
 }
-SWACodeTreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas origin: origin [
-	"In #duplication color mode, draw a line from the selected method tile to each
-	of its near-duplicate partner tiles (cf. SpaceTally's other-parent lines). Line
-	COLOR is the Jaccard score on a yellow->red ramp (red = strongest %), while line
-	WIDTH is the SHARED-LOC impact (heavy = many duplicated lines), so a big copied
-	method stands out over a trivial high-% accessor match. Lines are drawn
-	anti-aliased. If a partner tile is too small to be rendered, draw to its nearest
-	visible ancestor instead."
-	| selectedCenter aaCanvas |
+SWACodeTreemapOverlay >> drawExtraHighlightsFor: hoveredNode on: aCanvas origin: origin [
+	"No-op: duplication clone links are NOT drawn from this hover hook (which fires
+	with the hovered node). They are drawn selection-driven from #drawOn: via
+	#drawSelectionDuplicationLinksOn:origin:, so hovering never changes them."
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:56'
+}
+SWACodeTreemapOverlay >> drawOn: aCanvas [
+	"Standard hover highlight (white border + ancestor borders) follows the mouse via
+	super. In #duplication mode we additionally draw a PERSISTENT selection border
+	and the clone links from the CLICK-SELECTION, independent of hover:
+	  - a method is selected -> persistent white/ancestor border + lines to its
+	    near-duplicates (these survive the mouse leaving the canvas),
+	  - nothing selected      -> the whole-map OVERVIEW of all duplication links.
+	Hovering never changes the selection or which links are shown."
+	| origin sel |
+	super drawOn: aCanvas.
 	treemapMorph colorMode == #duplication ifFalse: [^ self].
-	(selectedNode isKindOf: SWACodeMethodNode) ifFalse: [^ self].
-	hoveredTile ifNil: [^ self].
-	selectedCenter := (hoveredTile value translateBy: origin) center.
+	origin := self position.
+	sel := treemapMorph selectedNode.
+	(sel isKindOf: SWACodeMethodNode)
+		ifTrue: [
+			self drawSelectionBorderFor: sel on: aCanvas origin: origin.
+			self drawSelectionDuplicationLinksOn: aCanvas origin: origin]
+		ifFalse: [self drawAllDuplicationLinksOn: aCanvas origin: origin]
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:56'
+}
+SWACodeTreemapOverlay >> drawSelectionBorderFor: aNode on: aCanvas origin: origin [
+	"Draw the white selected-tile border + fading cyan ancestor borders for aNode
+	(the CLICK selection), so the selection stays visible even after the mouse
+	leaves the canvas and #hoveredTile is cleared. Mirrors the base #drawOn: border
+	logic but sourced from the persistent selection rather than hover."
+	| selRect node alpha r parentColor screenR |
+	aNode ifNil: [^ self].
+	selRect := treemapMorph rectForNode: aNode.
+	selRect ifNil: [^ self].
+	aCanvas frameRectangle: (selRect translateBy: origin) width: 2 color: Color white.
+	node := aNode parent.
+	alpha := 0.7.
+	[node notNil and: [node parent notNil]] whileTrue: [
+		r := treemapMorph rectForNode: node.
+		r ifNotNil: [
+			parentColor := Color cyan alpha: alpha.
+			screenR := r translateBy: origin.
+			aCanvas frameRectangle: screenR width: 2 color: parentColor].
+		alpha := (alpha - 0.15) max: 0.15.
+		node := node parent]
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:52'
+}
+SWACodeTreemapOverlay >> drawSelectionDuplicationLinksOn: aCanvas origin: origin [
+	"Draw lines from the CLICK-SELECTED method tile to each of its near-duplicate
+	partner tiles. Driven by the treemap's #selectedNode, NOT by hover. Line COLOR
+	is the Jaccard score (yellow->red); WIDTH is the SHARED-LOC impact. Drawn
+	anti-aliased; partners with no visible tile resolve to their nearest visible
+	ancestor."
+	| sel selRect selectedCenter aaCanvas |
+	sel := treemapMorph selectedNode.
+	(sel isKindOf: SWACodeMethodNode) ifFalse: [^ self].
+	selRect := treemapMorph rectForNode: sel.
+	selRect ifNil: [^ self].
+	selectedCenter := (selRect translateBy: origin) center.
 	aaCanvas := self aaCanvasFrom: aCanvas.
-	(treemapMorph dupMatchesForNode: selectedNode) do: [:assoc |
+	(treemapMorph dupMatchesForNode: sel) do: [:assoc |
 		| score partner target r screenR sharedLoc |
 		score := assoc key.
 		partner := assoc value.
-		sharedLoc := treemapMorph dupSharedLocBetween: selectedNode and: partner.
+		sharedLoc := treemapMorph dupSharedLocBetween: sel and: partner.
 		target := partner.
 		r := treemapMorph rectForNode: target.
 		[r isNil and: [target notNil and: [target parent notNil]]] whileTrue: [
 			target := target parent.
 			r := treemapMorph rectForNode: target].
-		(r notNil and: [target ~~ selectedNode]) ifTrue: [
+		(r notNil and: [target ~~ sel]) ifTrue: [
 			screenR := r translateBy: origin.
 			aaCanvas
 				line: selectedCenter
@@ -166,20 +225,6 @@ SWACodeTreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas origin
 				width: (self dupLineWidthForSharedLoc: sharedLoc)
 				color: (self dupLineColorForScore: score)]].
 	aaCanvas == aCanvas ifFalse: [aaCanvas flush]
-]
-
-{
-	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:42'
-}
-SWACodeTreemapOverlay >> drawOn: aCanvas [
-	"When in #duplication mode with NOTHING selected, draw an OVERVIEW: every
-	duplication link across the whole map at once (so the global clone structure is
-	visible without clicking). Otherwise defer to the standard behavior (selected
-	tile + ancestor borders + per-selection links)."
-	(treemapMorph colorMode == #duplication and: [hoveredTile isNil])
-		ifTrue: [^ self drawAllDuplicationLinksOn: aCanvas origin: self position].
-	super drawOn: aCanvas
 ]
 
 {

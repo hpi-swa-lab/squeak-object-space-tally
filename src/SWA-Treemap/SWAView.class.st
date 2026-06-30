@@ -32,7 +32,8 @@ Class {
 		'coverageData',
 		'testKeys',
 		'testFilterKeys',
-		'coveringTestFilter'
+		'coveringTestFilter',
+		'secondarySelection'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -538,6 +539,30 @@ SWAView >> rebuildKeyIndex [
 }
 SWAView >> rootNode [
 	^ rootNode
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:59'
+}
+SWAView >> secondarySelection [
+	"A SECONDARY selection node (or nil), distinct from the primary #selectedNode.
+	Drawn with a RED border (vs the primary's white). General mechanism: a view can
+	use it for any 'compare against' / 'related-to' relationship -- the duplication
+	view uses it for the near-duplicate currently being diffed against the primary
+	selection."
+	^ secondarySelection
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:59'
+}
+SWAView >> secondarySelection: aNodeOrNil [
+	"Set the secondary selection and refresh chrome so its red border and any
+	dependent panes update."
+	secondarySelection := aNodeOrNil.
+	self refreshChrome
 ]
 
 {
