@@ -27,19 +27,21 @@ SWACodeTreemapOverlay >> aaCanvasFrom: aCanvas [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:17'
 }
 SWACodeTreemapOverlay >> addMenuItems: menu for: aNode [
 	"Code context-menu items: browse the element; for method tiles also offer
-	senders/implementors. Plus inspect/explore the node itself, and -- when any loaded
-	dataset offers links -- a Links (decoration) submenu."
-	| decoMenu |
+	senders/implementors. Plus the top-level Data selector (when datasets are loaded),
+	a Links (decoration) submenu, and inspect/explore the node itself."
+	| dataMenu decoMenu |
 	menu add: 'browse' selector: #browseNode: argument: aNode.
 	aNode kind = #method ifTrue: [
 		menu add: 'senders' selector: #browseSenders: argument: aNode.
 		menu add: 'implementors' selector: #browseImplementors: argument: aNode].
+	dataMenu := self dataMenuMorph.
+	dataMenu ifNotNil: [menu addLine. menu add: 'Data' subMenu: dataMenu].
 	decoMenu := self decorationMenuMorph.
-	decoMenu ifNotNil: [menu addLine. menu add: 'Links' subMenu: decoMenu].
+	decoMenu ifNotNil: [menu add: 'Links' subMenu: decoMenu].
 	menu addLine.
 	menu add: 'inspect node' selector: #inspectObject: argument: aNode.
 	menu add: 'explore node' selector: #exploreObject: argument: aNode
@@ -103,6 +105,46 @@ SWACodeTreemapOverlay >> colorModeOptions [
 				metric supportsColor ifTrue: [
 					base add: (Array with: metric modeSymbol with: metric menuLabel)]]]].
 	^ base
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapOverlay >> dataMenuMorph [
+	"Build the top-level Data menu from #dataModeOptions, ticking the active dataset.
+	Answers nil when only 'None' is available (no datasets loaded)."
+	| opts current menu active |
+	opts := self dataModeOptions.
+	opts size <= 1 ifTrue: [^ nil].
+	active := (treemapMorph respondsTo: #activeDataset)
+		ifTrue: [treemapMorph activeDataset] ifFalse: [nil].
+	current := active ifNil: [#none] ifNotNil: [active modeSymbol].
+	menu := MenuMorph new defaultTarget: self.
+	opts do: [:pair | | mode label |
+		mode := pair first.
+		label := current == mode ifTrue: ['* ', pair second] ifFalse: ['   ', pair second].
+		menu add: label selector: #setDataMode: argument: mode].
+	^ menu
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapOverlay >> dataModeOptions [
+	"{ symbol. label } pairs for the top-level Data selector: 'None' plus one entry per
+	RETAINED dataset. Picking one makes it the active data source and applies its
+	fitting defaults across the axes (color/size/decoration). Empty of datasets ->
+	just 'None'."
+	| opts tm |
+	opts := OrderedCollection new.
+	opts add: (Array with: #none with: 'None (intrinsic)').
+	tm := self treemapMorph.
+	(tm respondsTo: #datasets) ifTrue: [
+		tm datasets do: [:ds |
+			opts add: (Array with: ds modeSymbol with: 'Data: ', (ds name ifNil: ['?']))]].
+	^ opts asArray
 ]
 
 {
@@ -398,6 +440,17 @@ SWACodeTreemapOverlay >> dupLineWidthForSharedLoc: sharedLoc [
 
 {
 	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapOverlay >> popUpDataMenu [
+	"Pop up the top-level Data menu standalone (header 'Data' button)."
+	| menu |
+	menu := self dataMenuMorph.
+	menu ifNotNil: [menu popUpInWorld: self world]
+]
+
+{
+	#category : #menu,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
 }
 SWACodeTreemapOverlay >> popUpDecorationMenu [
@@ -405,6 +458,15 @@ SWACodeTreemapOverlay >> popUpDecorationMenu [
 	| menu |
 	menu := self decorationMenuMorph.
 	menu ifNotNil: [menu popUpInWorld: self world]
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapOverlay >> setDataMode: aSymbol [
+	(treemapMorph respondsTo: #setDataMode:)
+		ifTrue: [treemapMorph setDataMode: aSymbol]
 ]
 
 {

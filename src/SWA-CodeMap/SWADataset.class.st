@@ -93,6 +93,33 @@ SWADataset >> coverageScale [
 ]
 
 {
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:23'
+}
+SWADataset >> defaultBindings [
+	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
+	picked from the Data selector. A Dictionary axis (#color/#size/#decoration) ->
+	metric (or absent = leave that axis intrinsic). Each axis can still be overridden
+	afterward from its own menu (mix-and-match).
+
+	SIZE is deliberately left INTRINSIC (LOC) by default for BOTH kinds: sizing by a
+	dataset metric collapses uncovered/unmatched code to zero width, destroying the
+	structural map you want to read. Coverage/call size is still available on demand
+	from the Size menu -- it just isn't a good DEFAULT.
+
+	coverage: color by covering-test count (or call count if that's first).
+	duplication: color by clone heat + decoration = clone links."
+	| d |
+	d := Dictionary new.
+	kind == #coverage ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+	kind == #duplication ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m].
+		(self metrics detect: [:x | x supportsLinks] ifNone: [nil]) ifNotNil: [:m | d at: #decoration put: m]].
+	^ d
+]
+
+{
 	#category : #scale,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
 }

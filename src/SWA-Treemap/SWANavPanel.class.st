@@ -51,7 +51,9 @@ Class {
 		'liveTally',
 		'coverageCancel',
 		'tallyButton',
-		'sourceSplitter'
+		'sourceSplitter',
+		'coveringTestsColumn',
+		'coveringTestsWidth'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -587,6 +589,26 @@ SWANavPanel >> datasetNameFor: aPath [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:48'
+}
+SWANavPanel >> deselect [
+	"Header 'Deselect' button: clear the current selection so the map shows EVERYTHING
+	again -- drops the selected tile, any link/coverage selection filters, and any
+	duplicate diff. Restores the full overview and forces a repaint of the map + its
+	overlay so the tiles/links redraw immediately."
+	(view respondsTo: #selectTileNode:)
+		ifTrue: [view selectTileNode: nil].
+	"Force the tile layer + overlay to repaint (selection border, filtered links, dim)."
+	(view respondsTo: #flushCacheKeepingSelection)
+		ifTrue: [view flushCacheKeepingSelection].
+	view changed.
+	(view respondsTo: #overlayMorph)
+		ifTrue: [view overlayMorph ifNotNil: [:o | o changed]].
+	self refresh
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:59'
 }
@@ -642,6 +664,22 @@ SWANavPanel >> exportCoverage [
 	[data writeToFile: path withBlanksTrimmed]
 		on: Error do: [:e | ^ self treemapCoverageStatus: 'Export failed: ', e messageText].
 	self treemapCoverageStatus: 'Coverage written to ', path withBlanksTrimmed
+]
+
+{
+	#category : #'covering tests pane',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
+}
+SWANavPanel >> growCoveringTestsPaneBy: deltaPixels [
+	"Widen (positive) or narrow (negative) the covering-tests / duplicates list column
+	by deltaPixels, from the SWAListSplitter drag. Clamped to a sane range; the source
+	pane (spaceFill) absorbs the change. Relays out the Show row."
+	coveringTestsColumn ifNil: [^ self].
+	coveringTestsWidth := ((coveringTestsWidth ifNil: [340]) + deltaPixels) max: 140.
+	coveringTestsWidth := coveringTestsWidth min: 900.
+	coveringTestsColumn width: coveringTestsWidth.
+	coveringTestsColumn owner ifNotNil: [:r | r layoutChanged].
+	self layoutChanged
 ]
 
 {
@@ -761,24 +799,22 @@ SWANavPanel >> loadCoverageJson: json [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:53'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
 }
 SWANavPanel >> loadCoverageJson: json name: aName [
 	"Overlay an already-parsed SWACoverageData JSON object (see #importData) as a
-	retained, named SWADataset so its metrics ('By coverage', and 'By call' when the
-	file has invocation data) stay selectable in the Color/Size menus. Loading twice
-	yields distinct metric entries you switch between instantly, no reload. Selects
-	the dataset's first color metric.
+	retained, named SWADataset and make it the ACTIVE data source, applying its fitting
+	defaults across the axes (color + size by coverage). Its metrics ('By coverage',
+	and 'By call' when the file has invocation data) stay selectable in the menus, and
+	loading twice yields distinct entries you switch between instantly, no reload.
 
-	Deliberately does NOT touch the legacy single-ivar coverage overlay -- that
-	clobbers on every load and holds only ONE coverage, which the dataset replaces."
-	| data tm ds first |
+	Deliberately does NOT touch the legacy single-ivar coverage overlay."
+	| data tm ds |
 	data := SWACoverageData new.
 	data loadFromJson: json.
 	tm := self treemap.
 	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
-	first := ds metrics detect: [:m | m supportsColor] ifNone: [nil].
-	first ifNotNil: [tm colorMode: first modeSymbol].
+	tm selectDataset: ds.
 	self treemapCoverageStatus: 'Coverage (', ds name, '): ', data coveredMethodCount printString,
 		' methods, ', data testNames size printString, ' tests',
 		(data hasInvocationData ifTrue: [' (+call counts)'] ifFalse: ['']).
@@ -796,22 +832,19 @@ SWANavPanel >> loadDuplicationJson: json [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:12'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
 }
 SWANavPanel >> loadDuplicationJson: json name: aName [
 	"Overlay an already-parsed SWADuplicationData JSON object as a retained, named
-	SWADataset. Applies the dataset's fitting DEFAULTS across aspects: its color
-	metric drives tint AND its links metric drives decorations (the clone lines).
+	SWADataset and make it the ACTIVE data source, applying its fitting defaults across
+	the axes: color by clone heat + decoration = clone links (size left intrinsic).
 	Purely a dataset -- does NOT touch the legacy dupScores overlay."
-	| data tm ds colorMetric linkMetric |
+	| data tm ds |
 	tm := self treemap.
 	data := SWADuplicationData new.
 	data loadFromJson: json.
 	ds := tm addDataset: (SWADataset duplicationFrom: data named: aName).
-	colorMetric := ds metrics detect: [:m | m supportsColor] ifNone: [nil].
-	colorMetric ifNotNil: [tm colorMode: colorMetric modeSymbol].
-	linkMetric := ds metrics detect: [:m | m supportsLinks] ifNone: [nil].
-	linkMetric ifNotNil: [tm decorationMetric: linkMetric].
+	tm selectDataset: ds.
 	self treemapCoverageStatus: 'Duplication (', ds name, '): ', data matchedMethodCount printString,
 		' methods with near-duplicates of ', data methodNames size printString, ' analysed'.
 	self refresh
@@ -830,12 +863,14 @@ SWANavPanel >> metaInfoContents [
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 14:31'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:36'
 }
 SWANavPanel >> newCoveringTestsPane [
 	"A titled list pane (right of the source pane) showing, for the selected method,
 	the tests/TestCases that cover it -- or, for a selected test, the methods it
-	covers. Clicking an entry navigates the treemap to that node."
+	covers -- or, for a container under a duplication dataset, the aggregated
+	near-duplicates. Clicking an entry navigates / previews. The column WIDTH is
+	resizable via the SWAListSplitter to its left (see #newSourceRow)."
 	| column list |
 	coveringTestsTitle := StringMorph new
 		contents: 'Coverage';
@@ -854,15 +889,17 @@ SWANavPanel >> newCoveringTestsPane [
 		hResizing: #spaceFill; vResizing: #spaceFill.
 	(list respondsTo: #highlightColor:) ifTrue: [list highlightColor: (Color h: 210 s: 0.6 v: 0.6)].
 	coveringTestsPane := list.
+	coveringTestsWidth ifNil: [coveringTestsWidth := 340].
 	column := Morph new
 		color: (Color gray: 0.12);
 		layoutPolicy: TableLayout new;
 		listDirection: #topToBottom;
 		cellPositioning: #topLeft;
 		hResizing: #rigid; vResizing: #spaceFill;
-		width: 340;
+		width: coveringTestsWidth;
 		yourself.
 	column addMorphBack: coveringTestsTitle; addMorphBack: list.
+	coveringTestsColumn := column.
 	^ column
 ]
 
@@ -921,13 +958,14 @@ SWANavPanel >> newSourceMorph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
 }
 SWANavPanel >> newSourceRow [
 	"The bottom (Show-mode) area: a left-to-right row. For the Code Map (which has
 	the extra vertical room and a #detailInfoString) it is
-	[details box | source pane (spaceFill) | covering-tests pane]; other views get
-	just the source pane (spaceFill)."
+	[details box | source pane (spaceFill) | SPLITTER | covering-tests pane]; other
+	views get just the source pane (spaceFill). The vertical SWAListSplitter lets you
+	widen the list to read long duplicate entries."
 	| row |
 	sourceMorph ifNil: [sourceMorph := self newSourceMorph].
 	row := Morph new
@@ -944,6 +982,7 @@ SWANavPanel >> newSourceRow [
 	sourceMorph hResizing: #spaceFill; vResizing: #spaceFill.
 	row addMorphBack: sourceMorph.
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
+		row addMorphBack: (SWAListSplitter new panel: self; yourself).
 		row addMorphBack: self newCoveringTestsPane].
 	^ row
 ]
@@ -966,6 +1005,17 @@ SWANavPanel >> popUpColorMenu [
 	"Header 'Color' button: pop up the same Color menu the right-click context menu
 	uses (shared #colorMenuMorph on the overlay)."
 	self treemapOverlay ifNotNil: [:o | o popUpColorMenu]
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:17'
+}
+SWANavPanel >> popUpDataMenu [
+	"Header 'Data' button: pop up the top-level Data menu (same as the right-click
+	'Data' submenu, shared #dataMenuMorph on the overlay)."
+	self treemapOverlay ifNotNil: [:o |
+		(o respondsTo: #popUpDataMenu) ifTrue: [o popUpDataMenu]]
 ]
 
 {
@@ -1001,26 +1051,38 @@ SWANavPanel >> provenanceIndex [
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:06'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
 }
 SWANavPanel >> provenanceIndex: anInteger [
-	"List-model click handler for the side pane. Normally navigates the treemap to
-	the clicked test/method node. In #duplication mode, instead of navigating away
-	we DIFF the current selection against the clicked near-duplicate (set it as the
-	view's diff target, which re-renders the source pane as an inline diff)."
-	| assoc |
+	"List-model click handler for the side pane. The entry VALUE decides the action:
+	 - nil (a '... N more' note) -> no-op;
+	 - a  fromKey -> partnerKey  Association (a CONTAINER's aggregated duplicate pair) ->
+	   PREVIEW that pair's diff WITHOUT navigating, so the list stays and the clicked row
+	   just highlights (keep #provenanceIndex);
+	 - a plain String key -> the method-selection case: DIFF against the clicked partner
+	   when a method is selected, else NAVIGATE (coverage / other provenance)."
+	| assoc value |
 	provenanceIndex := anInteger.
 	(anInteger = 0 or: [provenanceEntries isNil]) ifTrue: [^ self].
 	assoc := provenanceEntries at: anInteger ifAbsent: [^ self].
-	((view respondsTo: #colorMode) and: [view colorMode == #duplication]
-		and: [view respondsTo: #dupDiffTarget:]) ifTrue: [
+	value := assoc value.
+	value ifNil: [^ self].   "non-navigating note"
+	"Container aggregated pair: preview the diff, keep the list + highlight."
+	(value isKindOf: Association) ifTrue: [
+		(view respondsTo: #previewDuplicatePairFrom:to:) ifTrue: [
+			view previewDuplicatePairFrom: value key to: value value].
+		^ self].
+	"Method-selection case: diff if a method is selected, else navigate."
+	((view respondsTo: #isDuplicationProvenanceActive) and: [view isDuplicationProvenanceActive]
+		and: [view respondsTo: #dupDiffTarget:]
+		and: [(view respondsTo: #selectionIsMethodForDiff) and: [view selectionIsMethodForDiff]]) ifTrue: [
 			| node |
 			node := (view respondsTo: #keyIndex)
-				ifTrue: [view keyIndex at: assoc value ifAbsent: [nil]]
+				ifTrue: [view keyIndex at: value ifAbsent: [nil]]
 				ifFalse: [nil].
 			^ view dupDiffTarget: node].
 	(view respondsTo: #selectNodeForKey:)
-		ifTrue: [view selectNodeForKey: assoc value]
+		ifTrue: [view selectNodeForKey: value]
 ]
 
 {
@@ -1102,13 +1164,13 @@ SWANavPanel >> selectionPathContents [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:18'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:44'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
-	Show + optional Size/Color/Links + optional X-ref/Clear + optional coverage
-	controls + optional Depth), then a breadcrumb line carrying the fullscreen toggle
-	at its right, then the selection-path line, a generic RUN-info line, a
+	Deselect/Show + optional Data/Size/Color/Links + optional X-ref/Clear + optional
+	coverage controls + optional Depth), then a breadcrumb line carrying the fullscreen
+	toggle at its right, then the selection-path line, a generic RUN-info line, a
 	SELECTION-info line, then the view. The button bar wraps onto additional rows when
 	the window is too narrow to fit every button. The source pane is created lazily by
 	#toggleSource."
@@ -1129,11 +1191,9 @@ SWANavPanel >> setView: aViewMorph [
 	backButton := self buttonLabelled: 'Back' action: #zoomOut.
 	browseButton := self buttonLabelled: 'Browse' action: #browseSelected.
 	showButton := self buttonLabelled: 'Show' action: #toggleSource.
-	"Depth (render-level) control, only for views that support a leafKind cutoff."
 	(view respondsTo: #leafKind:) ifTrue: [
 		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
 		self updateDepthLabel].
-	"Fullscreen toggle: uses the docking bar's fullscreen icon, pinned top-right."
 	fullButton := self iconButtonGraphic: MenuIcons smallFullscreenOnIcon action: #toggleFullScreen.
 
 	breadcrumbMorph := StringMorph new
@@ -1143,8 +1203,6 @@ SWANavPanel >> setView: aViewMorph [
 		hResizing: #spaceFill; vResizing: #rigid;
 		yourself.
 
-	"Button bar -- a left-to-right row that WRAPS onto new rows (wrapDirection
-	#topToBottom) when it is wider than the window, so buttons never overflow."
 	headerRow := Morph new
 		color: (Color gray: 0.15);
 		layoutPolicy: TableLayout new;
@@ -1155,26 +1213,26 @@ SWANavPanel >> setView: aViewMorph [
 		hResizing: #spaceFill;
 		vResizing: #shrinkWrap;
 		yourself.
-	headerRow addMorphBack: backButton; addMorphBack: browseButton;
-		addMorphBack: showButton.
-	"Size / Color / Links menu buttons -- same menus as the right-click context menu
-	(shared #sizeMenuMorph / #colorMenuMorph / #decorationMenuMorph on the overlay).
-	Always reachable from the header, even when a size metric collapses the layout to
-	an empty canvas where the tile-based right-click menu would be unreachable."
+	headerRow addMorphBack: backButton; addMorphBack: browseButton.
+	"Deselect: clear the selection so the map shows everything again (drops the
+	selected tile + its link/coverage filters + any duplicate diff)."
+	(view respondsTo: #selectTileNode:) ifTrue: [
+		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
+	headerRow addMorphBack: showButton.
+	"Data / Size / Color / Links buttons -- same menus as the right-click context menu
+	(shared #dataMenuMorph / #sizeMenuMorph / #colorMenuMorph / #decorationMenuMorph).
+	Always reachable from the header. Data leads (it is the top-level, primary
+	selector: pick a data source and it sets the fitting defaults across the axes)."
 	(view respondsTo: #overlayMorph) ifTrue: [
+		(view respondsTo: #selectDataset:) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Data' action: #popUpDataMenu)].
 		headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu).
 		headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu).
-		"Links (decoration axis): only for views carrying a decoration binding (Code Map)."
 		(view respondsTo: #decorationMetric) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
-	"Cross-reference controls, only for cross-referenceable treemap views."
 	(view respondsTo: #keyIndex) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'X-ref' action: #crossReference).
 		headerRow addMorphBack: (self buttonLabelled: 'Clear' action: #clearCrossReference)].
-	"Code Map data controls. Test coverage and duplication are picked from the COLOR
-	menu (they acquire their data lazily on first pick). Tally STAYS a button: an
-	interactive 2-press toggle. Export saves the current coverage to reusable JSON;
-	Load reads any coverage- or duplication-JSON back (dispatched by its #format)."
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
 		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
 		headerRow addMorphBack: tallyButton.
@@ -1183,8 +1241,6 @@ SWANavPanel >> setView: aViewMorph [
 		self updateTallyButton].
 	depthButton ifNotNil: [headerRow addMorphBack: depthButton].
 
-	"Breadcrumb line: the path spaceFills, pushing the fullscreen toggle to the right
-	edge. Kept on its own row so it never competes with the wrapping button bar."
 	crumbRow := Morph new
 		color: (Color gray: 0.15);
 		layoutPolicy: TableLayout new;
@@ -1203,7 +1259,6 @@ SWANavPanel >> setView: aViewMorph [
 		hResizing: #spaceFill; vResizing: #rigid;
 		yourself.
 
-	"Line 1: generic, whole-RUN info (coverage status + focused-subtree summary)."
 	runInfoMorph := StringMorph new
 		contents: (self runInfoContents ifNil: ['']);
 		font: metaFont;
@@ -1211,7 +1266,6 @@ SWANavPanel >> setView: aViewMorph [
 		hResizing: #spaceFill; vResizing: #rigid;
 		yourself.
 
-	"Line 2: info about the current SELECTION (empty when nothing is selected)."
 	metaInfoMorph := StringMorph new
 		contents: (self selectionInfoContents ifNil: ['']);
 		font: metaFont;
@@ -1228,7 +1282,6 @@ SWANavPanel >> setView: aViewMorph [
 		addMorphBack: metaInfoMorph;
 		addMorphBack: view.
 
-	"Tell the view about us so it can drive label/breadcrumb refresh and the source pane."
 	(view respondsTo: #navPanel:) ifTrue: [view navPanel: self]
 ]
 
@@ -1359,18 +1412,25 @@ SWANavPanel >> treemapOverlay [
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:58'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
 }
 SWANavPanel >> updateCoveringTests [
-	"If the covering-tests pane is showing, refill it from the view's current
-	selection (tests covering the selected method, or methods a selected test
-	covers) and update its title."
+	"If the covering-tests pane is showing, refill it from the view's current selection
+	(tests covering the selected method, methods a test covers, or a container's
+	aggregated duplicates) and update its title. PRESERVES the selected row when the
+	list content is UNCHANGED -- so browsing a container's duplicate list (which
+	previews a pair without changing the primary selection) keeps the clicked row
+	highlighted instead of clearing it."
+	| newEntries sameList |
 	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
 	coveringTestsPane ifNil: [^ self].
-	provenanceEntries := (view respondsTo: #provenanceListForSelection)
+	newEntries := (view respondsTo: #provenanceListForSelection)
 		ifTrue: [view provenanceListForSelection]
 		ifFalse: [#()].
-	provenanceIndex := 0.
+	sameList := provenanceEntries notNil
+		and: [(provenanceEntries collect: [:a | a key]) = (newEntries collect: [:a | a key])].
+	provenanceEntries := newEntries.
+	sameList ifFalse: [provenanceIndex := 0].
 	coveringTestsTitle ifNotNil: [
 		coveringTestsTitle contents:
 			((view respondsTo: #provenanceListTitle)

@@ -47,6 +47,19 @@ SWADatasetTest >> coverageWithCovered: coveredKey uncovered: uncoveredKey [
 
 {
 	#category : #fixtures,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:18'
+}
+SWADatasetTest >> coverageWithInvocations [
+	"Coverage data carrying both covering-test and invocation counts."
+	| cov |
+	cov := SWACoverageData new.
+	cov recordTest: 'T>>t' covers: 'Bar>>baz'.
+	cov recordInvocationCount: 12 for: 'Bar>>baz'.
+	^ cov
+]
+
+{
+	#category : #fixtures,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
 }
 SWADatasetTest >> duplicationWithMatchKey: aKey partner: partnerKey score: aScore locA: locA locB: locB [
@@ -137,6 +150,87 @@ SWADatasetTest >> testColorForNodeUsesScale [
 ]
 
 {
+	#category : #'tests - decoration',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:33'
+}
+SWADatasetTest >> testContainerDuplicateBrowsePreservesList [
+	"Browsing a container's aggregated duplicates: each entry carries BOTH keys
+	(fromKey -> partnerKey), and previewing a pair shows its diff WITHOUT changing the
+	primary selection -- so the container stays selected and the list survives (you can
+	step through it)."
+	| tm root dup ds pkg list entry |
+	root := SWACodeRootNode new addPackages: 'Regex-Tests-Core'; yourself.
+	tm := SWACodeTreemapMorph on: root. tm ensureLayout.
+	dup := SWADuplicationData new.
+	dup buildFromMethodNodes: (SWADuplicationData methodNodesForPackages: #('Regex-Tests-Core')) asArray
+		similarity: SWACodeSimilarity new floor: 0.3 minLoc: 3 progress: nil.
+	ds := tm addDataset: (SWADataset duplicationFrom: dup named: 'dup').
+	tm selectDataset: ds.
+	pkg := root children detect: [:c | c isKindOf: SWACodePackageNode].
+	tm selectTileNode: pkg.
+	list := tm provenanceListForSelection.
+	entry := list first.
+
+	"entry value is a fromKey -> partnerKey association"
+	self assert: (entry value isKindOf: Association).
+	self assert: (entry value key isKindOf: String).
+	self assert: (entry value value isKindOf: String).
+
+	"preview the pair -> primary selection unchanged, list intact, diff shown"
+	tm previewDuplicatePairFrom: entry value key to: entry value value.
+	self assert: tm selectedNode == pkg.
+	self assert: tm provenanceListForSelection size equals: list size.
+	self assert: tm dupDiffFrom notNil.
+	self assert: tm dupDiffTarget notNil.
+	self assert: (tm selectedSourceString asString includesSubstring: 'vs ').
+
+	"selecting a different primary node clears the browse diff"
+	tm selectTileNode: (tm keyIndex at: entry value key).
+	self assert: tm dupDiffFrom isNil
+]
+
+{
+	#category : #'tests - decoration',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:28'
+}
+SWADatasetTest >> testContainerDuplicatesAggregation [
+	"Selecting ANY container -- category, CLASS, or PACKAGE -- aggregates the
+	near-duplicates of all DESCENDANT methods into the side pane. Split is by node KIND,
+	so a class (which has a crossRefKey) is still treated as a container, not a method."
+	| tm root dup ds metric leaves category classNode pkg |
+	root := SWACodeRootNode new addPackages: 'Regex-Tests-Core'; yourself.
+	tm := SWACodeTreemapMorph on: root. tm ensureLayout.
+	dup := SWADuplicationData new.
+	dup buildFromMethodNodes: (SWADuplicationData methodNodesForPackages: #('Regex-Tests-Core')) asArray
+		similarity: SWACodeSimilarity new floor: 0.3 minLoc: 3 progress: nil.
+	ds := tm addDataset: (SWADataset duplicationFrom: dup named: 'dup').
+	tm selectDataset: ds.
+	metric := ds metrics first.
+	leaves := OrderedCollection new. tm collectMethodLeavesFrom: root into: leaves.
+	category := (leaves detect: [:m | m crossRefKey notNil
+		and: [(metric linksForKey: m crossRefKey) notEmpty]]) parent.
+	classNode := category parent.
+	pkg := root children detect: [:c | c isKindOf: SWACodePackageNode].
+
+	"class: has a crossRefKey but MUST aggregate (not be treated as a method)"
+	self assert: classNode crossRefKey notNil.
+	self assert: (classNode isKindOf: SWACodeClassNode).
+	tm selectTileNode: classNode.
+	self deny: tm provenanceListForSelection isEmpty.
+	self assert: (tm provenanceListTitle includesSubstring: 'in subtree').
+	self assert: (tm provenanceListForSelection first key includesSubstring: ' <-> ').
+
+	"package: aggregates the whole tree, >= any single class"
+	tm selectTileNode: pkg.
+	self deny: tm provenanceListForSelection isEmpty.
+	self assert: (tm containerDuplicatePairCountFor: pkg metric: metric)
+		>= (tm containerDuplicatePairCountFor: classNode metric: metric).
+
+	"a click on a container entry is NOT a diff (selection is not a method)"
+	self deny: tm selectionIsMethodForDiff
+]
+
+{
 	#category : #'tests - metrics',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:54'
 }
@@ -160,6 +254,100 @@ SWADatasetTest >> testCoverageExposesCallMetricWhenInvocationDataPresent [
 	"no invocation data -> no call metric"
 	coverageOnly := SWADataset coverageFrom: (self coverageWithCovered: 'A>>m' uncovered: 'x') named: 'c'.
 	self deny: ((coverageOnly metrics collect: [:m | m id]) includes: #call)
+]
+
+{
+	#category : #'tests - coverage provenance',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:29'
+}
+SWADatasetTest >> testCoverageProvenanceBlueTestsAndFilters [
+	"Selecting a coverage dataset keeps the SPECIAL provenance behavior even though base
+	color comes from the metric: test tiles are BLUE, and the click filters work --
+	select a test -> its covered methods bright, others dim; select a covered method ->
+	its covering tests filter. Uses real tree nodes so crossRefKeys resolve."
+	| tm root leaves methods testM appM cov covDs testNode appNode otherNode |
+	root := SWACodeRootNode new addPackages: 'Regex-Tests-Core'; yourself.
+	tm := SWACodeTreemapMorph on: root. tm ensureLayout.
+	leaves := OrderedCollection new. tm collectMethodLeavesFrom: root into: leaves.
+	methods := leaves select: [:m | m crossRefKey notNil and: [m kind == #method]].
+	testM := (methods detect: [:m | m crossRefKey includesSubstring: 'test']) crossRefKey.
+	appM := (methods detect: [:m | m crossRefKey ~= testM]) crossRefKey.
+	cov := SWACoverageData new. cov recordTest: testM covers: appM.
+	covDs := tm addDataset: (SWADataset coverageFrom: cov named: 'cov').
+	tm selectDataset: covDs.
+
+	"provenance wired from the dataset"
+	self assert: tm coverageData notNil.
+	self assert: (tm isTestKey: testM).
+
+	testNode := methods detect: [:m | m crossRefKey = testM].
+	appNode := methods detect: [:m | m crossRefKey = appM].
+	otherNode := methods detect: [:m | (m crossRefKey ~= testM) and: [m crossRefKey ~= appM]].
+
+	"test tile is blue"
+	self assert: (tm colorForNode: testNode) equals: (tm testColorForNode: testNode).
+
+	"select the test -> covered method bright, unrelated dim"
+	tm selectTileNode: testNode.
+	self deny: (tm isFilteredOut: appNode).
+	self assert: (tm isFilteredOut: otherNode).
+
+	"select the covered method -> covering-tests filter set"
+	tm selectTileNode: appNode.
+	self assert: (tm instVarNamed: 'coveringTestFilter') notNil.
+
+	"leaving coverage (pick duplication or none) drops provenance"
+	tm selectDataset: nil.
+	self assert: tm coverageData isNil.
+	self deny: (tm isTestKey: testM)
+]
+
+{
+	#category : #'tests - data selector',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:18'
+}
+SWADatasetTest >> testDataMenuListsDatasets [
+	"The Data menu offers 'None' plus one entry per retained dataset, ticking the
+	active one; suppressed (nil) when nothing is loaded."
+	| tm ov modes emptyOv |
+	tm := SWACodeTreemapMorph new.
+	tm addDataset: (SWADataset coverageFrom: SWACoverageData new named: 'a.json').
+	tm addDataset: (SWADataset duplicationFrom: SWADuplicationData new named: 'b.json').
+	ov := SWACodeTreemapOverlay new. ov treemapMorph: tm.
+	modes := ov dataModeOptions collect: [:p | p first].
+	self assert: (modes includes: #none).
+	self assert: (modes includes: (tm datasets first modeSymbol)).
+	self assert: (modes includes: (tm datasets last modeSymbol)).
+	self assert: ov dataMenuMorph notNil.
+	"empty map -> only 'None' -> menu suppressed"
+	emptyOv := SWACodeTreemapOverlay new. emptyOv treemapMorph: SWACodeTreemapMorph new.
+	self assert: emptyOv dataModeOptions size equals: 1.
+	self assert: emptyOv dataMenuMorph isNil
+]
+
+{
+	#category : #'tests - data selector',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:18'
+}
+SWADatasetTest >> testDataSelectorOverridesPersistUntilNextPick [
+	"After a Data pick sets defaults, a single-axis override sticks (and the dataset
+	stays active) until the next Data pick; #none clears everything back to intrinsic."
+	| tm dupDs |
+	tm := SWACodeTreemapMorph new.
+	dupDs := tm addDataset: (SWADataset duplicationFrom:
+		(self duplicationWithMatchKey: 'A>>m' partner: 'B>>n' score: 0.9 locA: 8 locB: 8) named: 'dup').
+	tm selectDataset: dupDs.
+	"override color to an intrinsic mode -- decoration + active dataset persist"
+	tm colorMode: #loc.
+	self assert: tm colorMode equals: #loc.
+	self assert: tm decorationMetric supportsLinks.
+	self assert: tm activeDataset equals: dupDs.
+	"clear via #none -> everything intrinsic"
+	tm selectDataset: nil.
+	self assert: tm activeDataset isNil.
+	self assert: tm colorMode equals: #codeKind.
+	self assert: tm weightMetric equals: #loc.
+	self assert: tm decorationMetric isNil
 ]
 
 {
@@ -271,6 +459,42 @@ SWADatasetTest >> testDuplicationMetricProvidesLinks [
 
 {
 	#category : #'tests - decoration',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:04'
+}
+SWADatasetTest >> testDuplicationProvenanceListAndDiffTarget [
+	"With a duplication dataset active, the side pane lists the selected method's
+	near-duplicates (keyed by crossRefKey, clickable), and picking one resolves to the
+	partner node so it can become the diff target. Uses a real tree so keys resolve."
+	| tm root dup ds leaves node partnerKey resolved |
+	root := SWACodeRootNode new addPackages: 'Regex-Tests-Core'; yourself.
+	tm := SWACodeTreemapMorph on: root. tm ensureLayout.
+	dup := SWADuplicationData new.
+	dup buildFromMethodNodes: (SWADuplicationData methodNodesForPackages: #('Regex-Tests-Core')) asArray
+		similarity: SWACodeSimilarity new floor: 0.3 minLoc: 3 progress: nil.
+	ds := tm addDataset: (SWADataset duplicationFrom: dup named: 'dup').
+	tm selectDataset: ds.
+	self assert: tm isDuplicationProvenanceActive.
+
+	leaves := OrderedCollection new. tm collectMethodLeavesFrom: root into: leaves.
+	node := leaves detect: [:m | m crossRefKey notNil
+		and: [(ds metrics first linksForKey: m crossRefKey) notEmpty]].
+	tm selectTileNode: node.
+
+	"list is non-empty and keyed by partner crossRefKey"
+	self deny: tm provenanceListForSelection isEmpty.
+	self assert: (tm provenanceListTitle includesSubstring: 'near-duplicate').
+	partnerKey := tm provenanceListForSelection first value.
+	self assert: ((tm provenanceListForSelection first key) includesSubstring: partnerKey).
+
+	"picking it resolves to the partner node -> diff target (secondary selection)"
+	resolved := tm keyIndex at: partnerKey ifAbsent: [nil].
+	self assert: resolved notNil.
+	tm dupDiffTarget: resolved.
+	self assert: tm secondarySelection equals: resolved
+]
+
+{
+	#category : #'tests - decoration',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:23'
 }
 SWADatasetTest >> testLeafKeySetUnderRealTree [
@@ -338,6 +562,38 @@ SWADatasetTest >> testRemoveDatasetFallsBackWhenActive [
 	tm removeDataset: ds2.
 	self assert: tm colorMode equals: #codeKind.
 	self assert: (tm metricForMode: s2) isNil
+]
+
+{
+	#category : #'tests - data selector',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:24'
+}
+SWADatasetTest >> testSelectDatasetAppliesDefaultsAcrossAxes [
+	"Picking a data source applies its fitting defaults across the axes: coverage ->
+	color by a coverage metric, size LEFT INTRINSIC (LOC -- sizing by coverage collapses
+	uncovered code), no decoration; duplication -> color heat + decoration links, size
+	intrinsic. Uses a real root so the size axis (which routes through the root node)
+	actually binds."
+	| tm root covDs dupDs |
+	root := SWACodeRootNode new addPackages: 'Regex-Tests-Core'; yourself.
+	tm := SWACodeTreemapMorph on: root.
+	tm ensureLayout.
+	covDs := tm addDataset: (SWADataset coverageFrom: self coverageWithInvocations named: 'cov').
+	dupDs := tm addDataset: (SWADataset duplicationFrom:
+		(self duplicationWithMatchKey: 'A>>m' partner: 'B>>n' score: 0.9 locA: 8 locB: 8) named: 'dup').
+
+	tm selectDataset: covDs.
+	self assert: tm activeDataset equals: covDs.
+	self assert: (tm metricForMode: tm colorMode) dataset equals: covDs.
+	self assert: (tm metricForMode: tm colorMode) supportsColor.
+	self assert: tm weightMetric equals: #loc.   "size stays intrinsic, not coverage"
+	self assert: tm decorationMetric isNil.
+
+	tm selectDataset: dupDs.
+	self assert: tm activeDataset equals: dupDs.
+	self assert: (tm metricForMode: tm colorMode) id equals: #duplication.
+	self assert: tm weightMetric equals: #loc.
+	self assert: tm decorationMetric supportsLinks
 ]
 
 {

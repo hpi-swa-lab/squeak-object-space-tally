@@ -49,6 +49,15 @@ SWADuplicationPartnerStub >> crossRefKey: aString loc: anInteger [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:28'
+}
+SWADuplicationPartnerStub >> isLeaf [
+	"A partner stub stands in for a method leaf."
+	^ true
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:41'
 }
 SWADuplicationPartnerStub >> loc [

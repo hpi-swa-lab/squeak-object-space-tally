@@ -239,16 +239,11 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:09'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:43'
 }
 SWATreemapOverlay >> mouseDown: evt [
-	"Left-click: select tile. Click again on the ALREADY-SELECTED tile: zoom in.
-	 Right-click: context menu.
-	 Shift+click: explore tally node.
-
-	 The 'clicked twice' test compares against the current SELECTION, not #hoveredTile:
-	 now that hover tracks the cursor (#wantsEveryMouseMove), hoveredTile already equals
-	 the tile under the mouse before the click, so using it made the FIRST click zoom."
+	"Left-click a tile: select it. Click the ALREADY-SELECTED tile again: zoom in.
+	 Right-click: context menu.  Shift+click: explore tally node."
 	| local hit |
 	local := evt position - self position.
 	hit := treemapMorph tileAtLocal: local.

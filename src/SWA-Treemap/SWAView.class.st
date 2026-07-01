@@ -40,6 +40,30 @@ Class {
 }
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:26'
+}
+SWAView >> activateCoverageProvenanceFrom: aSWACoverageData [
+	"Wire up the test<->method PROVENANCE relation from aSWACoverageData -- WITHOUT the
+	legacy green highlight overlay. This gives us the blue test tint (#isTestKey:) and
+	the click filters (select a test -> its covered methods; select a covered method ->
+	its covering tests), while the BASE tile color still comes from the active dataset
+	METRIC. So coverage-as-a-dataset keeps its special provenance behavior.
+
+	Sets #coverageData + #testKeys only; leaves #highlightWeights nil (the metric owns
+	color) and does NOT push weights onto the root (size stays intrinsic). Pass the
+	same data your active coverage metric wraps."
+	aSWACoverageData ifNil: [^ self deactivateCoverageProvenance].
+	coverageData := aSWACoverageData.
+	testKeys := aSWACoverageData testKeySet , aSWACoverageData testClassNameSet.
+	testFilterKeys := nil.
+	coveringTestFilter := nil.
+	self updateTestFilterForSelection.
+	self flushCacheKeepingSelection.
+	self changed
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
@@ -83,31 +107,30 @@ SWAView >> clearTestFilters [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:51'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:27'
 }
 SWAView >> colorForNode: aNode [
-	"Subclass's #baseColorForNode: with any active highlight on top. A tile lights
-	up when it -- or any descendant -- matched; its weight is the MAX matching
-	weight in its subtree, so a class tile is as hot as its hottest matching method.
-	Non-matching tiles are dimmed. The matched-tile ramp depends on #highlightStyle
-	(#heat for cross-ref, #coverage for SWACoverage data).
-	Under a provenance overlay, executed tests / TestCase classes are tinted BLUE.
-	A method that was EVICTED during the run is tinted RED, taking priority over the
-	green coverage ramp. Both red and green leaf tiles DIM when an active selection
-	filter excludes them (#isFilteredOut:): selecting a test keeps its covered
-	methods bright; selecting a method keeps only that method bright.
-	Under a loaded coverage overlay, AGGREGATE (non-leaf) tiles get a neutral GRAY
-	base -- the proportional green/red/blue/gray bar (#drawTileContent:in:on:) is
-	painted on top, so the base only shows if drawing the bar is skipped.
+	"Tile color. LAYERED-DATASETS: when the active color mode is a dataset METRIC, that
+	metric owns the BASE tint. But a COVERAGE-provenance metric ALSO keeps the special
+	behavior: executed tests / TestCase classes are tinted BLUE, and when a selection
+	filter is active (select a test -> its covered methods; select a covered method ->
+	its covering tests) non-matching tiles DIM. So we layer blue + filter-dim on top of
+	the metric's color.
 
-	LAYERED-DATASETS: when the active color mode is a retained dataset METRIC (a
-	minted #coverage_N_<metric> symbol), that metric OWNS the tile tint outright --
-	we bypass the legacy single-ivar coverage/highlight compositing entirely, so
-	switching between two loaded metrics recolors instantly and independently."
-	| base w red |
+	Without a metric active, this falls back to the legacy provenance/highlight
+	compositing (blue tests, red eviction, gray aggregate base, cross-ref heat)."
+	| metric base w red |
 	(self respondsTo: #metricForMode:) ifTrue: [
-		(self metricForMode: self colorMode) ifNotNil: [:metric |
-			^ (metric colorForNode: aNode) ifNil: [Color gray: 0.22]]].
+		metric := self metricForMode: self colorMode].
+	metric ifNotNil: [
+		"Blue tint for executed test / TestCase tiles (needs provenance wired up)."
+		(metric isCoverageProvenance and: [self isTestKey: aNode crossRefKey])
+			ifTrue: [^ self testColorForNode: aNode].
+		"Base tint from the metric; dim it if an active provenance filter excludes it."
+		base := (metric colorForNode: aNode) ifNil: [Color gray: 0.22].
+		(metric isCoverageProvenance and: [aNode isLeaf and: [self isFilteredOut: aNode]])
+			ifTrue: [^ base alphaMixed: 0.25 with: (Color gray: 0.12)].
+		^ base].
 	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
 	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey]) ifTrue: [
 		red := Color h: 0.0 s: 0.8 v: 0.85.
@@ -119,7 +142,6 @@ SWAView >> colorForNode: aNode [
 	highlightWeights ifNil: [^ self baseColorForNode: aNode].
 	base := self baseColorForNode: aNode.
 	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
-	"A leaf excluded by the active selection filter dims even if it has a weight."
 	(w notNil and: [aNode isLeaf and: [self isFilteredOut: aNode]]) ifTrue: [w := nil].
 	w ifNil: [^ (base alphaMixed: 0.25 with: (Color gray: 0.12))].
 	^ self highlightColorForWeight: w base: base
@@ -248,6 +270,21 @@ SWAView >> crossReferenceFrom: aPeerView [
 	aPeerView keyIndex keysAndValuesDo: [:k :node |
 		weights at: k put: node totalSize].
 	self highlightWeights: weights
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:26'
+}
+SWAView >> deactivateCoverageProvenance [
+	"Drop the coverage provenance relation (blue tests + click filters). Used when the
+	active color leaves a coverage-provenance metric."
+	coverageData := nil.
+	testKeys := nil.
+	testFilterKeys := nil.
+	coveringTestFilter := nil.
+	self flushCacheKeepingSelection.
+	self changed
 ]
 
 {

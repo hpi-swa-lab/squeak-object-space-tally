@@ -14,7 +14,9 @@ Class {
 		'datasetsByMode',
 		'metricsByMode',
 		'sizeMetric',
-		'decorationMetric'
+		'decorationMetric',
+		'activeDataset',
+		'dupDiffFrom'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -30,6 +32,17 @@ SWACodeTreemapMorph >> aboutToStyle: aStyler [
 	Otherwise behave exactly like the superclass."
 	self dupDiffTarget notNil ifTrue: [^ false].
 	^ super aboutToStyle: aStyler
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapMorph >> activeDataset [
+	"The dataset last picked from the top-level Data selector (or nil). It set the
+	fitting defaults across the axes; individual axes may since have been overridden.
+	Used to tick the Data menu."
+	^ activeDataset
 ]
 
 {
@@ -253,33 +266,27 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:23'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:27'
 }
 SWACodeTreemapMorph >> colorMode: aSymbol [
 	"Code Map color-mode entry point. Most modes just set the base tint (handled by
-	super + #baseColorForNode:). Three are DATA-DRIVEN and acquire/apply lazily:
+	super + #baseColorForNode:). The legacy data-driven modes (#coverage/#tally/
+	#duplication) acquire/apply lazily. Dataset-metric symbols set the metric tint.
 
-	  #duplication -- (re)compute the Jaccard clone scores unless data was LOADED
-	                  from a file (#dupLoaded), then color by clone heat.
-	  #coverage    -- color by SUnit test coverage (green covered + blue tests). If
-	                  no coverage data is loaded yet, ask the nav panel to RUN the
-	                  shown packages' related tests (forked, Stop-able); once data
-	                  exists, just (re)apply the test-count overlay.
-	  #tally       -- color by invocation COUNT. Uses whatever invocation data is
-	                  present (drive live counting from the Tally button / load a
-	                  file); if none is present, says so and leaves the mode alone.
-
-	Coverage and tally are HIGHLIGHT overlays (orthogonal to the base colorMode and
-	to each other and to duplication), so switching among them never discards the
-	other's loaded data -- the menus keep offering every overlay you've acquired.
-
-	Refreshes the nav-panel chrome so the details box / side pane reflect the new
-	mode for the current selection (super only flushes the tile cache)."
+	When the new mode is a coverage-provenance dataset metric, ACTIVATE the test<->method
+	provenance relation (blue tests + click filters) from that metric's source; when it
+	is anything else, deactivate it. This keeps the special coverage behavior even
+	though base color now comes from the metric."
+	| metric |
 	aSymbol == #duplication ifTrue: [
 		dupLoaded == true ifFalse: [self computeDuplicationScores]].
 	aSymbol == #coverage ifTrue: [^ self enterCoverageColorMode].
 	aSymbol == #tally ifTrue: [^ self enterTallyColorMode].
 	super colorMode: aSymbol.
+	metric := self metricForMode: aSymbol.
+	(metric notNil and: [metric isCoverageProvenance])
+		ifTrue: [self activateCoverageProvenanceFrom: metric coverageSource]
+		ifFalse: [self deactivateCoverageProvenance].
 	self refreshChrome
 ]
 
@@ -362,6 +369,72 @@ SWACodeTreemapMorph >> computeDuplicationScores [
 					'   (~', (self dupFormatEtaMillis: eta), ' left)'.
 				bar value: shingleBudget + i]].
 		bar value: n + shingleBudget]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:12'
+}
+SWACodeTreemapMorph >> containerDuplicatePairCountFor: aContainerNode metric: aMetric [
+	"Count DISTINCT near-duplicate pairs among the method leaves under aContainerNode
+	(unordered, de-duplicated). Used for the side-pane title."
+	| leaves seen |
+	leaves := OrderedCollection new.
+	self collectMethodLeavesFrom: aContainerNode into: leaves.
+	seen := Set new.
+	leaves do: [:m | | fromKey |
+		fromKey := m crossRefKey.
+		fromKey ifNotNil: [
+			(aMetric linksForKey: fromKey) do: [:assoc |
+				| partnerKey pairKey |
+				partnerKey := assoc value.
+				pairKey := (fromKey <= partnerKey)
+					ifTrue: [fromKey, '|', partnerKey]
+					ifFalse: [partnerKey, '|', fromKey].
+				seen add: pairKey]]].
+	^ seen size
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
+}
+SWACodeTreemapMorph >> containerDuplicatesFor: aContainerNode metric: aMetric [
+	"Aggregate near-duplicates of every DESCENDANT method under aContainerNode into
+	side-pane entries 'NN%  fromMethod <-> partnerMethod'. Unordered pairs de-duplicated;
+	best-first; truncated to the top 50 with a '... N more' note.
+
+	Each entry's VALUE is a  fromKey -> partnerKey  Association carrying BOTH endpoints,
+	so a click can preview the pair's DIFF without navigating (see #provenanceIndex:).
+	The note entry's value is nil (non-clickable)."
+	| leaves seen rows limit shown entries |
+	leaves := OrderedCollection new.
+	self collectMethodLeavesFrom: aContainerNode into: leaves.
+	seen := Set new.
+	rows := OrderedCollection new.
+	leaves do: [:m | | fromKey |
+		fromKey := m crossRefKey.
+		fromKey ifNotNil: [
+			(aMetric linksForKey: fromKey) do: [:assoc |
+				| partnerKey score pairKey |
+				score := assoc key.
+				partnerKey := assoc value.
+				pairKey := (fromKey <= partnerKey)
+					ifTrue: [fromKey, '|', partnerKey]
+					ifFalse: [partnerKey, '|', fromKey].
+				(seen includes: pairKey) ifFalse: [
+					seen add: pairKey.
+					rows add: { score. fromKey. partnerKey }]]]].
+	rows := (rows asSortedCollection: [:a :b | (a at: 1) >= (b at: 1)]) asOrderedCollection.
+	limit := 50.
+	shown := rows size <= limit ifTrue: [rows] ifFalse: [rows first: limit].
+	entries := shown collect: [:r |
+		(((r at: 1) * 100) rounded printString, '%  ',
+			(r at: 2), ' <-> ', (r at: 3)) -> ((r at: 2) -> (r at: 3))].
+	rows size > limit ifTrue: [
+		entries := entries copyWith:
+			(('... ', (rows size - limit) printString, ' more') -> nil)].
+	^ entries
 ]
 
 {
@@ -456,6 +529,16 @@ SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
 	"Set the coverage status line and refresh the chrome/meta line."
 	coverageStatus := aStringOrNil.
 	navPanel ifNotNil: [navPanel refresh]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapMorph >> datasetForDataMode: aSymbol [
+	"Resolve a Data-menu symbol to its dataset; #none clears the active dataset."
+	aSymbol == #none ifTrue: [^ nil].
+	^ self datasets detect: [:d | d modeSymbol == aSymbol] ifNone: [nil]
 ]
 
 {
@@ -729,6 +812,18 @@ SWACodeTreemapMorph >> dupCompositionForNode: aNode [
 
 {
 	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:31'
+}
+SWACodeTreemapMorph >> dupDiffFrom [
+	"The FROM method of a duplicate pair being previewed from a CONTAINER's aggregated
+	list -- diffed against #dupDiffTarget in the source pane WITHOUT changing the
+	primary selection (so the container stays selected and its list survives). nil for
+	the normal method-selection diff (which uses #selectedNode as the from side)."
+	^ dupDiffFrom
+]
+
+{
+	#category : #duplication,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:59'
 }
 SWACodeTreemapMorph >> dupDiffTarget [
@@ -982,6 +1077,16 @@ SWACodeTreemapMorph >> initialize [
 ]
 
 {
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:04'
+}
+SWACodeTreemapMorph >> isDuplicationProvenanceActive [
+	"True when a duplication (link-capable) decoration metric is active, so the side
+	pane lists near-duplicates and a click there DIFFS rather than navigates."
+	^ self decorationMetric notNil and: [self decorationMetric supportsLinks]
+]
+
+{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:22'
 }
@@ -1190,39 +1295,74 @@ SWACodeTreemapMorph >> noteColorMode: aSymbol [
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:31'
+}
+SWACodeTreemapMorph >> previewDuplicatePairFrom: fromKey to: toKey [
+	"Browse a duplicate pair from a CONTAINER's aggregated list: show the inline diff of
+	fromKey vs toKey in the source pane, and red-box the partner tile -- WITHOUT changing
+	the primary selection, so the container stays selected and the duplicates list stays
+	put (the clicked row just highlights). Resolve keys to nodes via the key index."
+	| fromNode toNode |
+	fromNode := self keyIndex at: fromKey ifAbsent: [nil].
+	toNode := self keyIndex at: toKey ifAbsent: [nil].
+	dupDiffFrom := fromNode.
+	secondarySelection := toNode.   "partner = red box; no refresh yet"
+	self refreshChrome
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:28'
 }
 SWACodeTreemapMorph >> provenanceListForSelection [
-	"Mode-aware side pane. In #duplication mode the corner pane lists the selected
-	method's near-duplicates as  'NN%  Class>>selector' -> crossRefKey  (clickable
-	to navigate). In every other mode fall back to the coverage provenance."
-	colorMode == #duplication ifTrue: [
-		| node |
+	"Mode-aware side pane. When a DUPLICATION decoration metric is active:
+	 - a METHOD selection lists that method's near-duplicates ('NN%  partnerKey');
+	 - ANY container selection (package/class/category) aggregates the near-duplicates of
+	   ALL descendant methods ('NN%  fromMethod <-> partnerMethod'), best-first, TRUNCATED
+	   to the top 50 with a '... N more' note.
+	The method-vs-container split is by NODE KIND (SWACodeMethodNode), NOT by crossRefKey
+	-- classes DO have a crossRefKey but are still containers whose methods we aggregate.
+	Entries are  label -> navigateKey. Otherwise fall back to coverage provenance."
+	| metric node |
+	metric := self decorationMetric.
+	(metric notNil and: [metric supportsLinks]) ifTrue: [
 		node := self selectedNode.
-		(node isNil or: [(node isKindOf: SWACodeMethodNode) not]) ifTrue: [^ #()].
-		^ (self dupMatchesForNode: node) collect: [:assoc |
-			| pct partner |
-			pct := (assoc key * 100) rounded.
-			partner := assoc value.
-			(pct printString, '%  ', partner crossRefKey) -> partner crossRefKey]].
+		node ifNil: [^ #()].
+		(node isKindOf: SWACodeMethodNode)
+			ifTrue: [
+				"method selection: its own partners"
+				^ (metric linksForKey: node crossRefKey) collect: [:assoc |
+					(((assoc key * 100) rounded) printString, '%  ', assoc value) -> assoc value]]
+			ifFalse: [^ self containerDuplicatesFor: node metric: metric]].
 	^ super provenanceListForSelection
 ]
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:33'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:28'
 }
 SWACodeTreemapMorph >> provenanceListTitle [
-	"Mode-aware title for the side pane."
-	colorMode == #duplication ifTrue: [
-		| node n |
+	"Mode-aware side-pane title. Duplication metric active:
+	 - a METHOD selection -> its near-duplicate count;
+	 - ANY container (package/class/category) -> total near-duplicate PAIRS under the
+	   subtree.
+	Split by NODE KIND, not crossRefKey (classes have a key but are containers here)."
+	| metric node |
+	metric := self decorationMetric.
+	(metric notNil and: [metric supportsLinks]) ifTrue: [
 		node := self selectedNode.
-		(node isNil or: [(node isKindOf: SWACodeMethodNode) not])
-			ifTrue: [^ 'Duplicates'].
-		n := (self dupMatchesForNode: node) size.
-		^ n = 0
-			ifTrue: ['No near-duplicates']
-			ifFalse: [n printString, ' near-duplicate', (n = 1 ifTrue: [''] ifFalse: ['s'])]].
+		node ifNil: [^ 'Duplicates'].
+		(node isKindOf: SWACodeMethodNode)
+			ifTrue: [| n |
+				n := (metric linksForKey: node crossRefKey) size.
+				^ n = 0
+					ifTrue: ['No near-duplicates']
+					ifFalse: [n printString, ' near-duplicate', (n = 1 ifTrue: [''] ifFalse: ['s'])]]
+			ifFalse: [| n |
+				n := (self containerDuplicatePairCountFor: node metric: metric).
+				^ n = 0
+					ifTrue: ['No near-duplicates in subtree']
+					ifFalse: [n printString, ' duplicate pair', (n = 1 ifTrue: [''] ifFalse: ['s']), ' in subtree']]].
 	^ super provenanceListTitle
 ]
 
@@ -1258,42 +1398,73 @@ SWACodeTreemapMorph >> runInfoString [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapMorph >> selectDataset: aSWADatasetOrNil [
+	"Top-level Data pick (exclusive): make aSWADataset the active data source and apply
+	its FITTING DEFAULTS across every axis at once -- color, size, decoration -- from
+	#defaultBindings. Axes not mentioned by the dataset are CLEARED (color -> #codeKind,
+	size -> #loc, decoration -> none), so switching data sources gives a clean, fitting
+	view. Each axis can still be overridden afterward from its own menu; the override
+	persists until the next Data pick. nil clears back to the intrinsic view."
+	| bindings |
+	activeDataset := aSWADatasetOrNil.
+	aSWADatasetOrNil isNil ifTrue: [
+		self colorMode: #codeKind.
+		self weightMetric: #loc.
+		self decorationMetric: nil.
+		^ self].
+	bindings := aSWADatasetOrNil defaultBindings.
+	"color"
+	(bindings at: #color ifAbsent: [nil])
+		ifNotNil: [:m | self colorMode: m modeSymbol]
+		ifNil: [self colorMode: #codeKind].
+	"size"
+	(bindings at: #size ifAbsent: [nil])
+		ifNotNil: [:m | self weightMetric: m modeSymbol]
+		ifNil: [self weightMetric: #loc].
+	"decoration"
+	self decorationMetric: (bindings at: #decoration ifAbsent: [nil])
+]
+
+{
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 13:00'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:31'
 }
 SWACodeTreemapMorph >> selectedNode: aNodeOrNil [
-	"Selecting a different primary node clears the secondary selection (diff
-	target), so the source pane reverts to plain source until the user picks a new
-	partner from the duplicates pane. Set the ivar directly to avoid a double
-	refresh -- super selectedNode: refreshes chrome."
+	"Selecting a different primary node clears the secondary selection AND the
+	container-browse diff-from, so the source pane reverts to plain source until the
+	user picks a new partner. Set the ivar directly to avoid a double refresh -- super
+	selectedNode: refreshes chrome."
 	secondarySelection := nil.
+	dupDiffFrom := nil.
 	super selectedNode: aNodeOrNil
 ]
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 13:00'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:31'
 }
 SWACodeTreemapMorph >> selectedSourceString [
-	"Source text for the Show pane. In #duplication mode, when a near-duplicate has
-	been picked in the side pane (the SECONDARY SELECTION / #dupDiffTarget), show the
-	INLINE DIFF between the selected method and that partner -- the same styled
-	removed/inserted-line view the versions browser uses (via TextDiffBuilder). A
-	2-line header names the two methods. Otherwise fall back to the plain
-	selected-method source."
-	| sel target |
-	sel := self selectedNode.
+	"Source text for the Show pane. When a near-duplicate has been picked, show the
+	INLINE DIFF between the two methods (styled removed/inserted lines, like the
+	versions browser). The FROM side is #dupDiffFrom when browsing a CONTAINER's
+	aggregated list (primary selection is the container), else the selected method.
+	The partner (#dupDiffTarget) is the secondary selection. Otherwise plain source."
+	| from target |
 	target := self dupDiffTarget.
+	from := dupDiffFrom ifNil: [self selectedNode].
 	(target notNil
-		and: [sel notNil]
-		and: [sel isKindOf: SWACodeMethodNode]
+		and: [from notNil]
+		and: [from isKindOf: SWACodeMethodNode]
 		and: [target isKindOf: SWACodeMethodNode]) ifTrue: [
 			| header diff |
-			header := ('" ', sel crossRefKey, '  (selected)', String cr,
+			header := ('" ', from crossRefKey, '  (selected)', String cr,
 				'  vs ', target crossRefKey, ' "', String cr, String cr) asText.
 			diff := TextDiffBuilder
 				buildDisplayPatchFrom: target sourceString
-				to: sel sourceString.
+				to: from sourceString.
 			^ header, diff].
 	^ super selectedSourceString
 ]
@@ -1309,6 +1480,27 @@ SWACodeTreemapMorph >> selectionInfoString [
 	^ selectedNode
 		ifNil: ['']
 		ifNotNil: [:n | self metaInfoStringForNode: n]
+]
+
+{
+	#category : #duplication,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:28'
+}
+SWACodeTreemapMorph >> selectionIsMethodForDiff [
+	"True when the current selection is a METHOD, so a duplicates-pane click should DIFF
+	against the picked partner (rather than navigate, which is what a container's
+	aggregated list does)."
+	^ self selectedNode notNil and: [self selectedNode isKindOf: SWACodeMethodNode]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+}
+SWACodeTreemapMorph >> setDataMode: aSymbol [
+	"Data-menu entry point: pick the active data source by its symbol (#none clears),
+	applying its fitting defaults across the axes."
+	self selectDataset: (self datasetForDataMode: aSymbol)
 ]
 
 {

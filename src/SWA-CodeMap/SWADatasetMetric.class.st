@@ -61,6 +61,16 @@ SWADatasetMetric >> colorForNode: aNode [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:26'
+}
+SWADatasetMetric >> coverageSource [
+	"The SWACoverageData behind a coverage-provenance metric (for the blue-test /
+	covered-method relation), or nil."
+	^ self isCoverageProvenance ifTrue: [dataset source] ifFalse: [nil]
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:49'
 }
@@ -91,6 +101,18 @@ SWADatasetMetric >> id [
 }
 SWADatasetMetric >> id: aSymbol [
 	id := aSymbol
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:26'
+}
+SWADatasetMetric >> isCoverageProvenance [
+	"True for the coverage metrics whose source carries the test<->method provenance
+	relation (blue tests + click-to-see-covered / click-to-see-covering-tests). The
+	'call' metric on the same source qualifies too -- same SWACoverageData behind it."
+	^ (id == #coverage or: [id == #call])
+		and: [dataset source isKindOf: SWACoverageData]
 ]
 
 {
