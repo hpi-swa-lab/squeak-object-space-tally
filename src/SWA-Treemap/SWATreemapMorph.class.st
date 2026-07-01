@@ -801,21 +801,6 @@ SWATreemapMorph >> updateBreadcrumb [
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
-}
-SWATreemapMorph >> updateSelectionPath: aNodeOrNil [
-	"Update the selection-path label to show the path to aNodeOrNil. Used for live
-	hover feedback from the overlay. Routes through the nav panel when present,
-	else falls back to the legacy standalone label morph."
-	| str |
-	str := aNodeOrNil ifNil: [''] ifNotNil: [:n | n pathString].
-	navPanel
-		ifNotNil: [:p | p showSelectionPath: str]
-		ifNil: [selectionPathMorph ifNotNil: [selectionPathMorph contents: str]]
-]
-
-{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
 }

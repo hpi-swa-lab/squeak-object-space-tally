@@ -27,15 +27,19 @@ SWACodeTreemapOverlay >> aaCanvasFrom: aCanvas [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
 }
 SWACodeTreemapOverlay >> addMenuItems: menu for: aNode [
 	"Code context-menu items: browse the element; for method tiles also offer
-	senders/implementors. Plus inspect/explore the node itself."
+	senders/implementors. Plus inspect/explore the node itself, and -- when any loaded
+	dataset offers links -- a Links (decoration) submenu."
+	| decoMenu |
 	menu add: 'browse' selector: #browseNode: argument: aNode.
 	aNode kind = #method ifTrue: [
 		menu add: 'senders' selector: #browseSenders: argument: aNode.
 		menu add: 'implementors' selector: #browseImplementors: argument: aNode].
+	decoMenu := self decorationMenuMorph.
+	decoMenu ifNotNil: [menu addLine. menu add: 'Links' subMenu: decoMenu].
 	menu addLine.
 	menu add: 'inspect node' selector: #inspectObject: argument: aNode.
 	menu add: 'explore node' selector: #exploreObject: argument: aNode
@@ -67,17 +71,18 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	"Color (base-tint) modes for the Code Map. Most are intrinsic (kind, LOC,
 	duplication, ...). The two DATA-DRIVEN legacy entries -- test coverage and
 	invocation tally -- acquire their data lazily when picked.
 
-	APPENDED after the intrinsics: one entry per RETAINED dataset (SWADataset) loaded
-	into the map, each carrying its own minted symbol (#coverage_1, #coverage_2, ...)
-	and its display name. This is what lets you load coverage twice and switch between
-	the two instantly, with no reload -- the additive layered-datasets layer."
+	APPENDED after the intrinsics: one entry per COLOR-capable METRIC of every
+	retained dataset (SWADatasetMetric). A single coverage file thus contributes
+	BOTH 'By coverage [file]' and 'By call [file]' (the latter only when the file
+	carries invocation data). Each carries its own minted symbol, so you can load
+	coverage twice and switch between all their metrics instantly, no reload."
 	| base tm |
 	base := #(
 		(#codeKind         'By kind (package/class/category/method)')
@@ -94,10 +99,51 @@ SWACodeTreemapOverlay >> colorModeOptions [
 	tm := self treemapMorph.
 	(tm respondsTo: #datasets) ifTrue: [
 		tm datasets do: [:ds |
-			base add: (Array
-				with: ds modeSymbol
-				with: 'Dataset: ', ds name)]].
+			ds metrics do: [:metric |
+				metric supportsColor ifTrue: [
+					base add: (Array with: metric modeSymbol with: metric menuLabel)]]]].
 	^ base
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
+}
+SWACodeTreemapOverlay >> decorationMenuMorph [
+	"Build the Links (decoration) menu from #decorationModeOptions, ticking the active
+	decoration metric. Answers nil when only 'None' is available (no link datasets)."
+	| opts current menu active |
+	opts := self decorationModeOptions.
+	opts size <= 1 ifTrue: [^ nil].
+	active := (treemapMorph respondsTo: #decorationMetric)
+		ifTrue: [treemapMorph decorationMetric] ifFalse: [nil].
+	current := active ifNil: [#none] ifNotNil: [active modeSymbol].
+	menu := MenuMorph new defaultTarget: self.
+	opts do: [:pair | | mode label |
+		mode := pair first.
+		label := current == mode ifTrue: ['* ', pair second] ifFalse: ['   ', pair second].
+		menu add: label selector: #setDecorationMode: argument: mode].
+	^ menu
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
+}
+SWACodeTreemapOverlay >> decorationModeOptions [
+	"{ symbol. label } pairs for the Links (decoration) menu: a 'None' entry plus one
+	per LINK-capable metric of every retained dataset (currently duplication clone
+	links), tagged with the dataset name. Empty of datasets -> just 'None'."
+	| opts tm |
+	opts := OrderedCollection new.
+	opts add: (Array with: #none with: 'None').
+	tm := self treemapMorph.
+	(tm respondsTo: #datasets) ifTrue: [
+		tm datasets do: [:ds |
+			ds metrics do: [:metric |
+				metric supportsLinks ifTrue: [
+					opts add: (Array with: metric modeSymbol with: 'Links: ', metric menuLabel)]]]].
+	^ opts asArray
 ]
 
 {
@@ -150,62 +196,102 @@ SWACodeTreemapOverlay >> drawAllDuplicationLinksOn: aCanvas origin: origin [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:52'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:30'
 }
-SWACodeTreemapOverlay >> drawExtraHighlightsFor: hoveredNode on: aCanvas origin: origin [
-	"No-op: duplication clone links are NOT drawn from this hover hook (which fires
-	with the hovered node). They are drawn selection-driven from #drawOn: via
-	#drawSelectionDuplicationLinksOn:origin:, so hovering never changes them."
+SWACodeTreemapOverlay >> drawLinksFor: aMetric on: aCanvas origin: origin restrictedTo: keySetOrNil [
+	"Draw the metric's links between rendered method tiles. When keySetOrNil is non-nil
+	(a selection subtree), a link is drawn only if AT LEAST ONE endpoint key is in the
+	set -- so selecting a package/class/method shows just the links connected to it
+	(including those going out to partners elsewhere). nil = no restriction (whole-map
+	overview). Each unordered pair drawn once; off-screen partners resolve to their
+	nearest visible ancestor.
+
+	Each link gets a dark CASING drawn under the score-colored line so it stays visible
+	on any tile color (e.g. orange link over an orange duplication-heat tile). ALL
+	casings are drawn first, then ALL colored lines, so where links cross the colors
+	stay clean on top of the casings. Both passes go heaviest-last (shared-LOC) so the
+	highest-impact links sit on top."
+	| links seen aaCanvas |
+	links := OrderedCollection new.
+	seen := Set new.
+	treemapMorph tiles do: [:assoc |
+		| node fromR nodeKey |
+		node := assoc key.
+		fromR := assoc value.
+		(node isKindOf: SWACodeMethodNode) ifTrue: [
+			nodeKey := node crossRefKey.
+			(aMetric linksForKey: nodeKey) do: [:m |
+				| score partnerKey pairKey target r sharedLoc partnerNode |
+				score := m key.
+				partnerKey := m value.
+				(treemapMorph link: (nodeKey -> partnerKey) connectsRestriction: keySetOrNil) ifTrue: [
+					pairKey := (nodeKey <= partnerKey)
+						ifTrue: [nodeKey, '|', partnerKey]
+						ifFalse: [partnerKey, '|', nodeKey].
+					(seen includes: pairKey) ifFalse: [
+						seen add: pairKey.
+						sharedLoc := aMetric sharedLocForKey: nodeKey score: score partnerKey: partnerKey.
+						partnerNode := treemapMorph nodeForCrossRefKey: partnerKey
+							orStubLoc: (aMetric locForKey: partnerKey).
+						target := partnerNode.
+						r := treemapMorph rectForNode: target.
+						[r isNil and: [target notNil and: [target parent notNil]]] whileTrue: [
+							target := target parent.
+							r := treemapMorph rectForNode: target].
+						(r notNil and: [target ~~ node]) ifTrue: [
+							links add: { score. fromR center + origin. r center + origin. sharedLoc }]]]]]].
+	links := links asSortedCollection: [:a :b | (a at: 4) <= (b at: 4)].
+	aaCanvas := self aaCanvasFrom: aCanvas.
+	"pass 1: dark casings"
+	links do: [:lk | | w |
+		w := self dupLineWidthForSharedLoc: (lk at: 4).
+		aaCanvas
+			line: (lk at: 2)
+			to: (lk at: 3)
+			width: (self dupCasingWidthFor: w)
+			color: self dupLineCasingColor].
+	"pass 2: score-colored lines on top"
+	links do: [:lk |
+		aaCanvas
+			line: (lk at: 2)
+			to: (lk at: 3)
+			width: (self dupLineWidthForSharedLoc: (lk at: 4))
+			color: (self dupLineColorForScore: (lk first))].
+	aaCanvas == aCanvas ifFalse: [aaCanvas flush]
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:33'
 }
 SWACodeTreemapOverlay >> drawOn: aCanvas [
 	"Standard hover highlight (white border + ancestor borders) follows the mouse via
-	super. In #duplication mode we additionally draw a PERSISTENT selection border
-	and the clone links from the CLICK-SELECTION, independent of hover:
-	  - a method is selected -> persistent white/ancestor border + lines to its
-	    near-duplicates (these survive the mouse leaving the canvas),
-	  - nothing selected      -> the whole-map OVERVIEW of all duplication links.
-	Hovering never changes the selection or which links are shown."
-	| origin sel |
+	super. When a DECORATION metric is active (the Links axis), also draw its links,
+	FILTERED to the current selection's subtree:
+	  - nothing selected  -> the whole-map overview (no restriction),
+	  - a method selected -> only that method's links,
+	  - a container (package/class/category) selected -> only links with at least one
+	    endpoint among the methods under the selection.
+	The CLICK selection always gets its own persistent border (via
+	#drawSelectionBorderFor:), independent of hover -- so hovering another tile never
+	makes the selection appear to move or vanish (hover draws its own transient border
+	via super; selection draws this one). Hovering NEVER changes the selection value.
+	The decoration axis is INDEPENDENT of colorMode."
+	| origin sel deco restrict |
 	super drawOn: aCanvas.
-	treemapMorph colorMode == #duplication ifFalse: [^ self].
 	origin := self position.
 	sel := treemapMorph selectedNode.
-	(sel isKindOf: SWACodeMethodNode)
-		ifTrue: [
-			self drawSelectionBorderFor: sel on: aCanvas origin: origin.
-			self drawSelectionDuplicationLinksOn: aCanvas origin: origin]
-		ifFalse: [self drawAllDuplicationLinksOn: aCanvas origin: origin]
-]
-
-{
-	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:56'
-}
-SWACodeTreemapOverlay >> drawSelectionBorderFor: aNode on: aCanvas origin: origin [
-	"Draw the white selected-tile border + fading cyan ancestor borders for aNode
-	(the CLICK selection), so the selection stays visible even after the mouse
-	leaves the canvas and #hoveredTile is cleared. Mirrors the base #drawOn: border
-	logic but sourced from the persistent selection rather than hover."
-	| selRect node alpha r parentColor screenR |
-	aNode ifNil: [^ self].
-	selRect := treemapMorph rectForNode: aNode.
-	selRect ifNil: [^ self].
-	aCanvas frameRectangle: (selRect translateBy: origin) width: 2 color: Color white.
-	node := aNode parent.
-	alpha := 0.7.
-	[node notNil and: [node parent notNil]] whileTrue: [
-		r := treemapMorph rectForNode: node.
-		r ifNotNil: [
-			parentColor := Color cyan alpha: alpha.
-			screenR := r translateBy: origin.
-			aCanvas frameRectangle: screenR width: 2 color: parentColor].
-		alpha := (alpha - 0.15) max: 0.15.
-		node := node parent]
+	"Persistent selection border, always, so hover can't visually steal the selection."
+	sel ifNotNil: [self drawSelectionBorderFor: sel on: aCanvas origin: origin].
+	deco := (treemapMorph respondsTo: #decorationMetric)
+		ifTrue: [treemapMorph decorationMetric] ifFalse: [nil].
+	deco ifNil: [^ self].
+	deco supportsLinks ifFalse: [^ self].
+	sel ifNil: [
+		"no selection -> full overview"
+		^ self drawLinksFor: deco on: aCanvas origin: origin restrictedTo: nil].
+	restrict := treemapMorph leafKeySetUnder: sel.
+	self drawLinksFor: deco on: aCanvas origin: origin restrictedTo: restrict
 ]
 
 {
@@ -243,6 +329,28 @@ SWACodeTreemapOverlay >> drawSelectionDuplicationLinksOn: aCanvas origin: origin
 				width: (self dupLineWidthForSharedLoc: sharedLoc)
 				color: (self dupLineColorForScore: score)]].
 	aaCanvas == aCanvas ifFalse: [aaCanvas flush]
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:30'
+}
+SWACodeTreemapOverlay >> dupCasingWidthFor: lineWidth [
+	"Casing is a couple of pixels wider than the line it backs, so a dark rim shows on
+	both sides regardless of the line's own width."
+	^ lineWidth + 3
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:30'
+}
+SWACodeTreemapOverlay >> dupLineCasingColor [
+	"The dark 'casing' stroke drawn UNDER every colored link line so links stay visible
+	on any tile color (notably orange links over orange duplication-heat tiles). A
+	fixed near-black, semi-opaque rim -- the metro-map trick: the colored line keeps
+	encoding the score, the casing just guarantees contrast."
+	^ Color black alpha: 0.6
 ]
 
 {
@@ -289,22 +397,51 @@ SWACodeTreemapOverlay >> dupLineWidthForSharedLoc: sharedLoc [
 ]
 
 {
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
+}
+SWACodeTreemapOverlay >> popUpDecorationMenu [
+	"Pop up the Links (decoration) menu standalone (header 'Links' button)."
+	| menu |
+	menu := self decorationMenuMorph.
+	menu ifNotNil: [menu popUpInWorld: self world]
+]
+
+{
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:12'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
+}
+SWACodeTreemapOverlay >> setDecorationMode: aSymbol [
+	(treemapMorph respondsTo: #setDecorationMode:)
+		ifTrue: [treemapMorph setDecorationMode: aSymbol]
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeTreemapOverlay >> sizeModeOptions [
-	"Live tile-SIZE (weight) metrics for the Code Map. The two DYNAMIC metrics --
-	invocation count and covering-test count -- come from a loaded profile/coverage
-	data set (st-spy / SUnit coverage), so they are only offered when such data is
-	present."
-	| opts |
+	"Live tile-SIZE (weight) metrics for the Code Map. The two legacy DYNAMIC metrics
+	-- invocation count and covering-test count -- come from the single-ivar coverage
+	overlay and are only offered when such data is present.
+
+	APPENDED: one entry per SIZE-capable METRIC of every retained dataset, tagged
+	with the dataset name (e.g. 'By coverage [squeak-coverage.json]'), so a loaded
+	dataset can drive tile AREA as well as tint."
+	| opts tm |
 	opts := OrderedCollection withAll: #(
 		(#methods   'Number of methods')
 		(#loc       'Lines of code')
 		(#bytes     'Source byte size')).
-	(treemapMorph respondsTo: #coverageData) ifTrue: [
-		treemapMorph coverageData ifNotNil: [
+	tm := self treemapMorph.
+	(tm respondsTo: #coverageData) ifTrue: [
+		tm coverageData ifNotNil: [
 			opts add: #(#invocations 'Execution: call count');
 				add: #(#tests 'Execution: covering tests')]].
+	(tm respondsTo: #datasets) ifTrue: [
+		tm datasets do: [:ds |
+			ds metrics do: [:metric |
+				metric supportsSize ifTrue: [
+					opts add: (Array with: metric modeSymbol with: metric menuLabel)]]]].
 	^ opts asArray
 ]

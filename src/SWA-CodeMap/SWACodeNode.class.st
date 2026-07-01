@@ -24,7 +24,9 @@ Class {
 		'rollupCoverage',
 		'coverageWeightMode',
 		'weightMetric',
-		'rollupBytes'
+		'rollupBytes',
+		'sizeMetric',
+		'rollupDataset'
 	],
 	#classVars : [
 		'TestWeightFloorInvocations',
@@ -315,6 +317,24 @@ SWACodeNode >> coverageWeightMode: aSymbolOrNil [
 ]
 
 {
+	#category : #'dataset-weight',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:51'
+}
+SWACodeNode >> datasetWeight [
+	"Rolled-up SIZE weight from the active dataset #sizeMetric: a method leaf uses its
+	own raw metric value; a container sums its children (cached). Nodes the metric
+	ignores contribute 0, so uncovered/unmatched subtrees collapse -- exactly like
+	#coverageWeight, but for an arbitrary loaded metric. 0 when no metric is active."
+	| metric |
+	metric := self sizeMetric.
+	metric ifNil: [^ 0].
+	^ rollupDataset ifNil: [
+		rollupDataset := self isLeaf
+			ifTrue: [(metric weightForNode: self) ]
+			ifFalse: [self children inject: 0 into: [:sum :c | sum + c datasetWeight]]]
+]
+
+{
 	#category : #graphviz,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
 }
@@ -399,13 +419,15 @@ SWACodeNode >> estimatedNodeCount [
 
 {
 	#category : #'byte-metrics',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeNode >> flushSizeRollups [
-	"Drop the metric-dependent roll-up caches (#rollupBytes, #rollupCoverage). The
-	#rollupLoc and #rollupMethodCount caches are metric-stable, so they are kept."
+	"Drop the metric-dependent roll-up caches (#rollupBytes, #rollupCoverage,
+	#rollupDataset). The #rollupLoc and #rollupMethodCount caches are metric-stable,
+	so they are kept."
 	rollupBytes := nil.
-	rollupCoverage := nil
+	rollupCoverage := nil.
+	rollupDataset := nil
 ]
 
 {
@@ -667,17 +689,51 @@ SWACodeNode >> selfSize [
 ]
 
 {
+	#category : #'dataset-weight',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
+}
+SWACodeNode >> setSizeMetric: aSWADatasetMetric [
+	"Bind tile SIZE to a loaded dataset metric on this (root) node and flush the size
+	roll-up caches over the whole subtree so the new weights lay out next pass.
+	Counterpart to #setWeightMetric: for the intrinsic metrics."
+	sizeMetric := aSWADatasetMetric.
+	self withAllChildrenDo: [:n | n flushSizeRollups]
+]
+
+{
 	#category : #'byte-metrics',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeNode >> setWeightMetric: aSymbol [
-	"Set the size metric on this (root) node AND clear the size roll-up caches over
-	the WHOLE already-built subtree, so a live switch -- especially between the two
-	dynamic metrics #invocations and #tests, which share the #rollupCoverage cache,
-	or between byte/non-byte -- takes effect on the next layout. LOC and
-	method-count caches are metric-stable and kept."
+	"Set an INTRINSIC size metric on this (root) node, clearing any active dataset
+	size metric, AND flush the size roll-up caches over the WHOLE built subtree so a
+	live switch takes effect on the next layout. LOC and method-count caches are
+	metric-stable and kept."
 	weightMetric := aSymbol.
+	sizeMetric := nil.
 	self withAllChildrenDo: [:n | n flushSizeRollups]
+]
+
+{
+	#category : #'dataset-weight',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:51'
+}
+SWACodeNode >> sizeMetric [
+	"The active SWADatasetMetric driving tile SIZE, or nil for an intrinsic metric.
+	Resolves up the parent chain like #weightMetric, so it need only be set on root."
+	sizeMetric ifNotNil: [^ sizeMetric].
+	parent ifNotNil: [:p | ^ p sizeMetric].
+	^ nil
+]
+
+{
+	#category : #'dataset-weight',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:51'
+}
+SWACodeNode >> sizeMetric: aSWADatasetMetricOrNil [
+	"Set the dataset metric driving tile SIZE (nil = back to intrinsic #weightMetric).
+	Set on the root; #totalSize consults it via #datasetWeight."
+	sizeMetric := aSWADatasetMetricOrNil
 ]
 
 {
@@ -732,7 +788,7 @@ SWACodeNode >> testWeightFloor [
 
 {
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:12'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeNode >> totalSize [
 	"Treemap weight, selected by #weightMetric (the live 'Size' menu):
@@ -741,10 +797,12 @@ SWACodeNode >> totalSize [
 	  #bytes        -- rolled-up source byte size (doc/string/code bar),
 	  #invocations  -- rolled-up dynamic CALL count (needs profile/coverage data),
 	  #tests        -- rolled-up distinct covering-test count (needs coverage data).
-	The two dynamic metrics require a loaded SWACoverageData; uncovered subtrees
-	collapse to 0 width there. The static metrics floor at 1 so a tile never
-	vanishes for lack of code."
+	OR, when a loaded DATASET metric drives size (#sizeMetric set), the rolled-up
+	value of that metric (#datasetWeight); like the legacy dynamic metrics it floors
+	at 0, so a subtree the metric ignores collapses to no width.
+	The static metrics floor at 1 so a tile never vanishes for lack of code."
 	| metric |
+	self sizeMetric ifNotNil: [^ self datasetWeight].
 	metric := self weightMetric.
 	(metric == #invocations or: [metric == #tests]) ifTrue: [^ self coverageWeight].
 	metric == #methods ifTrue: [^ self methodCount max: 1].

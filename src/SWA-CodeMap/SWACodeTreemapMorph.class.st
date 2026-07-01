@@ -11,7 +11,10 @@ Class {
 		'dupMinLoc',
 		'dupLoaded',
 		'datasets',
-		'datasetsByMode'
+		'datasetsByMode',
+		'metricsByMode',
+		'sizeMetric',
+		'decorationMetric'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -31,20 +34,23 @@ SWACodeTreemapMorph >> aboutToStyle: aStyler [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
 }
 SWACodeTreemapMorph >> addDataset: aSWADataset [
-	"Retain a named dataset and mint it a UNIQUE Color-menu symbol (e.g. #coverage_1,
-	#coverage_2, ...) so loading the same kind twice yields two DISTINCT, coexisting
-	menu entries you can switch between with no reload. Answers the dataset (now
-	carrying its modeSymbol). Does NOT change the current color mode -- the caller
-	decides whether to select it."
-	| n sym |
+	"Retain a named dataset and register ITS METRICS. Each metric (e.g. 'By coverage'
+	and 'By call' from one coverage file) gets a UNIQUE minted symbol so it becomes
+	its own Color/Size menu entry, tagged with the dataset name -- and loading the
+	same kind twice yields distinct, coexisting entries you switch between with no
+	reload. Answers the dataset. Does NOT change the current color/size mode."
+	| n base |
 	n := (self datasets count: [:d | d kind == aSWADataset kind]) + 1.
-	sym := (aSWADataset kind, '_', n printString) asSymbol.
-	aSWADataset modeSymbol: sym.
+	aSWADataset modeSymbol: (aSWADataset kind, '_', n printString) asSymbol.
+	base := aSWADataset kind, '_', n printString.
 	self datasets addLast: aSWADataset.
-	self datasetsByMode at: sym put: aSWADataset.
+	aSWADataset metrics do: [:metric | | sym |
+		sym := (base, '_', metric id) asSymbol.
+		metric modeSymbol: sym.
+		self metricsByMode at: sym put: metric].
 	^ aSWADataset
 ]
 
@@ -74,15 +80,15 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:51'
 }
 SWACodeTreemapMorph >> baseColorForNode: aNode [
-	"Dispatch on the active color mode. A minted dataset symbol (#coverage_1, ...)
-	defers to its retained SWADataset (the additive layered-datasets layer); when
-	the dataset has no value for a node, fall back to a neutral base. All the
-	intrinsic modes below are the untouched legacy path."
-	(self datasetForMode: colorMode) ifNotNil: [:ds |
-		^ (ds colorForNode: aNode) ifNil: [Color gray: 0.22]].
+	"Dispatch on the active color mode. A minted dataset-metric symbol
+	(#coverage_1_coverage, #coverage_1_call, ...) defers to its SWADatasetMetric (the
+	layered-datasets layer); when the metric has no value for a node, fall back to a
+	neutral base. All the intrinsic modes below are the untouched legacy path."
+	(self metricForMode: colorMode) ifNotNil: [:metric |
+		^ (metric colorForNode: aNode) ifNil: [Color gray: 0.22]].
 	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
 	colorMode == #avgloc ifTrue: [^ self colorByAvgLoc: aNode].
 	colorMode == #versions ifTrue: [^ self colorByVersions: aNode].
@@ -456,16 +462,6 @@ SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
 }
-SWACodeTreemapMorph >> datasetForMode: aSymbol [
-	"The dataset a minted color-mode symbol refers to, or nil if aSymbol is a legacy
-	intrinsic mode (#loc, #duplication, ...)."
-	^ self datasetsByMode at: aSymbol ifAbsent: [nil]
-]
-
-{
-	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
-}
 SWACodeTreemapMorph >> datasets [
 	"The retained, named analysis overlays loaded into this map (SWADataset), in load
 	order. Part of the additive layered-datasets layer -- legacy colorMode overlays
@@ -475,12 +471,36 @@ SWACodeTreemapMorph >> datasets [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
 }
-SWACodeTreemapMorph >> datasetsByMode [
-	"Map of minted Color-menu symbol (e.g. #coverage_1) -> SWADataset. Lets the
-	symbol-based colorMode machinery dispatch to a retained dataset."
-	^ datasetsByMode ifNil: [datasetsByMode := Dictionary new]
+SWACodeTreemapMorph >> decorationMetric [
+	"The active SWADatasetMetric driving map DECORATIONS (currently duplication clone
+	links), or nil for no decorations. Independent of the color and size bindings, so
+	you can e.g. color by LOC while still drawing duplication links."
+	^ decorationMetric
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
+}
+SWACodeTreemapMorph >> decorationMetric: aMetricOrNil [
+	"Bind (or clear) the decoration axis to a link-capable dataset metric, then
+	redraw. Instant like a recolor -- decorations are drawn by the overlay, no
+	relayout needed."
+	decorationMetric := aMetricOrNil.
+	self flushCacheKeepingSelection
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
+}
+SWACodeTreemapMorph >> decorationMetricForMode: aSymbol [
+	"Resolve a minted decoration-menu symbol to its metric; #none clears; nil for a
+	non-decoration symbol."
+	aSymbol == #none ifTrue: [^ nil].
+	^ self metricForMode: aSymbol
 ]
 
 {
@@ -962,6 +982,36 @@ SWACodeTreemapMorph >> initialize [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:22'
+}
+SWACodeTreemapMorph >> leafKeySetUnder: aNode [
+	"The Set of method crossRefKeys at or below aNode -- the 'selection subtree' used
+	to filter decorations (links) to what connects to the current selection. A method
+	leaf answers a singleton of its own key; a container answers all its descendants'
+	keys. General across decoration datasets, not duplication-specific."
+	| keys leaves |
+	keys := Set new.
+	leaves := OrderedCollection new.
+	self collectMethodLeavesFrom: aNode into: leaves.
+	leaves do: [:m | m crossRefKey ifNotNil: [:k | keys add: k]].
+	^ keys
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:23'
+}
+SWACodeTreemapMorph >> link: aKeyPair connectsRestriction: keySetOrNil [
+	"Decoration selection-filter rule (testable, canvas-free): a link between the two
+	crossRefKeys in aKeyPair (an Association fromKey -> toKey) is shown when there is
+	no restriction (nil) OR at least ONE endpoint is in the restriction key set."
+	keySetOrNil isNil ifTrue: [^ true].
+	^ (keySetOrNil includes: aKeyPair key)
+		or: [keySetOrNil includes: aKeyPair value]
+]
+
+{
 	#category : #duplication,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:42'
 }
@@ -1094,6 +1144,40 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
+}
+SWACodeTreemapMorph >> metricForMode: aSymbol [
+	"The dataset METRIC a minted color/size symbol refers to, or nil if aSymbol is a
+	legacy intrinsic mode (#loc, #duplication, ...)."
+	^ self metricsByMode at: aSymbol ifAbsent: [nil]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
+}
+SWACodeTreemapMorph >> metricsByMode [
+	"Map of minted menu symbol (e.g. #coverage_1_call) -> SWADatasetMetric. One entry
+	per metric of every loaded dataset; the symbol-based color/size machinery
+	dispatches through this."
+	^ metricsByMode ifNil: [metricsByMode := Dictionary new]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:12'
+}
+SWACodeTreemapMorph >> nodeForCrossRefKey: aKey orStubLoc: aLoc [
+	"The in-tree node for a crossRefKey, or a lightweight SWADuplicationPartnerStub
+	(carrying key + loc) when the partner is not on screen -- used by decoration link
+	drawing so an off-tree partner still resolves (its link is dropped when no visible
+	ancestor exists)."
+	^ self keyIndex at: aKey ifAbsent: [
+		SWADuplicationPartnerStub new crossRefKey: aKey loc: aLoc]
+]
+
+{
 	#category : #duplication,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
 }
@@ -1144,14 +1228,18 @@ SWACodeTreemapMorph >> provenanceListTitle [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
 }
 SWACodeTreemapMorph >> removeDataset: aSWADataset [
-	"Unload a dataset. If it was the active color mode, fall back to #codeKind."
+	"Unload a dataset and all its metrics. If the active color or size mode belonged
+	to it, fall back to an intrinsic default."
 	self datasets remove: aSWADataset ifAbsent: [].
-	aSWADataset modeSymbol ifNotNil: [:sym |
-		self datasetsByMode removeKey: sym ifAbsent: [].
-		colorMode == sym ifTrue: [self colorMode: #codeKind]]
+	(self metricsByMode values select: [:m | m dataset == aSWADataset]) do: [:m |
+		m modeSymbol ifNotNil: [:sym |
+			self metricsByMode removeKey: sym ifAbsent: [].
+			colorMode == sym ifTrue: [self colorMode: #codeKind].
+			(sizeMetric notNil and: [sizeMetric == m])
+				ifTrue: [self weightMetric: #loc]]]
 ]
 
 {
@@ -1224,6 +1312,16 @@ SWACodeTreemapMorph >> selectionInfoString [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
+}
+SWACodeTreemapMorph >> setDecorationMode: aSymbol [
+	"Menu entry point for the Links/decoration axis: #none clears, else bind to the
+	link-capable metric that symbol names."
+	self decorationMetric: (self decorationMetricForMode: aSymbol)
+]
+
+{
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:24'
 }
@@ -1241,26 +1339,35 @@ SWACodeTreemapMorph >> testProvenanceNoteForNode: aNode [
 
 {
 	#category : #'byte-composition',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:02'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeTreemapMorph >> weightMetric [
-	"The active size metric, read from the root node (single source of truth)."
+	"The active size metric symbol (single source of truth for the Size menu tick).
+	When a loaded dataset metric drives size, answer ITS minted symbol; otherwise the
+	root's intrinsic metric."
+	sizeMetric ifNotNil: [^ sizeMetric modeSymbol].
 	^ rootNode ifNil: [#loc] ifNotNil: [rootNode weightMetric]
 ]
 
 {
 	#category : #'byte-composition',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:03'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
 SWACodeTreemapMorph >> weightMetric: aSymbol [
-	"Live-switch the tile SIZE metric (the 'Size' context menu). Sets it on the root
-	(flushing the metric-dependent roll-ups across the built tree), invalidates the
-	layout, and re-lays-out + redraws keeping the current zoom and selection. This
-	is the relayout counterpart to #colorMode:'s instant recolor."
-	| sel |
+	"Live-switch the tile SIZE metric (the 'Size' menu). Two families:
+	  - INTRINSIC symbols (#loc/#methods/#bytes/#invocations/#tests) go to the root's
+	    #setWeightMetric:;
+	  - a minted DATASET-METRIC symbol (#coverage_1_call, ...) resolves to its
+	    SWADatasetMetric and binds size to it via the root's #setSizeMetric:.
+	Either way we flush rollups, relayout, and redraw keeping zoom + selection --
+	the relayout counterpart to #colorMode:'s instant recolor."
+	| sel metric |
 	rootNode ifNil: [^ self].
 	sel := selectedNode.
-	rootNode setWeightMetric: aSymbol.
+	metric := self metricForMode: aSymbol.
+	metric isNil
+		ifTrue: [sizeMetric := nil. rootNode setWeightMetric: aSymbol]
+		ifFalse: [sizeMetric := metric. rootNode setSizeMetric: metric].
 	layoutValid := false.
 	self ensureLayout.
 	cachedForm := nil.

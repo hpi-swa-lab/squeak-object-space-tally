@@ -65,16 +65,21 @@ SWASpaceTallyTreemapOverlay >> copySubtreeToClipboard: aNode [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:40'
 }
-SWASpaceTallyTreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas origin: origin [
-	"Draw lines pointing to other-parent tiles: gray if the other parent is a
-	descendant of the selected node, red otherwise. If an other-parent tile is too
-	small to be rendered, draw the line to the nearest visible ancestor instead."
-	| screenR r selectedCenter otherParentSeen lineColor anc target |
-	selectedCenter := (hoveredTile value translateBy: origin) center.
+SWASpaceTallyTreemapOverlay >> drawExtraHighlightsFor: aNode on: aCanvas origin: origin [
+	"Draw lines from aNode's tile to its other-parent tiles: gray if the other parent
+	is a descendant of aNode, red otherwise. If an other-parent tile is too small to
+	be rendered, draw to the nearest visible ancestor instead. Driven by the CLICK
+	selection (see #drawOn:), NOT hover -- the lines persist and don't chase the mouse.
+	No-op if aNode has no rendered tile."
+	| screenR r selectedCenter otherParentSeen lineColor anc target selRect |
+	aNode ifNil: [^ self].
+	selRect := treemapMorph rectForNode: aNode.
+	selRect ifNil: [^ self].
+	selectedCenter := (selRect translateBy: origin) center.
 	otherParentSeen := IdentitySet new.
-	selectedNode otherParents ifNotNil: [:ops |
+	aNode otherParents ifNotNil: [:ops |
 		ops do: [:otherNode |
 			(otherParentSeen includes: otherNode) ifFalse: [
 				otherParentSeen add: otherNode.
@@ -83,10 +88,10 @@ SWASpaceTallyTreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas 
 				[r isNil and: [target notNil and: [target parent notNil]]] whileTrue: [
 					target := target parent.
 					r := treemapMorph rectForNode: target].
-				(r notNil and: [target ~~ selectedNode]) ifTrue: [
+				(r notNil and: [target ~~ aNode]) ifTrue: [
 					anc := target.
-					[anc notNil and: [anc ~~ selectedNode]] whileTrue: [anc := anc parent].
-					lineColor := anc == selectedNode
+					[anc notNil and: [anc ~~ aNode]] whileTrue: [anc := anc parent].
+					lineColor := anc == aNode
 						ifTrue: [Color gray alpha: 0.8]
 						ifFalse: [Color red alpha: 0.8].
 					screenR := r translateBy: origin.
@@ -95,6 +100,25 @@ SWASpaceTallyTreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas 
 						to: screenR center
 						width: 2
 						color: lineColor]]]]
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:40'
+}
+SWASpaceTallyTreemapOverlay >> drawOn: aCanvas [
+	"Hover highlight (transient white/cyan borders) follows the mouse via super. The
+	other-parent RELATION lines are driven by the CLICK selection instead of hover, so
+	they persist and don't chase the mouse -- click a tile to see where its shared
+	references live. A persistent YELLOW selection border (distinct from the white
+	hover border) marks the selected tile."
+	| origin sel |
+	super drawOn: aCanvas.
+	origin := self position.
+	sel := treemapMorph selectedNode.
+	sel ifNil: [^ self].
+	self drawSelectionBorderFor: sel on: aCanvas origin: origin.
+	self drawExtraHighlightsFor: sel on: aCanvas origin: origin
 ]
 
 {

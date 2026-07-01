@@ -16,7 +16,8 @@ Class {
 	#superclass : #Morph,
 	#instVars : [
 		'treemapMorph',
-		'hoveredTile'
+		'hoveredTile',
+		'hoverPoint'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -32,12 +33,14 @@ SWATreemapOverlay >> addMenuItems: aMenu for: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:21'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:06'
 }
 SWATreemapOverlay >> clearHover [
+	"Mouse left the overlay: drop the transient hover state (tile + point) so the
+	border and tooltip disappear. Does NOT touch the selection or its path label --
+	those are click-driven and must persist while the mouse is away."
 	hoveredTile := nil.
-	self setBalloonText: nil.
-	treemapMorph updateSelectionPath: nil.
+	hoverPoint := nil.
 	self changed
 ]
 
@@ -75,33 +78,26 @@ SWATreemapOverlay >> colorModeOptions [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
-}
-SWATreemapOverlay >> drawExtraHighlightsFor: selectedNode on: aCanvas origin: origin [
-	"Hook: draw extra highlights for the selected node after the ancestor chain.
-	Default no-op. Subclasses may override (e.g. SpaceTally other-parent lines)."
-]
-
-{
-	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:06'
 }
 SWATreemapOverlay >> drawOn: aCanvas [
-	"Draw a white border on the selected (hovered) tile and fading cyan borders on
-	all ancestor tiles, plus a RED border on any secondary-selection tile (drawn
-	first so it always shows even when nothing is hovered). Domain-specific extras
-	are added via the #drawExtraHighlightsFor:on:origin: hook (default no-op)."
-	| origin screenR node r alpha parentColor selectedNode |
+	"HOVER feedback (transient): a white border on the tile under the cursor + fading
+	cyan ancestor borders, plus our OWN canvas-drawn tooltip for that tile (Morphic's
+	balloon never worked here). A RED border marks any secondary-selection tile
+	(hover-independent). Hover NEVER changes the selection -- the persistent CLICK
+	selection + decorations are drawn by subclass #drawOn: overrides. Requires
+	#wantsEveryMouseMove so button-up moves are delivered."
+	| origin screenR node r alpha parentColor hoveredNode |
 	origin := self position.
 	"--- Secondary selection: red border (hover-independent) ---"
 	self drawSecondarySelectionOn: aCanvas origin: origin.
 	hoveredTile ifNil: [^ self].
-	selectedNode := hoveredTile key.
-	"--- Selected tile: white border ---"
+	hoveredNode := hoveredTile key.
+	"--- Hovered tile: white border ---"
 	screenR := hoveredTile value translateBy: origin.
 	aCanvas frameRectangle: screenR width: 2 color: Color white.
 	"--- Walk parent chain upward, fading from bright cyan to dim ---"
-	node := selectedNode parent.
+	node := hoveredNode parent.
 	alpha := 0.7.
 	[node notNil and: [node parent notNil "stop at synthetic root"]] whileTrue: [
 		r := treemapMorph rectForNode: node.
@@ -111,8 +107,8 @@ SWATreemapOverlay >> drawOn: aCanvas [
 			aCanvas frameRectangle: screenR width: 2 color: parentColor].
 		alpha := (alpha - 0.15) max: 0.15.
 		node := node parent].
-	"--- Domain extras (e.g. SpaceTally other-parent lines) ---"
-	self drawExtraHighlightsFor: selectedNode on: aCanvas origin: origin
+	"--- Our own tooltip for the hovered tile ---"
+	self drawTooltipFor: hoveredNode on: aCanvas origin: origin
 ]
 
 {
@@ -132,6 +128,71 @@ SWATreemapOverlay >> drawSecondarySelectionOn: aCanvas origin: origin [
 	r := treemapMorph rectForNode: sec.
 	r ifNil: [^ self].
 	aCanvas frameRectangle: (r translateBy: origin) width: 2 color: Color red
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:40'
+}
+SWATreemapOverlay >> drawSelectionBorderFor: aNode on: aCanvas origin: origin [
+	"Draw the persistent CLICK-selection border for aNode: a distinct YELLOW 3px frame
+	(deliberately different from the transient WHITE 2px hover border), plus fading
+	cyan ancestor borders. Drawn every frame from the persistent selectedNode, so the
+	selection stays visible -- and distinguishable from hover -- as the mouse moves
+	over other tiles or leaves the canvas. Shared by all treemap overlays."
+	| selRect node alpha r parentColor screenR |
+	aNode ifNil: [^ self].
+	selRect := treemapMorph rectForNode: aNode.
+	selRect ifNil: [^ self].
+	aCanvas frameRectangle: (selRect translateBy: origin) width: 3 color: Color yellow.
+	node := aNode parent.
+	alpha := 0.7.
+	[node notNil and: [node parent notNil]] whileTrue: [
+		r := treemapMorph rectForNode: node.
+		r ifNotNil: [
+			parentColor := Color cyan alpha: alpha.
+			screenR := r translateBy: origin.
+			aCanvas frameRectangle: screenR width: 2 color: parentColor].
+		alpha := (alpha - 0.15) max: 0.15.
+		node := node parent]
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:11'
+}
+SWATreemapOverlay >> drawTooltipFor: aNode on: aCanvas origin: origin [
+	"Draw a small hover label -- JUST the entity NAME -- near the mouse (canvas-drawn;
+	Morphic's balloon never worked here). Enough to read a tiny tile; click for full
+	details. Offset off the cursor and clamped to stay inside the overlay."
+	| name font pad w h boxOrigin anchor maxRight maxBottom |
+	aNode ifNil: [^ self].
+	hoverPoint ifNil: [^ self].
+	name := aNode name.
+	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	font := TextStyle default fontOfPointSize: 10.
+	pad := 4.
+	w := (font widthOfString: name) + (pad * 2).
+	h := font height + (pad * 2).
+	"anchor at the mouse (local coords), offset below-right of the cursor"
+	anchor := (hoverPoint + origin) + (14 @ 18).
+	"clamp inside the overlay's on-screen bounds"
+	maxRight := origin x + self width.
+	maxBottom := origin y + self height.
+	boxOrigin := anchor.
+	(boxOrigin x + w) > maxRight ifTrue: [boxOrigin := (maxRight - w - 2) @ boxOrigin y].
+	(boxOrigin y + h) > maxBottom ifTrue: [boxOrigin := boxOrigin x @ ((hoverPoint + origin) y - h - 8)].
+	boxOrigin := (boxOrigin x max: origin x + 2) @ (boxOrigin y max: origin y + 2).
+	aCanvas
+		frameAndFillRectangle: (boxOrigin extent: w @ h)
+		fillColor: (Color black alpha: 0.82)
+		borderWidth: 1
+		borderColor: (Color gray: 0.6).
+	aCanvas
+		drawString: name
+		at: (boxOrigin x + pad) @ (boxOrigin y + pad)
+		font: font
+		color: Color white
 ]
 
 {
@@ -178,13 +239,16 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:44'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:09'
 }
 SWATreemapOverlay >> mouseDown: evt [
-	"Left-click: select tile. Click again on same tile: zoom in.
+	"Left-click: select tile. Click again on the ALREADY-SELECTED tile: zoom in.
 	 Right-click: context menu.
-	 Shift+click: explore tally node."
+	 Shift+click: explore tally node.
 
+	 The 'clicked twice' test compares against the current SELECTION, not #hoveredTile:
+	 now that hover tracks the cursor (#wantsEveryMouseMove), hoveredTile already equals
+	 the tile under the mouse before the click, so using it made the FIRST click zoom."
 	| local hit |
 	local := evt position - self position.
 	hit := treemapMorph tileAtLocal: local.
@@ -198,12 +262,12 @@ SWATreemapOverlay >> mouseDown: evt [
 	evt shiftPressed ifTrue: [
 		^ treemapMorph exploreNode: hit key].
 
-	"Same tile clicked twice -> zoom in"
-	(hoveredTile notNil and: [hoveredTile key == hit key])
+	"Click on the already-selected tile -> zoom in"
+	(treemapMorph selectedNode notNil
+		and: [treemapMorph selectedNode == hit key])
 		ifTrue: [^ treemapMorph zoomInto: hit key].
 
 	"Otherwise select this tile"
-	hoveredTile := hit.
 	self changed.
 	treemapMorph selectTileNode: hit key
 ]
@@ -218,29 +282,23 @@ SWATreemapOverlay >> mouseLeave: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:21'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:05'
 }
 SWATreemapOverlay >> mouseMove: evt [
-	"Update hover highlight and tooltip as the mouse moves."
-
+	"Track ONLY hover state -- the tile under the cursor + the mouse point -- so
+	#drawOn: can draw the hover border and our own tooltip. Hover must NOT affect the
+	SELECTION (that is click-only, in #mouseDown:), so we do NOT touch selectedNode or
+	the selection-path label here. Fires on every move now (#wantsEveryMouseMove)."
 	| local hit |
 	local := evt position - self position.
 	hit := treemapMorph tileAtLocal: local.
-
-	"Same tile or both nil -- nothing to do"
+	hoverPoint := local.
+	"Same tile -- still repaint so the tooltip tracks the moving cursor."
 	(hoveredTile == hit or: [
 		hoveredTile notNil and: [hit notNil and: [hoveredTile key == hit key]]])
-		ifTrue: [^ self].
-
+		ifTrue: [^ self changed].
 	hoveredTile := hit.
-	"Invalidate entire overlay because parent highlights can span the full area."
-	self changed.
-	hit ifNotNil: [
-		self setBalloonText: (treemapMorph balloonStringFor: hit key).
-		treemapMorph updateSelectionPath: hit key]
-	ifNil: [
-		self setBalloonText: nil.
-		treemapMorph updateSelectionPath: nil]
+	self changed
 ]
 
 {
@@ -354,4 +412,16 @@ SWATreemapOverlay >> treemapMorph [
 }
 SWATreemapOverlay >> treemapMorph: aMorph [
 	treemapMorph := aMorph
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:04'
+}
+SWATreemapOverlay >> wantsEveryMouseMove [
+	"YES -- deliver mouseMove: even with NO button pressed. By default Morphic drops
+	button-up moves (see #handlesMouseMove:), which is why our hover tooltip only fired
+	while click-dragging. To Morphic we are one flat morph doing our own tile hit-test
+	in #mouseMove:, so we need every move to track the cursor over tiles on plain hover."
+	^ true
 ]

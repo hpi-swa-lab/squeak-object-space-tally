@@ -761,26 +761,27 @@ SWANavPanel >> loadCoverageJson: json [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:17'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:53'
 }
 SWANavPanel >> loadCoverageJson: json name: aName [
 	"Overlay an already-parsed SWACoverageData JSON object (see #importData) as a
-	retained, named SWADataset so it stays selectable in the Color menu. Loading
-	coverage twice yields two distinct datasets (#coverage_1, #coverage_2) you can
-	switch between instantly, with no reload. Selects the new dataset as the active
-	color mode.
+	retained, named SWADataset so its metrics ('By coverage', and 'By call' when the
+	file has invocation data) stay selectable in the Color/Size menus. Loading twice
+	yields distinct metric entries you switch between instantly, no reload. Selects
+	the dataset's first color metric.
 
-	Deliberately does NOT touch the legacy single-ivar coverage overlay
-	(#showCoverageData:) -- that clobbers on every load and can only hold ONE
-	coverage, which is exactly what the dataset layer replaces here."
-	| data tm ds |
+	Deliberately does NOT touch the legacy single-ivar coverage overlay -- that
+	clobbers on every load and holds only ONE coverage, which the dataset replaces."
+	| data tm ds first |
 	data := SWACoverageData new.
 	data loadFromJson: json.
 	tm := self treemap.
 	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
-	tm colorMode: ds modeSymbol.
+	first := ds metrics detect: [:m | m supportsColor] ifNone: [nil].
+	first ifNotNil: [tm colorMode: first modeSymbol].
 	self treemapCoverageStatus: 'Coverage (', ds name, '): ', data coveredMethodCount printString,
-		' methods, ', data testNames size printString, ' tests'.
+		' methods, ', data testNames size printString, ' tests',
+		(data hasInvocationData ifTrue: [' (+call counts)'] ifFalse: ['']).
 	self refresh
 ]
 
@@ -795,19 +796,22 @@ SWANavPanel >> loadDuplicationJson: json [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:18'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:12'
 }
 SWANavPanel >> loadDuplicationJson: json name: aName [
 	"Overlay an already-parsed SWADuplicationData JSON object as a retained, named
-	SWADataset, selecting it as the active color mode. Purely a dataset -- does NOT
-	touch the legacy #loadDuplicationData: (dupScores) overlay, so two loaded
-	duplication sets stay independent and switchable."
-	| data tm ds |
+	SWADataset. Applies the dataset's fitting DEFAULTS across aspects: its color
+	metric drives tint AND its links metric drives decorations (the clone lines).
+	Purely a dataset -- does NOT touch the legacy dupScores overlay."
+	| data tm ds colorMetric linkMetric |
 	tm := self treemap.
 	data := SWADuplicationData new.
 	data loadFromJson: json.
 	ds := tm addDataset: (SWADataset duplicationFrom: data named: aName).
-	tm colorMode: ds modeSymbol.
+	colorMetric := ds metrics detect: [:m | m supportsColor] ifNone: [nil].
+	colorMetric ifNotNil: [tm colorMode: colorMetric modeSymbol].
+	linkMetric := ds metrics detect: [:m | m supportsLinks] ifNone: [nil].
+	linkMetric ifNotNil: [tm decorationMetric: linkMetric].
 	self treemapCoverageStatus: 'Duplication (', ds name, '): ', data matchedMethodCount printString,
 		' methods with near-duplicates of ', data methodNames size printString, ' analysed'.
 	self refresh
@@ -965,6 +969,17 @@ SWANavPanel >> popUpColorMenu [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:17'
+}
+SWANavPanel >> popUpDecorationMenu [
+	"Header 'Links' button: pop up the same Links (decoration) menu the right-click
+	context menu uses (shared #decorationMenuMorph on the overlay)."
+	self treemapOverlay ifNotNil: [:o |
+		(o respondsTo: #popUpDecorationMenu) ifTrue: [o popUpDecorationMenu]]
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
 }
@@ -1087,16 +1102,16 @@ SWANavPanel >> selectionPathContents [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:18'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
-	Show + optional Size/Color + optional X-ref/Clear + optional coverage controls +
-	optional Depth), then a breadcrumb line carrying the fullscreen toggle at its
-	right, then the selection-path line, a generic RUN-info line, a SELECTION-info
-	line, then the view. The button bar wraps onto additional rows when the window is
-	too narrow to fit every button, so nothing overflows off-screen. The source pane
-	is created lazily by #toggleSource."
+	Show + optional Size/Color/Links + optional X-ref/Clear + optional coverage
+	controls + optional Depth), then a breadcrumb line carrying the fullscreen toggle
+	at its right, then the selection-path line, a generic RUN-info line, a
+	SELECTION-info line, then the view. The button bar wraps onto additional rows when
+	the window is too narrow to fit every button. The source pane is created lazily by
+	#toggleSource."
 	| crumbFont detailFont metaFont backButton browseButton showButton crumbRow |
 	view := aViewMorph.
 	crumbFont := TextStyle default fontOfPointSize: 12.
@@ -1142,22 +1157,24 @@ SWANavPanel >> setView: aViewMorph [
 		yourself.
 	headerRow addMorphBack: backButton; addMorphBack: browseButton;
 		addMorphBack: showButton.
-	"Size / Color menu buttons -- same menus as the right-click context menu (shared
-	#sizeMenuMorph/#colorMenuMorph on the overlay). Always reachable from the header,
-	even when a size metric collapses the layout to an empty canvas where the
-	tile-based right-click menu would be unreachable."
+	"Size / Color / Links menu buttons -- same menus as the right-click context menu
+	(shared #sizeMenuMorph / #colorMenuMorph / #decorationMenuMorph on the overlay).
+	Always reachable from the header, even when a size metric collapses the layout to
+	an empty canvas where the tile-based right-click menu would be unreachable."
 	(view respondsTo: #overlayMorph) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu).
-		headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu)].
+		headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu).
+		"Links (decoration axis): only for views carrying a decoration binding (Code Map)."
+		(view respondsTo: #decorationMetric) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
 	"Cross-reference controls, only for cross-referenceable treemap views."
 	(view respondsTo: #keyIndex) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'X-ref' action: #crossReference).
 		headerRow addMorphBack: (self buttonLabelled: 'Clear' action: #clearCrossReference)].
-	"Code Map data controls. Test coverage and duplication are now picked from the
-	COLOR menu (they acquire their data lazily on first pick), so there is no 'Cover'
-	button. Tally STAYS a button: it is an interactive 2-press toggle (instrument,
-	then collect). Export saves the current coverage to reusable JSON; Load reads any
-	coverage- or duplication-JSON back (dispatched by its #format)."
+	"Code Map data controls. Test coverage and duplication are picked from the COLOR
+	menu (they acquire their data lazily on first pick). Tally STAYS a button: an
+	interactive 2-press toggle. Export saves the current coverage to reusable JSON;
+	Load reads any coverage- or duplication-JSON back (dispatched by its #format)."
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
 		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
 		headerRow addMorphBack: tallyButton.

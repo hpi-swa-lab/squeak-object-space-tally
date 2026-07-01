@@ -20,7 +20,8 @@ Class {
 		'kind',
 		'modeSymbol',
 		'source',
-		'scale'
+		'scale',
+		'metrics'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -54,26 +55,27 @@ SWADataset class >> duplicationFrom: aSWADuplicationData named: aString [
 ]
 
 {
-	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
 }
-SWADataset >> capabilities [
-	"Which treemap axes this dataset can drive. First pass: color only. Size/detail/
-	decoration come as the layered-datasets refactor absorbs the legacy overlays."
-	^ #(#color)
-]
-
-{
-	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
-}
-SWADataset >> colorForNode: aNode [
-	"The tile tint for aNode: the raw value run through the #scale. When this dataset
-	has no value for aNode, answer nil so the caller can fall back to a neutral base."
-	| v |
-	v := self valueForNode: aNode.
-	v ifNil: [^ nil].
-	^ self scale value: v
+SWADataset >> buildMetrics [
+	"Construct this dataset's metrics (see #metrics for the cached accessor)."
+	| ms |
+	ms := OrderedCollection new.
+	kind == #coverage ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #coverage; label: 'By coverage';
+			axes: #(#color #size); rollup: #sum; yourself).
+		(source respondsTo: #hasInvocationData) ifTrue: [
+			source hasInvocationData ifTrue: [
+				ms add: (SWADatasetMetric new
+					dataset: self; id: #call; label: 'By call';
+					axes: #(#color #size); rollup: #sum; yourself)]]].
+	kind == #duplication ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #duplication; label: 'By duplication';
+			axes: #(#color #links); rollup: #max; yourself)].
+	^ ms
 ]
 
 {
@@ -136,6 +138,21 @@ SWADataset >> kind: aSymbol [
 ]
 
 {
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:55'
+}
+SWADataset >> metrics [
+	"The axis-bindable metrics this dataset exposes (SWADatasetMetric), BUILT ONCE and
+	cached so the minted mode symbols (set by SWACodeTreemapMorph>>addDataset:) stick
+	to the same instances every query returns.
+
+	A single loaded file yields SEVERAL: a coverage file gives 'By coverage'
+	(covering-test count) always, plus 'By call' (invocation count) WHEN the file
+	carries invocation data; a duplication file gives 'By duplication'."
+	^ metrics ifNil: [metrics := self buildMetrics]
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
 }
@@ -181,41 +198,6 @@ SWADataset >> printOn: aStream [
 ]
 
 {
-	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
-}
-SWADataset >> rollupMaxForNode: aNode [
-	"Aggregate value for a container node (no crossRefKey): the max value among its
-	descendants, so a class/category lights up when it contains a hot method. Nil
-	if nothing below has a value."
-	| best |
-	best := nil.
-	aNode children do: [:c |
-		| v |
-		v := self valueForNode: c.
-		v ifNotNil: [best := best isNil ifTrue: [v] ifFalse: [best max: v]]].
-	^ best
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
-}
-SWADataset >> scale [
-	"A valuable (raw value -> Color). Lazily the kind-specific default."
-	^ scale ifNil: [scale := self defaultScale]
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
-}
-SWADataset >> scale: aValuable [
-	"Override the kind-specific default scale (raw value -> Color)."
-	scale := aValuable
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
 }
@@ -230,29 +212,4 @@ SWADataset >> source [
 }
 SWADataset >> source: anObject [
 	source := anObject
-]
-
-{
-	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
-}
-SWADataset >> valueForNode: aNode [
-	"Raw domain value for aNode, or nil if this dataset says nothing about it.
-	Keyed by the node's crossRefKey (the cross-view identity); nodes with no key
-	(packages/categories) get a rolled-up value from their children so containers
-	still light up. The number->Color mapping is the #scale's job, not ours -- this
-	keeps the value rebindable (color axis today, size axis later)."
-	| key |
-	kind == #coverage ifTrue: [
-		key := aNode crossRefKey.
-		key ifNotNil: [^ source coveringTestCountFor: key].
-		^ self rollupMaxForNode: aNode].
-	kind == #duplication ifTrue: [
-		key := aNode crossRefKey.
-		key ifNotNil: [
-			| ms |
-			ms := source matchesForKey: key.
-			^ (ms isNil or: [ms isEmpty]) ifTrue: [0.0] ifFalse: [ms first key]].
-		^ self rollupMaxForNode: aNode].
-	^ nil
 ]
