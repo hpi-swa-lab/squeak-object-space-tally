@@ -575,6 +575,18 @@ SWANavPanel >> cycleLeafKind [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:13'
+}
+SWANavPanel >> datasetNameFor: aPath [
+	"A short display name for a dataset loaded from aPath: the file's base name."
+	| segs |
+	aPath ifNil: [^ 'loaded'].
+	segs := (aPath asString copyReplaceAll: '\' with: '/') findTokens: '/'.
+	^ segs isEmpty ifTrue: [aPath asString] ifFalse: [segs last]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:59'
 }
@@ -710,7 +722,7 @@ SWANavPanel >> importCoverage [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:53'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
 SWANavPanel >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
@@ -719,7 +731,10 @@ SWANavPanel >> importData [
 	  'SWACoverageData/1'    -> coverage overlay (green covered + blue tests)
 	  'SWADuplicationData/1' -> duplication overlay (#duplication color mode)
 	Both are image-independent ('Class>>selector'-keyed) and may be generated
-	offline (SWACoverage / SWADuplicationData generatePackages:toFile:)."
+	offline (SWACoverage / SWADuplicationData generatePackages:toFile:).
+
+	Every load is ALSO retained as a named SWADataset (see #loadCoverageJson:name:),
+	so loading twice gives two coexisting, switchable Color-menu entries."
 	| tm path contents json format |
 	tm := self treemap.
 	(tm isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
@@ -730,44 +745,70 @@ SWANavPanel >> importData [
 		on: Error do: [:e | ^ self treemapCoverageStatus: 'Load failed: ', e messageText].
 	format := (json at: 'format' ifAbsent: ['']) asString.
 	(format beginsWith: 'SWADuplicationData')
-		ifTrue: [^ self loadDuplicationJson: json].
+		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: path)].
 	"Default / 'SWACoverageData...' / legacy files with no marker -> coverage."
-	self loadCoverageJson: json
+	self loadCoverageJson: json name: (self datasetNameFor: path)
 ]
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
 SWANavPanel >> loadCoverageJson: json [
-	"Overlay an already-parsed SWACoverageData JSON object (see #importData), and
-	note #coverage as the active color mode so the Color menu reflects it."
-	| data tm |
+	"Legacy entry: overlay coverage without a dataset name (keeps old callers working)."
+	^ self loadCoverageJson: json name: 'coverage'
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:17'
+}
+SWANavPanel >> loadCoverageJson: json name: aName [
+	"Overlay an already-parsed SWACoverageData JSON object (see #importData) as a
+	retained, named SWADataset so it stays selectable in the Color menu. Loading
+	coverage twice yields two distinct datasets (#coverage_1, #coverage_2) you can
+	switch between instantly, with no reload. Selects the new dataset as the active
+	color mode.
+
+	Deliberately does NOT touch the legacy single-ivar coverage overlay
+	(#showCoverageData:) -- that clobbers on every load and can only hold ONE
+	coverage, which is exactly what the dataset layer replaces here."
+	| data tm ds |
 	data := SWACoverageData new.
 	data loadFromJson: json.
 	tm := self treemap.
-	tm showCoverageData: data.
-	(tm respondsTo: #noteColorMode:) ifTrue: [tm noteColorMode: #coverage].
-	self treemapCoverageStatus: 'Coverage (loaded): ', data coveredMethodCount printString,
+	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
+	tm colorMode: ds modeSymbol.
+	self treemapCoverageStatus: 'Coverage (', ds name, '): ', data coveredMethodCount printString,
 		' methods, ', data testNames size printString, ' tests'.
 	self refresh
 ]
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:54'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
 SWANavPanel >> loadDuplicationJson: json [
-	"Overlay an already-parsed SWADuplicationData JSON object (see #importData),
-	switching the treemap into #duplication color mode so the loaded scores show
-	immediately, without recomputing."
-	| data tm |
+	"Legacy entry: overlay duplication without a dataset name."
+	^ self loadDuplicationJson: json name: 'duplication'
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:18'
+}
+SWANavPanel >> loadDuplicationJson: json name: aName [
+	"Overlay an already-parsed SWADuplicationData JSON object as a retained, named
+	SWADataset, selecting it as the active color mode. Purely a dataset -- does NOT
+	touch the legacy #loadDuplicationData: (dupScores) overlay, so two loaded
+	duplication sets stay independent and switchable."
+	| data tm ds |
 	tm := self treemap.
 	data := SWADuplicationData new.
 	data loadFromJson: json.
-	tm loadDuplicationData: data.
-	tm colorMode: #duplication.
-	self treemapCoverageStatus: 'Duplication (loaded): ', data matchedMethodCount printString,
+	ds := tm addDataset: (SWADataset duplicationFrom: data named: aName).
+	tm colorMode: ds modeSymbol.
+	self treemapCoverageStatus: 'Duplication (', ds name, '): ', data matchedMethodCount printString,
 		' methods with near-duplicates of ', data methodNames size printString, ' analysed'.
 	self refresh
 ]

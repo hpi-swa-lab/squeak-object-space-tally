@@ -67,18 +67,19 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:23'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	"Color (base-tint) modes for the Code Map. Most are intrinsic (kind, LOC,
-	duplication, ...). The two DATA-DRIVEN entries -- test coverage and invocation
-	tally -- acquire their data lazily when picked: choosing 'By test coverage' with
-	no coverage loaded runs the shown packages' related tests (forked, Stop-able);
-	'By invocation tally' colors by whatever invocation data is present (drive the
-	live counting from the interactive Tally button). Once loaded, picking them just
-	recolors -- and they coexist with each other and with duplication, so you can
-	flip between overlays without re-acquiring."
-	^ #(
+	duplication, ...). The two DATA-DRIVEN legacy entries -- test coverage and
+	invocation tally -- acquire their data lazily when picked.
+
+	APPENDED after the intrinsics: one entry per RETAINED dataset (SWADataset) loaded
+	into the map, each carrying its own minted symbol (#coverage_1, #coverage_2, ...)
+	and its display name. This is what lets you load coverage twice and switch between
+	the two instantly, with no reload -- the additive layered-datasets layer."
+	| base tm |
+	base := #(
 		(#codeKind         'By kind (package/class/category/method)')
 		(#byteComposition  'By byte composition (doc/string/code bar)')
 		(#loc              'By LOC (heat)')
@@ -89,7 +90,14 @@ SWACodeTreemapOverlay >> colorModeOptions [
 		(#duplication      'By duplication (Jaccard clone heat)')
 		(#coverage         'By test coverage (green covered + blue tests)')
 		(#tally            'By invocation tally (call-count heat)')
-	)
+	) asOrderedCollection.
+	tm := self treemapMorph.
+	(tm respondsTo: #datasets) ifTrue: [
+		tm datasets do: [:ds |
+			base add: (Array
+				with: ds modeSymbol
+				with: 'Dataset: ', ds name)]].
+	^ base
 ]
 
 {

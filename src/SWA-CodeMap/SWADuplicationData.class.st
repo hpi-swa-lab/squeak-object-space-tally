@@ -311,6 +311,20 @@ SWADuplicationData >> matchesByKeyDo: aBlock [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
+}
+SWADuplicationData >> matchesForKey: aCrossRefKey [
+	"Answer the recorded matches for a method crossRefKey as an Array of
+	(scoreFloat -> partnerCrossRefKey) associations, best-first, or an empty Array
+	if none. Non-mutating (unlike #methodIdFor:)."
+	| id ms |
+	id := methodIds at: aCrossRefKey ifAbsent: [^ #()].
+	ms := matches at: id ifAbsent: [^ #()].
+	^ ms collect: [:assoc | assoc key -> (methodNames at: assoc value)]
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:39'
 }

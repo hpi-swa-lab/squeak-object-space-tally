@@ -9,7 +9,9 @@ Class {
 		'dupScores',
 		'dupSimilarity',
 		'dupMinLoc',
-		'dupLoaded'
+		'dupLoaded',
+		'datasets',
+		'datasetsByMode'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -25,6 +27,25 @@ SWACodeTreemapMorph >> aboutToStyle: aStyler [
 	Otherwise behave exactly like the superclass."
 	self dupDiffTarget notNil ifTrue: [^ false].
 	^ super aboutToStyle: aStyler
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+}
+SWACodeTreemapMorph >> addDataset: aSWADataset [
+	"Retain a named dataset and mint it a UNIQUE Color-menu symbol (e.g. #coverage_1,
+	#coverage_2, ...) so loading the same kind twice yields two DISTINCT, coexisting
+	menu entries you can switch between with no reload. Answers the dataset (now
+	carrying its modeSymbol). Does NOT change the current color mode -- the caller
+	decides whether to select it."
+	| n sym |
+	n := (self datasets count: [:d | d kind == aSWADataset kind]) + 1.
+	sym := (aSWADataset kind, '_', n printString) asSymbol.
+	aSWADataset modeSymbol: sym.
+	self datasets addLast: aSWADataset.
+	self datasetsByMode at: sym put: aSWADataset.
+	^ aSWADataset
 ]
 
 {
@@ -53,10 +74,15 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
 SWACodeTreemapMorph >> baseColorForNode: aNode [
-	"Dispatch on the active color mode."
+	"Dispatch on the active color mode. A minted dataset symbol (#coverage_1, ...)
+	defers to its retained SWADataset (the additive layered-datasets layer); when
+	the dataset has no value for a node, fall back to a neutral base. All the
+	intrinsic modes below are the untouched legacy path."
+	(self datasetForMode: colorMode) ifNotNil: [:ds |
+		^ (ds colorForNode: aNode) ifNil: [Color gray: 0.22]].
 	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
 	colorMode == #avgloc ifTrue: [^ self colorByAvgLoc: aNode].
 	colorMode == #versions ifTrue: [^ self colorByVersions: aNode].
@@ -424,6 +450,37 @@ SWACodeTreemapMorph >> coverageStatus: aStringOrNil [
 	"Set the coverage status line and refresh the chrome/meta line."
 	coverageStatus := aStringOrNil.
 	navPanel ifNotNil: [navPanel refresh]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+}
+SWACodeTreemapMorph >> datasetForMode: aSymbol [
+	"The dataset a minted color-mode symbol refers to, or nil if aSymbol is a legacy
+	intrinsic mode (#loc, #duplication, ...)."
+	^ self datasetsByMode at: aSymbol ifAbsent: [nil]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+}
+SWACodeTreemapMorph >> datasets [
+	"The retained, named analysis overlays loaded into this map (SWADataset), in load
+	order. Part of the additive layered-datasets layer -- legacy colorMode overlays
+	are unaffected. Lazily initialized."
+	^ datasets ifNil: [datasets := OrderedCollection new]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+}
+SWACodeTreemapMorph >> datasetsByMode [
+	"Map of minted Color-menu symbol (e.g. #coverage_1) -> SWADataset. Lets the
+	symbol-based colorMode machinery dispatch to a retained dataset."
+	^ datasetsByMode ifNil: [datasetsByMode := Dictionary new]
 ]
 
 {
@@ -1083,6 +1140,18 @@ SWACodeTreemapMorph >> provenanceListTitle [
 			ifTrue: ['No near-duplicates']
 			ifFalse: [n printString, ' near-duplicate', (n = 1 ifTrue: [''] ifFalse: ['s'])]].
 	^ super provenanceListTitle
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+}
+SWACodeTreemapMorph >> removeDataset: aSWADataset [
+	"Unload a dataset. If it was the active color mode, fall back to #codeKind."
+	self datasets remove: aSWADataset ifAbsent: [].
+	aSWADataset modeSymbol ifNotNil: [:sym |
+		self datasetsByMode removeKey: sym ifAbsent: [].
+		colorMode == sym ifTrue: [self colorMode: #codeKind]]
 ]
 
 {

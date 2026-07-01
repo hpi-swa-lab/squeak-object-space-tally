@@ -83,7 +83,7 @@ SWAView >> clearTestFilters [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:00'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:17'
 }
 SWAView >> colorForNode: aNode [
 	"Subclass's #baseColorForNode: with any active highlight on top. A tile lights
@@ -98,8 +98,16 @@ SWAView >> colorForNode: aNode [
 	methods bright; selecting a method keeps only that method bright.
 	Under a loaded coverage overlay, AGGREGATE (non-leaf) tiles get a neutral GRAY
 	base -- the proportional green/red/blue/gray bar (#drawTileContent:in:on:) is
-	painted on top, so the base only shows if drawing the bar is skipped."
+	painted on top, so the base only shows if drawing the bar is skipped.
+
+	LAYERED-DATASETS: when the active color mode is a retained SWADataset (a minted
+	#coverage_N / #duplication_N symbol), that dataset OWNS the tile tint outright --
+	we bypass the legacy single-ivar coverage/highlight compositing entirely, so
+	switching between two loaded datasets recolors instantly and independently."
 	| base w red |
+	(self respondsTo: #datasetForMode:) ifTrue: [
+		(self datasetForMode: self colorMode) ifNotNil: [:ds |
+			^ (ds colorForNode: aNode) ifNil: [Color gray: 0.22]]].
 	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
 	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey]) ifTrue: [
 		red := Color h: 0.0 s: 0.8 v: 0.85.
