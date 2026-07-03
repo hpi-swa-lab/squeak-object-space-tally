@@ -412,13 +412,14 @@ SWAStSpyFlamegraphMorph >> metaInfoString [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
 }
 SWAStSpyFlamegraphMorph >> mouseDown: evt [
 	"Left-click a frame: select it (highlight + detail line + source). Click the
 	SAME frame again: zoom into it. Click the collapsed ancestor strip at the top:
 	zoom out one level. Right-click: explore the node."
 	| f node |
+	self takeKeyboardFocusFrom: evt.   "so Ctrl+F reaches this view"
 	f := self frameAt: evt position.
 	f isNil ifTrue: [^ self].
 	node := f at: 1.

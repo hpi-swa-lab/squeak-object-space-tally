@@ -55,7 +55,8 @@ Class {
 		'coveringTestsColumn',
 		'coveringTestsWidth',
 		'structureViews',
-		'activeStructureKey'
+		'activeStructureKey',
+		'searchField'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -699,6 +700,18 @@ SWANavPanel >> exportCoverage [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
+}
+SWANavPanel >> focusSearchField: evt [
+	"Give the header search field keyboard focus (Ctrl+F). Selects any existing text so
+	the user can type over it immediately."
+	searchField ifNil: [^ self].
+	evt hand newKeyboardFocus: searchField.
+	searchField selectAll
+]
+
+{
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
 }
@@ -1026,6 +1039,39 @@ SWANavPanel >> newDetailsPane [
 
 {
 	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
+}
+SWANavPanel >> newSearchField [
+	"A fixed-size single-line text field for the header bar, WHITE so it reads as an
+	editable field, sized to the same height as the header buttons, with a little
+	top-left padding so the text isn't jammed against the corner. Typing filters the
+	view's entity names live (see #runSearch:).
+
+	Sizing a TextMorph is fiddly: while it is auto-fit it sizes to its CONTENT and
+	ignores #extent:. So we FIRST make it rigid (isAutoFit -> false), THEN
+	#contents:wrappedTo: to establish the wrap width and turn wrapping on, and only
+	then can #extent: pin the exact box. The height is taken from a sample button so
+	it always matches the current button chrome."
+	| field w h |
+	w := 260.
+	h := (self buttonLabelled: 'Ag' action: #yourself) height.
+	field := SWASearchFieldMorph new
+		panel: self;
+		backgroundColor: Color white;
+		textColor: Color black;
+		hResizing: #rigid; vResizing: #rigid;
+		yourself.
+	field contents: '' wrappedTo: w.
+	field extent: w @ h.
+	"Top-left text padding (left@top right@bottom)."
+	field margins: (6 @ 4 corner: 4 @ 4).
+	field setBalloonText: 'Filter entities by name (Esc clears)'.
+	searchField := field.
+	^ field
+]
+
+{
+	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
 SWANavPanel >> newSourceMorph [
@@ -1232,6 +1278,19 @@ SWANavPanel >> runInfoContents [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:05'
+}
+SWANavPanel >> runSearch: aString [
+	"Live name-filter driven by the header search field: dim every tile whose entity
+	name doesn't contain aString (case-insensitive), keeping matches and their
+	ancestors bright. Empty string clears the filter. Delegates to the view, which owns
+	the match computation and redraw (see SWAView>>searchFor:)."
+	view ifNil: [^ self].
+	(view respondsTo: #searchFor:) ifTrue: [view searchFor: aString]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -1303,15 +1362,19 @@ SWANavPanel >> setStructureMode: aKey [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:56'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:06'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
 	Deselect/Show + optional Data/Tree/Size/Color/Links + optional coverage controls +
-	optional Depth), then a breadcrumb line carrying the fullscreen toggle at its
-	right, then the selection-path line, a generic RUN-info line, a SELECTION-info
-	line, then the view. The button bar wraps onto additional rows when the window is
-	too narrow to fit every button. The source pane is created lazily by #toggleSource.
+	optional Depth + a name-SEARCH field), then a breadcrumb line carrying the
+	fullscreen toggle at its right, then the selection-path line, a generic RUN-info
+	line, a SELECTION-info line, then the view. The button bar wraps onto additional
+	rows when the window is too narrow to fit every button. The source pane is created
+	lazily by #toggleSource.
+
+	The search field filters the view's entity NAMES live: typing dims every
+	non-matching tile (see #runSearch: / SWAView>>searchFor:), Esc clears it.
 
 	Cross-referencing another open view is no longer a dedicated X-ref/Clear button
 	pair: open peers appear as entries in the Data menu (pick one to color by it, pick
@@ -1381,6 +1444,9 @@ SWANavPanel >> setView: aViewMorph [
 		headerRow addMorphBack: (self buttonLabelled: 'Load' action: #importData).
 		self updateTallyButton].
 	depthButton ifNotNil: [headerRow addMorphBack: depthButton].
+	"Live name-search: dims tiles whose entity name doesn't match what you type."
+	(view respondsTo: #searchFor:) ifTrue: [
+		headerRow addMorphBack: self newSearchField].
 
 	crumbRow := Morph new
 		color: (Color gray: 0.15);

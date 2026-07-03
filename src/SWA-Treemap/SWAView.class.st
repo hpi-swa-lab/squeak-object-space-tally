@@ -38,7 +38,9 @@ Class {
 		'metricsByMode',
 		'sizeMetric',
 		'decorationMetric',
-		'activeDataset'
+		'activeDataset',
+		'searchQuery',
+		'searchMatchSet'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -160,48 +162,18 @@ SWAView >> clearTestFilters [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 12:51'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:04'
 }
 SWAView >> colorForNode: aNode [
-	"Tile color. LAYERED-DATASETS: when the active color mode is a dataset METRIC, that
-	metric owns the BASE tint. But a COVERAGE-provenance metric ALSO keeps the special
-	behavior: executed tests / TestCase classes are tinted BLUE, and when a selection
-	filter is active (select a test -> its covered methods; select a covered method ->
-	its covering tests) non-matching tiles DIM. So we layer blue + filter-dim on top of
-	the metric's color.
-
-	Without a metric active, this falls back to the legacy provenance/highlight
-	compositing (blue tests, red eviction, gray aggregate base, cross-ref heat).
-
-	Metric dispatch needs BOTH #metricForMode: and a switchable #colorMode (a view
-	without a colorMode -- e.g. the flamegraph -- colors intrinsically and can't be a
-	metric color TARGET, so it skips straight to its own baseColorForNode:)."
-	| metric base w red |
-	((self respondsTo: #metricForMode:) and: [self respondsTo: #colorMode]) ifTrue: [
-		metric := self metricForMode: self colorMode].
-	metric ifNotNil: [
-		"Blue tint for executed test / TestCase tiles (needs provenance wired up)."
-		(metric isCoverageProvenance and: [self isTestKey: aNode crossRefKey])
-			ifTrue: [^ self testColorForNode: aNode].
-		"Base tint from the metric; dim it if an active provenance filter excludes it."
-		base := (metric colorForNode: aNode) ifNil: [Color gray: 0.22].
-		(metric isCoverageProvenance and: [aNode isLeaf and: [self isFilteredOut: aNode]])
-			ifTrue: [^ base alphaMixed: 0.25 with: (Color gray: 0.12)].
-		^ base].
-	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
-	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey]) ifTrue: [
-		red := Color h: 0.0 s: 0.8 v: 0.85.
-		^ (self isFilteredOut: aNode)
-			ifTrue: [red alphaMixed: 0.25 with: (Color gray: 0.12)]
-			ifFalse: [red]].
-	(coverageData notNil and: [aNode children notEmpty])
-		ifTrue: [^ Color gray: 0.25].   "aggregate base under coverage overlay; bar drawn on top"
-	highlightWeights ifNil: [^ self baseColorForNode: aNode].
-	base := self baseColorForNode: aNode.
-	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
-	(w notNil and: [aNode isLeaf and: [self isFilteredOut: aNode]]) ifTrue: [w := nil].
-	w ifNil: [^ (base alphaMixed: 0.25 with: (Color gray: 0.12))].
-	^ self highlightColorForWeight: w base: base
+	"Tile color, with the name-SEARCH overlay applied last: compute the intrinsic color
+	(metric / coverage / highlight compositing -- see #intrinsicColorForNode:) then, if
+	a name-search is running and aNode is neither a match nor an ancestor of one, DIM it
+	toward near-black so the matching tiles (and the path down to them) stand out."
+	| base |
+	base := self intrinsicColorForNode: aNode.
+	(self isSearchDimmed: aNode)
+		ifTrue: [^ base alphaMixed: 0.16 with: (Color gray: 0.1)].
+	^ base
 ]
 
 {
@@ -425,6 +397,17 @@ SWAView >> filterToTestKey: aTestOrClassKey [
 ]
 
 {
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
+}
+SWAView >> handlesKeyboard: evt [
+	"Accept keystrokes so the Ctrl+F search shortcut works while the map has focus
+	(the view grabs keyboard focus on mouseDown -- see #mouseDown: in subclasses /
+	#takeKeyboardFocusFrom:)."
+	^ true
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
@@ -507,6 +490,53 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 ]
 
 {
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
+}
+SWAView >> intrinsicColorForNode: aNode [
+	"Tile color IGNORING the name-search overlay (see #colorForNode:, which dims this
+	result for nodes filtered out by an active search). LAYERED-DATASETS: when the
+	active color mode is a dataset METRIC, that metric owns the BASE tint. But a
+	COVERAGE-provenance metric ALSO keeps the special behavior: executed tests /
+	TestCase classes are tinted BLUE, and when a selection filter is active (select a
+	test -> its covered methods; select a covered method -> its covering tests)
+	non-matching tiles DIM. So we layer blue + filter-dim on top of the metric's color.
+
+	Without a metric active, this falls back to the legacy provenance/highlight
+	compositing (blue tests, red eviction, gray aggregate base, cross-ref heat).
+
+	Metric dispatch needs BOTH #metricForMode: and a switchable #colorMode (a view
+	without a colorMode -- e.g. the flamegraph -- colors intrinsically and can't be a
+	metric color TARGET, so it skips straight to its own baseColorForNode:)."
+	| metric base w red |
+	((self respondsTo: #metricForMode:) and: [self respondsTo: #colorMode]) ifTrue: [
+		metric := self metricForMode: self colorMode].
+	metric ifNotNil: [
+		"Blue tint for executed test / TestCase tiles (needs provenance wired up)."
+		(metric isCoverageProvenance and: [self isTestKey: aNode crossRefKey])
+			ifTrue: [^ self testColorForNode: aNode].
+		"Base tint from the metric; dim it if an active provenance filter excludes it."
+		base := (metric colorForNode: aNode) ifNil: [Color gray: 0.22].
+		(metric isCoverageProvenance and: [aNode isLeaf and: [self isFilteredOut: aNode]])
+			ifTrue: [^ base alphaMixed: 0.25 with: (Color gray: 0.12)].
+		^ base].
+	(self isTestKey: aNode crossRefKey) ifTrue: [^ self testColorForNode: aNode].
+	(coverageData notNil and: [coverageData isEvicted: aNode crossRefKey]) ifTrue: [
+		red := Color h: 0.0 s: 0.8 v: 0.85.
+		^ (self isFilteredOut: aNode)
+			ifTrue: [red alphaMixed: 0.25 with: (Color gray: 0.12)]
+			ifFalse: [red]].
+	(coverageData notNil and: [aNode children notEmpty])
+		ifTrue: [^ Color gray: 0.25].   "aggregate base under coverage overlay; bar drawn on top"
+	highlightWeights ifNil: [^ self baseColorForNode: aNode].
+	base := self baseColorForNode: aNode.
+	w := effectiveWeights ifNil: [nil] ifNotNil: [effectiveWeights at: aNode ifAbsent: [nil]].
+	(w notNil and: [aNode isLeaf and: [self isFilteredOut: aNode]]) ifTrue: [w := nil].
+	w ifNil: [^ (base alphaMixed: 0.25 with: (Color gray: 0.12))].
+	^ self highlightColorForWeight: w base: base
+]
+
+{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
 }
@@ -535,6 +565,18 @@ SWAView >> isFilteredOut: aNode [
 ]
 
 {
+	#category : #search,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
+}
+SWAView >> isSearchDimmed: aNode [
+	"True when a name-search is active and aNode is neither a match nor an ancestor of
+	a match, so its tile should be dimmed out. Answers false when no search is running
+	(the common case), so callers can guard cheaply."
+	searchQuery ifNil: [^ false].
+	^ (searchMatchSet notNil and: [searchMatchSet includes: aNode]) not
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
 }
@@ -554,6 +596,24 @@ SWAView >> keyIndex [
 	first access if missing). Lets other panels cross-reference us in O(1)."
 	keyIndex ifNil: [self rebuildKeyIndex].
 	^ keyIndex
+]
+
+{
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
+}
+SWAView >> keyStroke: evt [
+	"Ctrl+F (Cmd+F on Mac) focuses the header search field; everything else is ignored
+	(the map has no other typed input). Ctrl+F may arrive either as the letter $f with
+	the control/command modifier set, or -- on some platforms -- as control-code 6."
+	| isFindKey |
+	isFindKey := (evt keyValue = 6)
+		or: [(evt commandKeyPressed or: [evt controlKeyPressed])
+			and: [evt keyCharacter asLowercase = $f]].
+	isFindKey ifTrue: [
+		navPanel ifNotNil: [navPanel focusSearchField: evt].
+		^ self].
+	^ super keyStroke: evt
 ]
 
 {
@@ -689,11 +749,60 @@ SWAView >> rebuildKeyIndex [
 ]
 
 {
+	#category : #search,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
+}
+SWAView >> rebuildSearchMatches [
+	"Build the IdentitySet of nodes to keep BRIGHT for the current searchQuery: every
+	node whose #name contains the query (case-insensitive), plus all of that node's
+	ancestors up to the root, so a container tile stays lit when anything inside it
+	matches and the path down to a leaf hit is never dimmed."
+	searchMatchSet := IdentitySet new.
+	(searchQuery isNil or: [rootNode isNil]) ifTrue: [^ searchMatchSet].
+	rootNode withAllChildrenDo: [:n | | nm |
+		nm := n name ifNil: [''].
+		(nm asLowercase includesSubstring: searchQuery) ifTrue: [
+			| a |
+			a := n.
+			[a notNil and: [(searchMatchSet includes: a) not]] whileTrue: [
+				searchMatchSet add: a.
+				a := a parent]]].
+	^ searchMatchSet
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
 SWAView >> rootNode [
 	^ rootNode
+]
+
+{
+	#category : #search,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
+}
+SWAView >> searchFor: aStringOrNil [
+	"Set the name-search filter. A node MATCHES when aString (case-insensitive) is a
+	substring of its #name; matching nodes AND all their ancestors stay bright, every
+	other tile dims (see #searchMatches:). Empty/nil clears the filter. Recomputes the
+	kept-node set, flushes the render cache and redraws."
+	| q |
+	q := (aStringOrNil ifNil: ['']) asString withBlanksTrimmed.
+	q isEmpty
+		ifTrue: [searchQuery := nil. searchMatchSet := nil]
+		ifFalse: [searchQuery := q asLowercase. self rebuildSearchMatches].
+	self flushCache.
+	self changed
+]
+
+{
+	#category : #search,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
+}
+SWAView >> searchQuery [
+	"The active lowercase name-search string, or nil when no search is running."
+	^ searchQuery
 ]
 
 {
@@ -830,6 +939,16 @@ SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 	self highlightWeights: (useInvocations
 		ifTrue: [aCoverageData invocationMap]
 		ifFalse: [aCoverageData resultMap])
+]
+
+{
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
+}
+SWAView >> takeKeyboardFocusFrom: evt [
+	"Grab keyboard focus so the Ctrl+F search shortcut reaches this view. Called from
+	subclass #mouseDown: (clicking the map is a natural point to take focus)."
+	evt hand newKeyboardFocus: self
 ]
 
 {

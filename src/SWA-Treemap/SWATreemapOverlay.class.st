@@ -239,12 +239,13 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:43'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
 }
 SWATreemapOverlay >> mouseDown: evt [
 	"Left-click a tile: select it. Click the ALREADY-SELECTED tile again: zoom in.
 	 Right-click: context menu.  Shift+click: explore tally node."
 	| local hit |
+	treemapMorph takeKeyboardFocusFrom: evt.   "so Ctrl+F reaches the view"
 	local := evt position - self position.
 	hit := treemapMorph tileAtLocal: local.
 	hit ifNil: [^ self].
