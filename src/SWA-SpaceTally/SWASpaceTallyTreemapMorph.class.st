@@ -69,10 +69,15 @@ SWASpaceTallyTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:36'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
 }
 SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
-	"Dispatch to the active color strategy."
+	"Dispatch to the active color strategy. A minted dataset-metric symbol (e.g. a
+	cross-referenced peer, or a loaded dataset) defers to its SWADatasetMetric; when
+	the metric says nothing about aNode, fall back to a neutral base. Otherwise the
+	intrinsic strategies."
+	(self metricForMode: colorMode) ifNotNil: [:metric |
+		^ (metric colorForNode: aNode) ifNil: [Color gray: 0.22]].
 	self colorMode == #children ifTrue: [^ self colorByChildren: aNode].
 	self colorMode == #otherParents ifTrue: [^ self colorByOtherParents: aNode].
 	self colorMode == #type ifTrue: [^ self colorByType: aNode].
@@ -229,6 +234,15 @@ SWASpaceTallyTreemapMorph >> formatWeight: aNumber [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
+}
+SWASpaceTallyTreemapMorph >> intrinsicColorMode [
+	"The Space Tally's native default color mode."
+	^ #class
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 14:59'
 }
@@ -263,4 +277,14 @@ SWASpaceTallyTreemapMorph >> metaInfoString [
 	kids := focus children ifNil: [#()].
 	^ focus name, '   ', (focus formatBytes: focus totalSize),
 		'   ', kids size printString, ' children'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+}
+SWASpaceTallyTreemapMorph >> overlayClass [
+	"The event/menu overlay class this view uses -- a view-policy hook so the
+	SWANavPanel can (re)wire an overlay when morphing structures."
+	^ SWASpaceTallyTreemapOverlay
 ]

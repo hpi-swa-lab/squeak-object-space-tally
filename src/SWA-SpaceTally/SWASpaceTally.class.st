@@ -390,12 +390,66 @@ SWASpaceTally class >> formatBytes: anInteger [
 ]
 
 {
+	#category : #output,
+	#'squeak_changestamp' : 'MCPServer 7/2/2026 15:26'
+}
+SWASpaceTally class >> generateToFile: aFilePath [
+	"Convenience: walk the default roots and stream a compacted (1 KB byte cutoff)
+	JSON dataset to aFilePath. See #generateToFile:compact: to tune or disable the
+	compact step. Answers aFilePath.
+
+	Example:
+		SWASpaceTally generateToFile: 'tally.json'."
+	^ self generateToFile: aFilePath compact: 1024
+]
+
+{
+	#category : #output,
+	#'squeak_changestamp' : 'MCPServer 7/2/2026 15:26'
+}
+SWASpaceTally class >> generateToFile: aFilePath compact: compactThreshold [
+	"Walk the default roots, optionally prune tiny nodes, and stream the resulting
+	node tree to aFilePath as JSON. compactThreshold is a byte cutoff:
+	  positive -> prune subtrees under that many bytes (shrinks the dataset),
+	  0        -> compact marker only, full topology kept,
+	  nil      -> no compaction at all (raw walked tree).
+	Answers aFilePath.
+
+	Example:
+		SWASpaceTally generateToFile: 'tally.json' compact: 1024."
+	| tally |
+	tally := self walk.
+	compactThreshold ifNotNil: [tally compact: compactThreshold].
+	^ tally writeToFile: aFilePath
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:07'
 }
 SWASpaceTally class >> initialize [
 	(TheWorldMenu respondsTo: #registerOpenCommand:)
 		ifTrue: [TheWorldMenu registerOpenCommand: {'Space Tally'. {self. #open}}]
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 09:51'
+}
+SWASpaceTally class >> loadFromFile: aFilePath [
+	"Load a JSON dataset written by #writeToFile: / #generateToFile: back into a
+	SWASpaceTally wrapping the reconstructed node tree. The result is a static,
+	non-walkable tally suitable for opening a treemap/explorer or binding to a
+	Code Map -- it has no live objects, only the serialized structure and sizes.
+
+	Example:
+		(SWASpaceTally loadFromFile: 'tally.json') openTreemap."
+
+	| tally |
+	tally := self new.
+	tally rootNode: (SWASpaceTallyJsonReader readFrom: aFilePath).
+	tally runLabel: (FileDirectory localNameFor: aFilePath).
+	^ tally
 ]
 
 {
@@ -717,6 +771,18 @@ SWASpaceTally >> classInfoFor: aClass [
 			ifTrue: [instVarNames indexOf: 'array']
 			ifFalse: [0].
 		{ size. spec. isVar. isImm. isCompiled. instVarNames. byteSizeFixed. isWeak. storeIdx }]
+]
+
+{
+	#category : #output,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 10:39'
+}
+SWASpaceTally >> classSummary [
+	"Aggregate this tally's node tree into a per-class byte summary (the data
+	structure the Code Map's #spaceTally decorate dataset reads through)."
+
+	rootNode ifNil: [^ self error: 'no tree -- walk or load first'].
+	^ SWASpaceTallyClassSummary fromTree: rootNode
 ]
 
 {
@@ -1738,4 +1804,19 @@ SWASpaceTally >> walk [
 	self captureParamsSnapshot.
 	self clearWalkerState.
 	^ self
+]
+
+{
+	#category : #output,
+	#'squeak_changestamp' : 'MCPServer 7/2/2026 15:26'
+}
+SWASpaceTally >> writeToFile: aFilePath [
+	"Stream this tally's node tree to aFilePath as JSON (single pass, node ids +
+	otherParents id-refs). Serialize whatever tree you have built -- call #compact:
+	first if you want a pruned dataset. Answers aFilePath.
+
+	Example:
+		(SWASpaceTally walk compact: 1024) writeToFile: 'tally.json'."
+	rootNode ifNil: [^ self error: 'no tree to write -- walk first'].
+	^ SWASpaceTallyJsonWriter writeTree: rootNode to: aFilePath
 ]

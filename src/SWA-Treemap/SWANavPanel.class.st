@@ -53,7 +53,9 @@ Class {
 		'tallyButton',
 		'sourceSplitter',
 		'coveringTestsColumn',
-		'coveringTestsWidth'
+		'coveringTestsWidth',
+		'structureViews',
+		'activeStructureKey'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -368,6 +370,15 @@ SWANavPanel >> acquireTestCoverageThenColor [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+}
+SWANavPanel >> activeStructureKey [
+	"The structure symbol currently displayed (#intrinsic by default)."
+	^ activeStructureKey ifNil: [activeStructureKey := #intrinsic]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -445,16 +456,15 @@ SWANavPanel >> clearCoverage [
 ]
 
 {
-	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
-SWANavPanel >> clearCrossReference [
-	"Remove any cross-reference highlight from this view."
-	| mine |
-	mine := self treemap.
-	mine ifNil: [^ self].
-	mine clearCrossReference.
-	self refresh
+SWANavPanel >> codeMapView [
+	"The intrinsic Code Map view (holds the loaded datasets). It is the view first
+	wrapped by this panel; registered under #intrinsic on first structure access."
+	^ self structureViews at: #intrinsic ifAbsent: [
+		"Not yet registered: the current view IS the intrinsic one (nothing morphed)."
+		(view respondsTo: #datasets) ifTrue: [view] ifFalse: [nil]]
 ]
 
 {
@@ -521,38 +531,26 @@ SWANavPanel >> crossRefMenuLabel [
 ]
 
 {
-	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:56'
 }
-SWANavPanel >> crossReference [
-	"X-ref button: highlight this view's tiles that also appear in another open
-	panel, weighted (log heat ramp) by that panel's metric. With one peer, link
-	to it directly; with several, ask which. With none, beep."
-	| mine peers chosen |
-	mine := self treemap.
-	mine ifNil: [^ Beeper beep].
-	peers := self peerPanels.
-	peers isEmpty ifTrue: [^ self inform: 'No other treemap panel is open to cross-reference.'].
-	peers size = 1 ifTrue: [^ self crossReferenceWith: peers first].
-	"Several candidates: let the user pick by window label."
-	chosen := UIManager default
-		chooseFrom: (peers collect: [:p | p crossRefMenuLabel])
-		values: peers
-		title: 'Cross-reference against which panel?'.
-	chosen ifNotNil: [self crossReferenceWith: chosen]
-]
-
-{
-	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
-}
-SWANavPanel >> crossReferenceWith: aPeerPanel [
-	"Push aPeerPanel's key index onto our treemap as a highlight overlay."
-	| mine peer |
-	mine := self treemap.
-	peer := aPeerPanel treemap.
-	(mine isNil or: [peer isNil]) ifTrue: [^ Beeper beep].
-	mine crossReferenceFrom: peer.
+SWANavPanel >> crossReferenceAsDataset: aPeerPanel [
+	"Data-menu action for a peer entry: wrap the peer view as a #peer dataset (its
+	per-key weight becomes a color metric), retain + select it. This IS the old X-ref
+	behavior, now a normal, mix-and-matchable dataset. If this peer is already loaded
+	as a dataset, just re-select it rather than duplicating."
+	| tm peerView existing ds |
+	tm := self treemap.
+	peerView := aPeerPanel treemap.
+	(tm isNil or: [peerView isNil]) ifTrue: [^ Beeper beep].
+	existing := (tm respondsTo: #datasets)
+		ifTrue: [tm datasets detect: [:d | d kind == #peer and: [d source peerView == peerView]] ifNone: [nil]]
+		ifFalse: [nil].
+	ds := existing ifNil: [
+		tm addDataset: (SWADataset
+			peerFrom: (SWAPeerViewSource new peerView: peerView; yourself)
+			named: aPeerPanel crossRefMenuLabel)].
+	tm selectDataset: ds.
 	self refresh
 ]
 
@@ -574,6 +572,40 @@ SWANavPanel >> cycleLeafKind [
 	view leafKind: next.
 	self updateDepthLabel.
 	self refresh
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
+}
+SWANavPanel >> dataMenuMorph [
+	"Build the top-level Data menu for ANY view: None, one entry per RETAINED dataset,
+	then -- below a separator -- one entry per OPEN PEER view (cross-reference as a
+	dataset, replacing the old X-ref button). The active dataset is ticked. Peer
+	entries add+select a #peer dataset on first pick. Answers nil if there is nothing
+	to pick (no datasets, no peers)."
+	| tm menu active current peers any |
+	tm := self treemap.
+	tm ifNil: [^ nil].
+	menu := MenuMorph new defaultTarget: self.
+	active := (tm respondsTo: #activeDataset) ifTrue: [tm activeDataset] ifFalse: [nil].
+	current := active ifNil: [#none] ifNotNil: [active modeSymbol].
+	menu add: (current == #none ifTrue: ['* '] ifFalse: ['   ']), 'None (intrinsic)'
+		selector: #setDataMode: argument: #none.
+	any := false.
+	(tm respondsTo: #datasets) ifTrue: [
+		tm datasets do: [:ds |
+			any := true.
+			menu add: (current == ds modeSymbol ifTrue: ['* '] ifFalse: ['   ']),
+					'Data: ', (ds name ifNil: ['?'])
+				selector: #setDataMode: argument: ds modeSymbol]].
+	peers := self peerPanels.
+	peers isEmpty ifFalse: [
+		menu addLine.
+		peers do: [:p |
+			menu add: 'X-ref: ', p crossRefMenuLabel
+				selector: #crossReferenceAsDataset: argument: p]].
+	^ (any or: [peers notEmpty]) ifTrue: [menu] ifFalse: [nil]
 ]
 
 {
@@ -760,19 +792,21 @@ SWANavPanel >> importCoverage [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:08'
 }
 SWANavPanel >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
 	whatever kind of analysis data it holds, switching the view's color mode to
-	match. Dispatch is by the JSON #format marker, so one button handles both:
+	match. Dispatch is by the JSON marker, so one button handles all kinds:
 	  'SWACoverageData/1'    -> coverage overlay (green covered + blue tests)
 	  'SWADuplicationData/1' -> duplication overlay (#duplication color mode)
-	Both are image-independent ('Class>>selector'-keyed) and may be generated
-	offline (SWACoverage / SWADuplicationData generatePackages:toFile:).
+	  space tally (kind=classSummary, or a node tree) -> per-class byte coloring
+	Coverage/duplication are image-independent ('Class>>selector'-keyed) and may be
+	generated offline; space-tally JSON comes from SWASpaceTally>>writeToFile: (node
+	tree) or SWASpaceTallyClassSummary>>writeToFile: (flat class census).
 
-	Every load is ALSO retained as a named SWADataset (see #loadCoverageJson:name:),
-	so loading twice gives two coexisting, switchable Color-menu entries."
+	Every load is ALSO retained as a named SWADataset, so loading twice gives two
+	coexisting, switchable Color-menu entries."
 	| tm path contents json format |
 	tm := self treemap.
 	(tm isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
@@ -781,6 +815,8 @@ SWANavPanel >> importData [
 	[contents := (FileStream readOnlyFileNamed: path) contentsOfEntireFile.
 	 json := Json readFrom: contents readStream]
 		on: Error do: [:e | ^ self treemapCoverageStatus: 'Load failed: ', e messageText].
+	(SWASpaceTallyClassSummary isSpaceTallyJson: json)
+		ifTrue: [^ self loadSpaceTallyJson: json name: (self datasetNameFor: path)].
 	format := (json at: 'format' ifAbsent: ['']) asString.
 	(format beginsWith: 'SWADuplicationData')
 		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: path)].
@@ -851,6 +887,30 @@ SWANavPanel >> loadDuplicationJson: json name: aName [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:21'
+}
+SWANavPanel >> loadSpaceTallyJson: json name: aName [
+	"Overlay an already-parsed space-tally JSON object (see #importData) as a
+	retained, named #spaceTally SWADataset and make it the ACTIVE data source,
+	applying its fitting defaults (color by instance bytes; size left intrinsic).
+
+	Accepts EITHER flavor: a flat class-summary census (kind = classSummary) or a
+	full node tree, aggregated per class on load. When loaded from a node tree, the
+	dataset also RETAINS the reconstructed tree (structureRoot), so it can later BE
+	the map's base structure via the Tree button. Its metrics -- 'By instance bytes'
+	and 'By retained bytes' -- stay selectable in the Color/Size menus."
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset spaceTallyFromJsonObject: json named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Space tally (', ds name, '): ',
+		ds source classCount printString, ' classes',
+		(ds providesStructure ifTrue: [' (Tree available)'] ifFalse: ['']).
+	self refresh
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -859,6 +919,32 @@ SWANavPanel >> metaInfoContents [
 	^ (view respondsTo: #metaInfoString)
 		ifTrue: [view metaInfoString]
 		ifFalse: [nil]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> morphViewInto: aViewMorph [
+	"Replace the panel's inner view with aViewMorph and rebuild the chrome around it,
+	in place, keeping this panel (and its enclosing window) put. The previously
+	displayed view is only REMOVED from the panel, not destroyed -- it lives on in
+	structureViews for switching back.
+
+	Detach the old view so clearing submorphs can't delete it; reset the lazily-built
+	chrome ivars so #setView: builds a fresh set; then re-run #setView:."
+	| oldView |
+	oldView := view.
+	oldView ifNotNil: [oldView delete].  "detach from this panel; morph object survives"
+	self removeAllMorphs.
+	"Drop references to the old chrome morphs so setView: rebuilds them cleanly."
+	headerRow := breadcrumbMorph := selectionPathMorph := metaInfoMorph := runInfoMorph := nil.
+	sourceMorph := detailsPane := detailsTitle := sourceRow := nil.
+	coveringTestsPane := coveringTestsTitle := sourceSplitter := nil.
+	depthButton := fullButton := tallyButton := nil.
+	self setView: aViewMorph.
+	self layoutChanged.
+	aViewMorph changed
 ]
 
 {
@@ -1009,13 +1095,16 @@ SWANavPanel >> popUpColorMenu [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:17'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
 SWANavPanel >> popUpDataMenu [
-	"Header 'Data' button: pop up the top-level Data menu (same as the right-click
-	'Data' submenu, shared #dataMenuMorph on the overlay)."
-	self treemapOverlay ifNotNil: [:o |
-		(o respondsTo: #popUpDataMenu) ifTrue: [o popUpDataMenu]]
+	"Header 'Data' button: pop up the top-level Data menu (loaded datasets + open
+	peers). Built by the PANEL so every tool -- not just the Code Map -- can pick a
+	data source and cross-reference peers."
+	| menu |
+	menu := self dataMenuMorph.
+	menu ifNil: [^ self treemapCoverageStatus: 'Data: load a dataset or open another treemap to cross-reference'].
+	menu popUpInWorld: self world
 ]
 
 {
@@ -1038,6 +1127,21 @@ SWANavPanel >> popUpSizeMenu [
 	uses (shared #sizeMenuMorph on the overlay). Always reachable, even on a
 	collapsed/black canvas."
 	self treemapOverlay ifNotNil: [:o | o popUpSizeMenu]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> popUpTreeMenu [
+	"Header 'Tree' button: pop up the base-structure selector. If nothing else can
+	be a structure yet, tell the user via the status line rather than nothing."
+	| menu |
+	menu := self treeMenuMorph.
+	menu ifNil: [
+		^ self treemapCoverageStatus:
+			'Tree: load a space-tally node-tree JSON to switch structure'].
+	menu popUpInWorld: self world
 ]
 
 {
@@ -1163,17 +1267,55 @@ SWANavPanel >> selectionPathContents [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
+}
+SWANavPanel >> setDataMode: aSymbol [
+	"Data-menu action: make aSymbol the active data source on the wrapped view."
+	| tm |
+	tm := self treemap.
+	(tm notNil and: [tm respondsTo: #setDataMode:]) ifTrue: [
+		tm setDataMode: aSymbol.
+		self refresh]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> setStructureMode: aKey [
+	"Tree menu action: MORPH the panel's base view into the tree identified by aKey
+	(#intrinsic = the Code Map; a dataset modeSymbol = that space tally's tree),
+	reusing the SAME window/chrome. The other view is kept alive in structureViews
+	so switching back is instant and lossless (the Code Map keeps its datasets, the
+	tally keeps its layout). No-op if already active or unresolvable."
+	| newView |
+	aKey == self activeStructureKey ifTrue: [^ self].
+	"Register the current intrinsic view before the first morph, so we can return."
+	(self structureViews includesKey: #intrinsic)
+		ifFalse: [(view respondsTo: #datasets) ifTrue: [structureViews at: #intrinsic put: view]].
+	newView := self viewForStructureKey: aKey.
+	newView ifNil: [^ self].
+	activeStructureKey := aKey.
+	self morphViewInto: newView.
+	self updateStructureWindowLabel
+]
+
+{
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:44'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:56'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
-	Deselect/Show + optional Data/Size/Color/Links + optional X-ref/Clear + optional
-	coverage controls + optional Depth), then a breadcrumb line carrying the fullscreen
-	toggle at its right, then the selection-path line, a generic RUN-info line, a
-	SELECTION-info line, then the view. The button bar wraps onto additional rows when
-	the window is too narrow to fit every button. The source pane is created lazily by
-	#toggleSource."
+	Deselect/Show + optional Data/Tree/Size/Color/Links + optional coverage controls +
+	optional Depth), then a breadcrumb line carrying the fullscreen toggle at its
+	right, then the selection-path line, a generic RUN-info line, a SELECTION-info
+	line, then the view. The button bar wraps onto additional rows when the window is
+	too narrow to fit every button. The source pane is created lazily by #toggleSource.
+
+	Cross-referencing another open view is no longer a dedicated X-ref/Clear button
+	pair: open peers appear as entries in the Data menu (pick one to color by it, pick
+	None to clear), unifying 'which source colors this map' into one selector."
 	| crumbFont detailFont metaFont backButton browseButton showButton crumbRow |
 	view := aViewMorph.
 	crumbFont := TextStyle default fontOfPointSize: 12.
@@ -1219,20 +1361,19 @@ SWANavPanel >> setView: aViewMorph [
 	(view respondsTo: #selectTileNode:) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
 	headerRow addMorphBack: showButton.
-	"Data / Size / Color / Links buttons -- same menus as the right-click context menu
-	(shared #dataMenuMorph / #sizeMenuMorph / #colorMenuMorph / #decorationMenuMorph).
-	Always reachable from the header. Data leads (it is the top-level, primary
-	selector: pick a data source and it sets the fitting defaults across the axes)."
+	"Data / Tree / Size / Color / Links. Data leads (top-level source picker: loaded
+	datasets AND open peers for cross-reference, sets fitting axis defaults). Tree
+	picks the base STRUCTURE (morph the view into another tool). Data is offered on
+	ANY dataset-capable view (all SWA views now are)."
 	(view respondsTo: #overlayMorph) ifTrue: [
 		(view respondsTo: #selectDataset:) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Data' action: #popUpDataMenu)].
+		self showsTreeButton ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
 		headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu).
 		headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu).
 		(view respondsTo: #decorationMetric) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
-	(view respondsTo: #keyIndex) ifTrue: [
-		headerRow addMorphBack: (self buttonLabelled: 'X-ref' action: #crossReference).
-		headerRow addMorphBack: (self buttonLabelled: 'Clear' action: #clearCrossReference)].
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
 		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
 		headerRow addMorphBack: tallyButton.
@@ -1296,6 +1437,19 @@ SWANavPanel >> showSelectionPath: aStringOrNil [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:24'
+}
+SWANavPanel >> showsTreeButton [
+	"Show the Tree (base-structure) button when structure switching is meaningful:
+	on a Code Map (it can host loaded structure datasets, and the menu covers the
+	'none loaded yet' case), or whenever we have already morphed away from intrinsic
+	(so there is always a way back)."
+	(view isKindOf: SWACodeTreemapMorph) ifTrue: [^ true].
+	^ self activeStructureKey ~~ #intrinsic
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -1321,6 +1475,48 @@ SWANavPanel >> startInvocationTally: aCodeRoot [
 	self updateTallyButton.
 	self treemapCoverageStatus: 'Tallying ', liveTally methods size printString,
 		' methods -- exercise, then press Tally to collect'
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+}
+SWANavPanel >> structureDatasets [
+	"The retained datasets that can BE a base structure (have their own tree).
+	Sourced from the intrinsic Code Map view, which owns the datasets regardless of
+	which structure is currently displayed."
+	| cm |
+	cm := self codeMapView.
+	(cm notNil and: [cm respondsTo: #datasets]) ifFalse: [^ #()].
+	^ cm datasets select: [:ds | ds providesStructure]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> structureOptions [
+	"{ key. label } pairs for the Tree selector: the intrinsic Code Map, plus one
+	entry per retained structure-capable dataset (a space tally loaded from a node
+	tree). Picking one MORPHS the view into that tree's tool in place."
+	| opts |
+	opts := OrderedCollection new.
+	opts add: (Array with: #intrinsic with: 'Code map').
+	self structureDatasets do: [:ds |
+		opts add: (Array with: ds modeSymbol with: 'Space tally: ', (ds name ifNil: ['?']))].
+	^ opts asArray
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+}
+SWANavPanel >> structureViews [
+	"Cache of fully-wired view morphs keyed by a structure symbol (#intrinsic for
+	the map first opened here, or a dataset's modeSymbol for a structure dataset).
+	Keeping the morphs alive is what lets Tree switch back and forth WITHOUT losing
+	the Code Map's loaded datasets or the tally's layout."
+	^ structureViews ifNil: [structureViews := Dictionary new]
 ]
 
 {
@@ -1379,6 +1575,26 @@ SWANavPanel >> toggleSource [
 			self updateDetails.
 			self updateCoveringTests].
 	self layoutChanged
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> treeMenuMorph [
+	"Build the Tree menu: pick which node tree is the base structure. 'Code map'
+	plus one entry per structure-capable dataset; the active one is ticked. Answers
+	nil when there is nothing to switch to (no structure datasets loaded)."
+	| opts menu current |
+	opts := self structureOptions.
+	opts size <= 1 ifTrue: [^ nil].
+	current := self activeStructureKey.
+	menu := MenuMorph new defaultTarget: self.
+	opts do: [:pair | | key label |
+		key := pair first.
+		label := current == key ifTrue: ['* ', pair second] ifFalse: ['   ', pair second].
+		menu add: label selector: #setStructureMode: argument: key].
+	^ menu
 ]
 
 {
@@ -1477,6 +1693,22 @@ SWANavPanel >> updateSource [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> updateStructureWindowLabel [
+	"Reflect the active structure in the enclosing window title, if any."
+	| win label |
+	win := self enclosingWindow.
+	win ifNil: [^ self].
+	label := self activeStructureKey == #intrinsic
+		ifTrue: ['Code Map']
+		ifFalse: [| ds | ds := self structureDatasets detect: [:d | d modeSymbol == self activeStructureKey] ifNone: [nil].
+			'Space Tally: ', (ds ifNotNil: [:d | d name] ifNil: ['?'])].
+	win setLabel: label
+]
+
+{
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:14'
 }
@@ -1496,6 +1728,44 @@ SWANavPanel >> updateTallyButton [
 SWANavPanel >> view [
 	"The wrapped view morph (treemap or flamegraph)."
 	^ view
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+}
+SWANavPanel >> viewForStructureKey: aKey [
+	"The (cached, fully-wired) view morph for a structure key. #intrinsic is the
+	Code Map; a dataset modeSymbol builds -- once -- a Space Tally treemap on that
+	dataset's retained structureRoot. Answers nil if the key can't be resolved."
+	aKey == #intrinsic ifTrue: [^ self codeMapView].
+	^ self structureViews at: aKey ifAbsentPut: [
+		| ds tm |
+		ds := self structureDatasets detect: [:d | d modeSymbol == aKey] ifNone: [nil].
+		ds ifNil: [^ nil].
+		tm := SWASpaceTallyTreemapMorph on: ds structureRoot.
+		tm extent: view extent.
+		self wireOverlayFor: tm.
+		tm]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+}
+SWANavPanel >> wireOverlayFor: aTreemapMorph [
+	"Attach the matching event/menu overlay to aTreemapMorph if it doesn't have one
+	yet, mirroring the opener wiring (SWACodeNode>>openTreemapLeafKind: /
+	SWASpaceTally>>openTreemap). The overlay class is the treemap's #overlayClass."
+	| overlay |
+	(aTreemapMorph respondsTo: #overlayMorph) ifFalse: [^ aTreemapMorph].
+	aTreemapMorph overlayMorph ifNotNil: [^ aTreemapMorph].
+	overlay := aTreemapMorph overlayClass new.
+	overlay treemapMorph: aTreemapMorph.
+	overlay extent: aTreemapMorph extent.
+	aTreemapMorph overlayMorph: overlay.
+	aTreemapMorph addMorph: overlay.
+	^ aTreemapMorph
 ]
 
 {

@@ -10,12 +10,6 @@ Class {
 		'dupSimilarity',
 		'dupMinLoc',
 		'dupLoaded',
-		'datasets',
-		'datasetsByMode',
-		'metricsByMode',
-		'sizeMetric',
-		'decorationMetric',
-		'activeDataset',
 		'dupDiffFrom'
 	],
 	#category : #'SWA-CodeMap',
@@ -1077,6 +1071,15 @@ SWACodeTreemapMorph >> initialize [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
+}
+SWACodeTreemapMorph >> intrinsicColorMode [
+	"The Code Map's native default color mode."
+	^ #codeKind
+]
+
+{
 	#category : #duplication,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:04'
 }
@@ -1291,6 +1294,16 @@ SWACodeTreemapMorph >> noteColorMode: aSymbol [
 	Used by acquisition callbacks (e.g. coverage finished running) that have already
 	applied the overlay and just need the menu tick to reflect the mode."
 	colorMode := aSymbol
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+}
+SWACodeTreemapMorph >> overlayClass [
+	"The event/menu overlay class this view uses -- a view-policy hook so the
+	SWANavPanel can (re)wire an overlay when morphing structures."
+	^ SWACodeTreemapOverlay
 ]
 
 {

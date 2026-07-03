@@ -34,7 +34,8 @@ Class {
 		'prunedChildCount',
 		'prunedChildBytes',
 		'otherParents',
-		'isNew'
+		'isNew',
+		'restoredName'
 	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
@@ -202,10 +203,12 @@ SWASpaceTallyNode >> asExplorerString [
 
 {
 	#category : #output,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:11'
+	#'squeak_changestamp' : 'MCPServer 7/2/2026 15:26'
 }
 SWASpaceTallyNode >> asJsonString [
-	^ String streamContents: [:s | self printTreemapJsonOn: s]
+	"JSON for this subtree, via SWASpaceTallyJsonWriter (single-pass, with node ids
+	and otherParents id-refs so shared references survive serialization)."
+	^ SWASpaceTallyJsonWriter stringFor: self
 ]
 
 {
@@ -616,11 +619,14 @@ SWASpaceTallyNode >> morphNodesUnfilteredDo: aBlock [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:35'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 09:50'
 }
 SWASpaceTallyNode >> name [
-	"A short label for this node, suitable for treemap display."
+	"A short label for this node, suitable for treemap display.
+	A reconstructed node (loaded from JSON) has no live obj but carries the
+	name it was serialized with in restoredName -- honor that first."
 
+	restoredName ifNotNil: [^ restoredName].
 	parent ifNil: [^ 'root'].  "synthetic root"
 	obj ifNil: [^ className asString].  "no object captured (e.g. diff context)"
 	obj isBehavior ifTrue: [^ obj name asString].
@@ -1080,6 +1086,31 @@ SWASpaceTallyNode >> prunedChildBytes [
 }
 SWASpaceTallyNode >> prunedChildCount [
 	^ prunedChildCount
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 09:50'
+}
+SWASpaceTallyNode >> restoreFromJson: aJsonObject [
+	"Populate this (bare) node from one JSON object produced by
+	SWASpaceTallyJsonWriter. Sets the flat, self-contained fields only; the
+	tree links (parent/children) and otherParents id-refs are wired up by the
+	reader, which alone holds the id->node map. No live obj is available, so
+	the serialized display name is kept in restoredName (see #name)."
+
+	restoredName := aJsonObject at: 'name' ifAbsent: [nil].
+	className := aJsonObject at: 'className' ifAbsent: [nil].
+	(className notNil and: [className isEmpty]) ifTrue: [className := nil].
+	edgeLabel := aJsonObject at: 'edgeLabel' ifAbsent: [nil].
+	(edgeLabel notNil and: [edgeLabel isEmpty]) ifTrue: [edgeLabel := nil].
+	selfSize := aJsonObject at: 'self' ifAbsent: [0].
+	totalSize := aJsonObject at: 'total' ifAbsent: [selfSize].
+	depth := aJsonObject at: 'depth' ifAbsent: [0].
+	truncated := aJsonObject at: 'truncated' ifAbsent: [false].
+	pruned := aJsonObject at: 'pruned' ifAbsent: [false].
+	prunedChildCount := aJsonObject at: 'prunedChildCount' ifAbsent: [0].
+	prunedChildBytes := aJsonObject at: 'prunedChildBytes' ifAbsent: [0]
 ]
 
 {

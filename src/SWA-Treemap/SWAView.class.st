@@ -33,7 +33,12 @@ Class {
 		'testKeys',
 		'testFilterKeys',
 		'coveringTestFilter',
-		'secondarySelection'
+		'secondarySelection',
+		'datasets',
+		'metricsByMode',
+		'sizeMetric',
+		'decorationMetric',
+		'activeDataset'
 	],
 	#category : #'SWA-Treemap',
 	#'squeak_changestamp' : '<historical>'
@@ -61,6 +66,54 @@ SWAView >> activateCoverageProvenanceFrom: aSWACoverageData [
 	self updateTestFilterForSelection.
 	self flushCacheKeepingSelection.
 	self changed
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:52'
+}
+SWAView >> activeDataset [
+	"The dataset last picked from the top-level Data selector (or nil). Used to tick
+	the Data menu."
+	^ activeDataset
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
+}
+SWAView >> addDataset: aSWADataset [
+	"Retain a named dataset and register ITS METRICS. Each metric gets a UNIQUE minted
+	symbol so it becomes its own Color/Size menu entry, tagged with the dataset name --
+	and loading the same kind twice yields distinct, coexisting entries you switch
+	between with no reload. Answers the dataset. Does NOT change the current color/size
+	mode."
+	| n base |
+	n := (self datasets count: [:d | d kind == aSWADataset kind]) + 1.
+	aSWADataset modeSymbol: (aSWADataset kind, '_', n printString) asSymbol.
+	base := aSWADataset kind, '_', n printString.
+	self datasets addLast: aSWADataset.
+	aSWADataset metrics do: [:metric | | sym |
+		sym := (base, '_', metric id) asSymbol.
+		metric modeSymbol: sym.
+		self metricsByMode at: sym put: metric].
+	^ aSWADataset
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:57'
+}
+SWAView >> applyColorMetricSymbol: aSymbolOrNil [
+	"Bind the COLOR axis to a minted dataset-metric symbol, or (nil) restore the
+	view's intrinsic default color mode. The one axis MOST SWA views support. Views
+	without a switchable color mode (e.g. the flamegraph, which colors intrinsically
+	per frame) simply can't be a color TARGET -- they no-op here but can still be a
+	cross-ref SOURCE (peer) for others."
+	(self respondsTo: #colorMode:) ifFalse: [^ self].
+	aSymbolOrNil
+		ifNotNil: [self colorMode: aSymbolOrNil]
+		ifNil: [self colorMode: self intrinsicColorMode]
 ]
 
 {
@@ -107,7 +160,7 @@ SWAView >> clearTestFilters [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:27'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 12:51'
 }
 SWAView >> colorForNode: aNode [
 	"Tile color. LAYERED-DATASETS: when the active color mode is a dataset METRIC, that
@@ -118,9 +171,13 @@ SWAView >> colorForNode: aNode [
 	the metric's color.
 
 	Without a metric active, this falls back to the legacy provenance/highlight
-	compositing (blue tests, red eviction, gray aggregate base, cross-ref heat)."
+	compositing (blue tests, red eviction, gray aggregate base, cross-ref heat).
+
+	Metric dispatch needs BOTH #metricForMode: and a switchable #colorMode (a view
+	without a colorMode -- e.g. the flamegraph -- colors intrinsically and can't be a
+	metric color TARGET, so it skips straight to its own baseColorForNode:)."
 	| metric base w red |
-	(self respondsTo: #metricForMode:) ifTrue: [
+	((self respondsTo: #metricForMode:) and: [self respondsTo: #colorMode]) ifTrue: [
 		metric := self metricForMode: self colorMode].
 	metric ifNotNil: [
 		"Blue tint for executed test / TestCase tiles (needs provenance wired up)."
@@ -270,6 +327,28 @@ SWAView >> crossReferenceFrom: aPeerView [
 	aPeerView keyIndex keysAndValuesDo: [:k :node |
 		weights at: k put: node totalSize].
 	self highlightWeights: weights
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:52'
+}
+SWAView >> datasetForDataMode: aSymbol [
+	"Resolve a Data-menu symbol to its dataset; #none clears the active dataset."
+	aSymbol == #none ifTrue: [^ nil].
+	^ self datasets detect: [:d | d modeSymbol == aSymbol] ifNone: [nil]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:52'
+}
+SWAView >> datasets [
+	"The retained, named analysis overlays loaded into this view (SWADataset), in
+	load order. Shared across all SWA views so any tool -- Code Map, Space Tally,
+	flamegraph -- can host datasets and cross-reference peers uniformly. Lazily
+	initialized."
+	^ datasets ifNil: [datasets := OrderedCollection new]
 ]
 
 {
@@ -428,6 +507,16 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
+}
+SWAView >> intrinsicColorMode [
+	"The view's own default color mode, restored when a dataset color binding is
+	cleared. Subclasses override with their native default (#codeKind, #class, ...)."
+	^ #class
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:37'
 }
@@ -477,6 +566,27 @@ SWAView >> leavesUnder: aNode do: aBlock [
 	aNode children isEmpty
 		ifTrue: [aBlock value: aNode]
 		ifFalse: [aNode children do: [:c | self leavesUnder: c do: aBlock]]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:52'
+}
+SWAView >> metricForMode: aSymbol [
+	"The dataset METRIC a minted color/size symbol refers to, or nil if aSymbol is an
+	intrinsic mode (#loc, #class, ...)."
+	^ self metricsByMode at: aSymbol ifAbsent: [nil]
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:52'
+}
+SWAView >> metricsByMode [
+	"Map of minted menu symbol (e.g. #coverage_1_call) -> SWADatasetMetric. One entry
+	per metric of every loaded dataset; the symbol-based color/size machinery
+	dispatches through this."
+	^ metricsByMode ifNil: [metricsByMode := Dictionary new]
 ]
 
 {
@@ -611,6 +721,23 @@ SWAView >> secondarySelection: aNodeOrNil [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
+}
+SWAView >> selectDataset: aSWADatasetOrNil [
+	"Top-level Data pick (exclusive): make aSWADataset the active data source and bind
+	the COLOR axis to its fitting default color metric (or restore intrinsic color when
+	nil). This base version handles only color -- the axis every SWA view has. Tools
+	with size/decoration axes (the Code Map) override to also apply those, calling
+	super for the color + activeDataset bookkeeping."
+	| colorMetric |
+	activeDataset := aSWADatasetOrNil.
+	aSWADatasetOrNil isNil ifTrue: [^ self applyColorMetricSymbol: nil].
+	colorMetric := aSWADatasetOrNil defaultBindings at: #color ifAbsent: [nil].
+	self applyColorMetricSymbol: (colorMetric ifNotNil: [:m | m modeSymbol])
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
 }
@@ -631,6 +758,16 @@ SWAView >> selectNodeForKey: aCrossRefKey [
 SWAView >> selectedNode [
 	"The currently selected node (single-click), or nil."
 	^ selectedNode
+]
+
+{
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
+}
+SWAView >> setDataMode: aSymbol [
+	"Data-menu entry point: pick the active data source by its symbol (#none clears),
+	applying its fitting defaults across the axes."
+	self selectDataset: (self datasetForDataMode: aSymbol)
 ]
 
 {

@@ -198,7 +198,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:49'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -210,6 +210,9 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 		| ms |
 		ms := dataset source matchesForKey: aCrossRefKey.
 		^ (ms isNil or: [ms isEmpty]) ifTrue: [0.0] ifFalse: [ms first key]].
+	id == #spaceTallySelf ifTrue: [^ dataset source bytesForKey: aCrossRefKey].
+	id == #spaceTallyTotal ifTrue: [^ dataset source totalBytesForKey: aCrossRefKey].
+	id == #peerWeight ifTrue: [^ dataset source weightForKey: aCrossRefKey].
 	^ nil
 ]
 
@@ -308,15 +311,25 @@ SWADatasetMetric >> supportsSize [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:49'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 12:55'
 }
 SWADatasetMetric >> valueForNode: aNode [
-	"The metric value for aNode. A keyed leaf reads its raw value; a container (no
-	crossRefKey) aggregates its descendants by #rollup (#max for heat, #sum for
-	additive counts). nil when nothing below has a value."
-	| key |
+	"The metric value for aNode. A keyed node reads its own raw value; if that is nil
+	but the node has children, fall back to aggregating the descendants (#rollup).
+	Keyless containers always aggregate. nil when nothing at or below aNode has a value.
+
+	The keyed-but-rollup fallback matters for cross-kind binding: a Code Map CLASS node
+	carries a crossRefKey (the class name), which resolves for a per-class dataset
+	(coverage/tally) but NOT for a method-keyed one (a #peer flamegraph keyed by
+	Class>>selector). Without the fallback such a class tile would go dark even though
+	its methods carry values -- so we roll up its children instead."
+	| key raw |
 	key := aNode crossRefKey.
-	key ifNotNil: [^ self rawValueForKey: key].
+	key ifNotNil: [
+		raw := self rawValueForKey: key.
+		raw ifNotNil: [^ raw].
+		"Keyed but no own value: aggregate children if any (else genuinely nil)."
+		aNode children isEmpty ifTrue: [^ nil]].
 	^ self rollupForNode: aNode
 ]
 

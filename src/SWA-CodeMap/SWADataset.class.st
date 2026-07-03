@@ -21,7 +21,8 @@ Class {
 		'modeSymbol',
 		'source',
 		'scale',
-		'metrics'
+		'metrics',
+		'structureRoot'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -55,8 +56,83 @@ SWADataset class >> duplicationFrom: aSWADuplicationData named: aString [
 ]
 
 {
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
+}
+SWADataset class >> peerFrom: aSWAPeerViewSource named: aString [
+	"Wrap another open view as a #peer dataset -- cross-referencing as a normal
+	dataset (color by the peer's per-key weight). Mints its mode symbol on
+	#addDataset:."
+	^ self new
+		kind: #peer;
+		source: aSWAPeerViewSource;
+		name: aString;
+		yourself
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 10:39'
+}
+SWADataset class >> spaceTallyFrom: aSWASpaceTallyClassSummary named: aString [
+	"Wrap a per-class space-tally summary as a retained, named #spaceTally dataset.
+	Its metrics (By instance bytes / By retained bytes) tint the Code Map's classes
+	-- and, by #sum rollup, its packages -- by measured object-space bytes. The mode
+	symbol is minted later by the treemap on #addDataset:."
+	^ self new
+		kind: #spaceTally;
+		source: aSWASpaceTallyClassSummary;
+		name: aString;
+		yourself
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:21'
+}
+SWADataset class >> spaceTallyFromJsonFile: aFilePath [
+	"Load a space-tally JSON -- EITHER a full node tree (SWASpaceTallyJsonWriter
+	output; the reconstructed tree is retained as structureRoot for the Tree button)
+	OR a flat class-summary census (SWASpaceTallyClassSummary>>writeToFile:,
+	decorate-only) -- and wrap it as a named #spaceTally dataset ready for
+	SWACodeTreemapMorph>>addDataset:. Named after the file.
+
+	Example:
+		| ds map |
+		ds := SWADataset spaceTallyFromJsonFile: 'tally.json'.
+		map addDataset: ds; selectDataset: ds."
+	| file json |
+	file := FileStream readOnlyFileNamed: aFilePath.
+	json := [Json readFrom: file] ensure: [file close].
+	^ self spaceTallyFromJsonObject: json named: (FileDirectory localNameFor: aFilePath)
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:21'
+}
+SWADataset class >> spaceTallyFromJsonObject: aJsonObject named: aName [
+	"Build a #spaceTally dataset from an ALREADY-PARSED space-tally JSON object.
+	If it is a full node TREE, reconstruct the tree ONCE and keep it as the dataset's
+	structureRoot (so it can also BE the Code Map's base structure via the Tree
+	menu), deriving the per-class decorate summary from that same tree. If it is a
+	flat class-summary census, there is no tree -- decorate-only."
+	| ds summary root |
+	((aJsonObject at: 'kind' ifAbsent: [nil]) = 'classSummary')
+		ifTrue: [
+			summary := SWASpaceTallyClassSummary new loadFlatJson: aJsonObject.
+			^ self spaceTallyFrom: summary named: aName].
+	"Node tree: reconstruct once, derive summary, retain the tree for structure."
+	root := SWASpaceTallyJsonReader readJsonObject: aJsonObject.
+	summary := SWASpaceTallyClassSummary fromTree: root.
+	ds := self spaceTallyFrom: summary named: aName.
+	ds structureRoot: root.
+	^ ds
+]
+
+{
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -75,6 +151,20 @@ SWADataset >> buildMetrics [
 		ms add: (SWADatasetMetric new
 			dataset: self; id: #duplication; label: 'By duplication';
 			axes: #(#color #links); rollup: #max; yourself)].
+	kind == #spaceTally ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #spaceTallySelf; label: 'By instance bytes';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: source maxSelf); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #spaceTallyTotal; label: 'By retained bytes';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: source maxTotal); yourself)].
+	kind == #peer ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #peerWeight; label: 'By shared weight';
+			axes: #(#color); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: source maxWeight); yourself)].
 	^ ms
 ]
 
@@ -94,7 +184,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -102,13 +192,15 @@ SWADataset >> defaultBindings [
 	metric (or absent = leave that axis intrinsic). Each axis can still be overridden
 	afterward from its own menu (mix-and-match).
 
-	SIZE is deliberately left INTRINSIC (LOC) by default for BOTH kinds: sizing by a
-	dataset metric collapses uncovered/unmatched code to zero width, destroying the
-	structural map you want to read. Coverage/call size is still available on demand
-	from the Size menu -- it just isn't a good DEFAULT.
+	SIZE is deliberately left INTRINSIC (LOC) by default for ALL kinds: sizing by a
+	dataset metric collapses uncovered/unmatched/unmeasured code to zero width,
+	destroying the structural map you want to read. The metric is still available on
+	demand from the Size menu -- it just isn't a good DEFAULT.
 
 	coverage: color by covering-test count (or call count if that's first).
-	duplication: color by clone heat + decoration = clone links."
+	duplication: color by clone heat + decoration = clone links.
+	spaceTally: color by instance (self) bytes.
+	peer: color by the peer's shared per-key weight (cross-reference)."
 	| d |
 	d := Dictionary new.
 	kind == #coverage ifTrue: [
@@ -116,19 +208,24 @@ SWADataset >> defaultBindings [
 	kind == #duplication ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m].
 		(self metrics detect: [:x | x supportsLinks] ifNone: [nil]) ifNotNil: [:m | d at: #decoration put: m]].
+	kind == #spaceTally ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+	kind == #peer ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	^ d
 ]
 
 {
 	#category : #scale,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
 SWADataset >> defaultScale [
-	"A good out-of-the-box raw-value -> Color mapping chosen by #kind. We KNOW the
-	kinds of data we deal with (coverage, duplication), so each ships a sensible
-	default -- while the scale stays a separate, swappable object (see #scale:)."
+	"A good out-of-the-box raw-value -> Color mapping chosen by #kind. Each metric
+	that needs a range-aware ramp carries its own scale; this is a fallback."
 	kind == #coverage ifTrue: [^ self coverageScale].
 	kind == #duplication ifTrue: [^ self duplicationScale].
+	kind == #spaceTally ifTrue: [^ self spaceTallyScaleForMax: source maxSelf].
+	kind == #peer ifTrue: [^ self spaceTallyScaleForMax: source maxWeight].
 	^ [:v | Color gray: 0.3]
 ]
 
@@ -225,6 +322,16 @@ SWADataset >> printOn: aStream [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:20'
+}
+SWADataset >> providesStructure [
+	"Whether this dataset can BE a treemap's base structure (has its own tree),
+	as opposed to only decorating an existing one."
+	^ structureRoot notNil
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
 }
@@ -239,4 +346,46 @@ SWADataset >> source [
 }
 SWADataset >> source: anObject [
 	source := anObject
+]
+
+{
+	#category : #scale,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 10:39'
+}
+SWADataset >> spaceTallyScaleForMax: aMax [
+	"A raw-bytes -> Color ramp for a space-tally metric, LOG-normalized against
+	aMax (the dataset's own largest per-class value) because byte totals span many
+	orders of magnitude. Cool blue (small) -> green -> yellow -> red (largest).
+	Closes over aMax so each metric (self vs total) scales to its own range."
+
+	| logMax |
+	logMax := (aMax max: 1) ln.
+	^ [:bytes |
+		| t |
+		t := bytes <= 0
+			ifTrue: [0.0]
+			ifFalse: [logMax <= 0 ifTrue: [1.0] ifFalse: [((bytes max: 1) ln / logMax) min: 1.0]].
+		"hue 220 (blue) down to 0 (red) as t goes 0->1"
+		Color h: 220 * (1.0 - t) s: 0.70 v: 0.45 + (t * 0.45)]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:20'
+}
+SWADataset >> structureRoot [
+	"The node tree this dataset can supply as a treemap's base STRUCTURE (its own
+	root), or nil if it can only decorate an existing tree. A #spaceTally dataset
+	loaded from a full node-tree JSON keeps its reconstructed SWASpaceTallyNode tree
+	here; one loaded from a flat class-summary census has no tree and stays
+	decorate-only."
+	^ structureRoot
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:20'
+}
+SWADataset >> structureRoot: aNode [
+	structureRoot := aNode
 ]
