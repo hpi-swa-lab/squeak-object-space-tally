@@ -69,6 +69,54 @@ Class {
 
 {
 	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
+}
+SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps toFile: aFilePath [
+	"Shared background runner for the BTM generators (whole-image and per-package),
+	mirroring SWACoverage class>>generatePackages:tests:toFile:. aModelBlock answers
+	a fresh SWABitermTopicModel with its documents registered (evaluated in the
+	background so method harvesting doesn't block the UI either).
+
+	Opens a SWACoverageRunPanel Stop window, forks the corpus build + Gibbs fit +
+	JSON write at userBackgroundPriority, updates the status line per phase, honours
+	STOP between sweeps (writing the partially-converged model), and auto-closes.
+	Headless: runs inline. Returns the file path immediately."
+	| panel work |
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'BTM topics (', aLabel, ') -> ', aFilePath;
+		yourself.
+	work := [ | model td nDocs nBiterms ran |
+		panel status: 'Harvesting methods for ', aLabel, '...'.
+		model := aModelBlock value.
+		model k: kTopics.
+		panel status: 'Building corpus (', model methodKeysAndSources size printString, ' methods)...'.
+		nDocs := model buildCorpus.
+		nDocs = 0
+			ifTrue: [panel finishAndClose: 'Empty corpus after pruning -- nothing written.']
+			ifFalse: [
+				nBiterms := model buildBiterms.
+				model progressBlock: [:frac |
+					panel status: aLabel, ': sweep ', (frac * nSweeps) rounded printString,
+						'/', nSweeps printString, '  (', nDocs printString, ' methods, ',
+						nBiterms printString, ' biterms)'].
+				ran := model runSweeps: nSweeps untilStopped: [panel stopRequested].
+				panel status: 'Inferring distributions + writing JSON...'.
+				td := model asTopicData.
+				td writeToFile: aFilePath.
+				panel finishAndClose: (panel stopRequested
+					ifTrue: ['STOPPED after ', ran printString, ' sweeps; wrote ',
+						td methodNames size printString, ' methods -> ', aFilePath]
+					ifFalse: ['Done. ', ran printString, ' sweeps, ',
+						td methodNames size printString, ' methods, k=', kTopics printString,
+						' -> ', aFilePath])]].
+	(Smalltalk at: #World ifAbsent: [nil]) isNil
+		ifTrue: [work value. ^ aFilePath].
+	work forkAt: Processor userBackgroundPriority.
+	^ aFilePath
+]
+
+{
+	#category : #generation,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:44'
 }
 SWABitermTopicModel class >> generatePackage: aPackageName k: kTopics sweeps: nSweeps toFile: aFilePath [
@@ -93,36 +141,39 @@ SWABitermTopicModel class >> generatePackage: aPackageName k: kTopics sweeps: nS
 
 {
 	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:45'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
+}
+SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps toFile: aFilePath [
+	"Fit a per-package BTM in the BACKGROUND behind a Stop window (see
+	#generateWholeImageInBackgroundK:sweeps:toFile:). Returns immediately.
+
+	(SWABitermTopicModel generatePackageInBackground: 'Morphic' k: 40 sweeps: 200
+		toFile: 'morphic-topics.json')"
+	^ self generateInBackground: [self onPackageNamed: aPackageName]
+		label: aPackageName
+		k: kTopics sweeps: nSweeps toFile: aFilePath
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
 }
 SWABitermTopicModel class >> generateWholeImageInBackgroundK: kTopics sweeps: nSweeps toFile: aFilePath [
-	"Fork the whole-image BTM at background priority (like the coverage runs) so the
-	image stays usable during the long fit. Transcript-logs phase progress. Answers
-	the forked Process. Open the topic map with SWANavPanel>>openTopics:onPackageNamed:
-	once the file appears.
+	"Fit a whole-image BTM in the BACKGROUND behind a Stop window, exactly like the
+	coverage runs (SWACoverage class>>generatePackages:tests:toFile:): opens a
+	SWACoverageRunPanel, forks the heavy work at userBackgroundPriority so the UI
+	stays live to deliver the Stop click, updates the status line per phase, and
+	AUTO-CLOSES when done. Returns immediately (the fit + file write happen in the
+	background). Headless (no World): runs inline and returns the path.
+
+	Clicking STOP finishes the current sweep, then still writes the JSON from the
+	partially-converged model (usable -- topics stabilise early).
 
 	(SWABitermTopicModel generateWholeImageInBackgroundK: 40 sweeps: 250
 		toFile: 'squeak-topics.json')"
-	^ [
-		| model td nB |
-		Transcript showln: 'BTM: harvesting methods...'.
-		model := self onAllMethods.
-		model k: kTopics.
-		Transcript showln: 'BTM: building corpus (', model methodKeysAndSources size printString, ' methods)...'.
-		model buildCorpus = 0
-			ifTrue: [Transcript showln: 'BTM: empty corpus, aborting.']
-			ifFalse: [
-				nB := model buildBiterms.
-				Transcript showln: 'BTM: ', nB printString, ' biterms; running ', nSweeps printString, ' sweeps...'.
-				model progressBlock: [:frac |
-					(frac * nSweeps) rounded \\ 10 = 0 ifTrue: [
-						Transcript showln: 'BTM: sweep ', (frac * nSweeps) rounded printString, '/', nSweeps printString]].
-				model runSweeps: nSweeps.
-				Transcript showln: 'BTM: inferring distributions + writing JSON...'.
-				td := model asTopicData.
-				td writeToFile: aFilePath.
-				Transcript showln: 'BTM: DONE -> ', aFilePath]
-	] forkAt: Processor userBackgroundPriority
+	^ self generateInBackground: [self onAllMethods]
+		label: 'Whole image'
+		k: kTopics sweeps: nSweeps toFile: aFilePath
 ]
 
 {
@@ -454,26 +505,31 @@ SWABitermTopicModel >> identifierRunsIn: aString [
 
 {
 	#category : #sampling,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:38'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:17'
 }
 SWABitermTopicModel >> initCounts [
 	"Random topic init (1-based) for every biterm, building nWZ (word x topic),
-	nZ (topic word-slot totals) and nB (biterms per topic)."
+	nZ (topic word-slot totals) and nB (biterms per topic).
+
+	Counts are stored as FLOATS in FloatArrays. Integer counts <= 2^53 are exact in
+	a double, so this is lossless, and it lets the hot sweep loop run PURE float
+	arithmetic (no per-element SmallInteger->Float coercion, which was the real cost),
+	fetching unboxed operands from primitive FloatArrays."
 	| w |
 	w := vocab size.
 	nWZ := Array new: w.
-	1 to: w do: [:i | nWZ at: i put: (Array new: k withAll: 0)].
-	nZ := Array new: k withAll: 0.
-	nB := Array new: k withAll: 0.
+	1 to: w do: [:i | nWZ at: i put: (FloatArray new: k)].
+	nZ := FloatArray new: k.
+	nB := FloatArray new: k.
 	biterms do: [:bt |
 		| z w1 w2 |
 		z := random nextInt: k.
 		bt at: 3 put: z.
 		w1 := bt at: 1. w2 := bt at: 2.
-		(nWZ at: w1) at: z put: ((nWZ at: w1) at: z) + 1.
-		(nWZ at: w2) at: z put: ((nWZ at: w2) at: z) + 1.
-		nZ at: z put: (nZ at: z) + 2.
-		nB at: z put: (nB at: z) + 1]
+		(nWZ at: w1) at: z put: ((nWZ at: w1) at: z) + 1.0.
+		(nWZ at: w2) at: z put: ((nWZ at: w2) at: z) + 1.0.
+		nZ at: z put: (nZ at: z) + 2.0.
+		nB at: z put: (nB at: z) + 1.0]
 ]
 
 {
@@ -574,6 +630,26 @@ SWABitermTopicModel >> runSweeps: nSweeps [
 ]
 
 {
+	#category : #sampling,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
+}
+SWABitermTopicModel >> runSweeps: nSweeps untilStopped: aStopBlock [
+	"Initialise counts and run up to nSweeps Gibbs passes, reporting progress and
+	checking aStopBlock (a 0-arg block answering true to abort) BETWEEN sweeps so a
+	Stop button can interrupt a long fit cleanly. Answers the number of sweeps
+	actually run (< nSweeps if stopped early)."
+	| done |
+	self initCounts.
+	done := 0.
+	1 to: nSweeps do: [:s |
+		(aStopBlock value) ifTrue: [^ done].
+		self sweep.
+		done := s.
+		progressBlock ifNotNil: [progressBlock value: s / nSweeps]].
+	^ done
+]
+
+{
 	#category : #inference,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:39'
 }
@@ -642,38 +718,39 @@ SWABitermTopicModel >> stopwords [
 
 {
 	#category : #sampling,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:46'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:17'
 }
 SWABitermTopicModel >> sweep [
 	"One collapsed-Gibbs pass over all biterms. Topics are 1-based internally.
 	For biterm (w1,w2): remove it, then draw z with
 	  P(z) ~ (nB_z + alpha) * (nW1z + beta)(nW2z + beta) / (nZ_z + W*beta + 1)^2
-	and re-add. The +1 accounts for the two removed slots.
+	and re-add.
 
-	Hot-loop optimizations: the per-topic denominator (nZ_t + W*beta)^-1 is cached in
-	invDenom and updated incrementally (only the two touched topics change per biterm),
-	turning the inner loop's division into a multiply. betaSq folds the two +beta
-	numerators' constant part."
-	| a p invDenom wBeta |
-	wBeta := vocab size * beta.
-	a := self alpha.
-	p := Array new: k.
-	"invDenom_t = 1 / (nZ_t + wBeta)^2 -- note we drop the +1 vs the exact form; with
-	 wBeta typically >> 1 the bias is negligible and it lets us cache purely on nZ."
-	invDenom := Array new: k.
+	Hot-loop optimizations:
+	- ALL counts (nB/nZ/nWZ) and float scratch (invDenom/p) are FloatArrays, so the
+	  inner loop is PURE double arithmetic on unboxed, primitive-backed slots -- no
+	  per-element integer->float coercion (which dominated the boxed-Array version).
+	- The per-topic denominator (nZ_t + W*beta)^-2 is cached in invDenom and updated
+	  incrementally (only the two touched topics change per biterm)."
+	| a p invDenom wBeta bt |
+	wBeta := (vocab size * beta) asFloat.
+	a := self alpha asFloat.
+	p := FloatArray new: k.
+	invDenom := FloatArray new: k.
 	1 to: k do: [:t | | d | d := (nZ at: t) + wBeta. invDenom at: t put: 1.0 / (d * d)].
-	biterms do: [:bt |
+	1 to: biterms size do: [:bi |
 		| z w1 w2 nw1 nw2 sum r cum pick d |
+		bt := biterms at: bi.
 		z := bt at: 3.
 		w1 := bt at: 1. w2 := bt at: 2.
 		nw1 := nWZ at: w1. nw2 := nWZ at: w2.
 		"remove current assignment"
-		nw1 at: z put: (nw1 at: z) - 1.
-		nw2 at: z put: (nw2 at: z) - 1.
-		nZ at: z put: (nZ at: z) - 2.
-		nB at: z put: (nB at: z) - 1.
+		nw1 at: z put: (nw1 at: z) - 1.0.
+		nw2 at: z put: (nw2 at: z) - 1.0.
+		nZ at: z put: (nZ at: z) - 2.0.
+		nB at: z put: (nB at: z) - 1.0.
 		d := (nZ at: z) + wBeta. invDenom at: z put: 1.0 / (d * d).
-		"unnormalised cumulative P(z)"
+		"unnormalised cumulative P(z) -- pure float"
 		sum := 0.0.
 		1 to: k do: [:t |
 			sum := sum + (((nB at: t) + a)
@@ -687,10 +764,10 @@ SWABitermTopicModel >> sweep [
 		pick := cum.
 		"re-add"
 		bt at: 3 put: pick.
-		nw1 at: pick put: (nw1 at: pick) + 1.
-		nw2 at: pick put: (nw2 at: pick) + 1.
-		nZ at: pick put: (nZ at: pick) + 2.
-		nB at: pick put: (nB at: pick) + 1.
+		nw1 at: pick put: (nw1 at: pick) + 1.0.
+		nw2 at: pick put: (nw2 at: pick) + 1.0.
+		nZ at: pick put: (nZ at: pick) + 2.0.
+		nB at: pick put: (nB at: pick) + 1.0.
 		d := (nZ at: pick) + wBeta. invDenom at: pick put: 1.0 / (d * d)]
 ]
 
