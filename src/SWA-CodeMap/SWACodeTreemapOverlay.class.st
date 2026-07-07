@@ -73,11 +73,11 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:43'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	"Color (base-tint) modes for the Code Map. Most are intrinsic (kind, LOC,
-	duplication, ...). The two DATA-DRIVEN legacy entries -- test coverage and
+	duplication, topic, ...). The two DATA-DRIVEN legacy entries -- test coverage and
 	invocation tally -- acquire their data lazily when picked.
 
 	APPENDED after the intrinsics: one entry per COLOR-capable METRIC of every
@@ -95,6 +95,7 @@ SWACodeTreemapOverlay >> colorModeOptions [
 		(#recency          'By recency (last changed)')
 		(#author           'By author (last changed)')
 		(#duplication      'By duplication (Jaccard clone heat)')
+		(#topic            'By topic (BTM hue families)')
 		(#coverage         'By test coverage (green covered + blue tests)')
 		(#tally            'By invocation tally (call-count heat)')
 	) asOrderedCollection.

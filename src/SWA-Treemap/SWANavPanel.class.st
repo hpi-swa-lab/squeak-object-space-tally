@@ -330,6 +330,43 @@ SWANavPanel class >> openPanels [
 ]
 
 {
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:43'
+}
+SWANavPanel class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
+	"Open a normal (LOC-weighted) code treemap tinted by a Biterm Topic Model.
+	Loads an SWATopicData JSON file (Class>>selector keyed, image-independent),
+	sets it on the root so #topic color mode paints each method-leaf tile by its
+	dominant topic's hue family and each aggregate tile with a topic-mixture bar.
+
+	Generate the file first (whole-image or per-package):
+	  (SWABitermTopicModel onPackageNamed: 'Morphic') buildAndRun: 200) writeToFile: 'morphic-topics.json'
+
+	(SWANavPanel openTopics: 'morphic-topics.json' onPackageNamed: 'Morphic*')"
+	| data root window |
+	data := SWATopicData new loadFromFile: aTopicFileName.
+	root := (SWACodeRootNode new)
+		name: aPackageGlob;
+		topicData: data;
+		addPackages: aPackageGlob;
+		yourself.
+	window := root openTreemapLeafKind: nil.
+	window allMorphs
+		detect: [:m | m isKindOf: SWACodeTreemapMorph]
+		ifFound: [:tm | tm colorMode: #topic]
+		ifNone: [].
+	window allMorphs
+		detect: [:m | m isKindOf: SWANavPanel]
+		ifFound: [:p |
+			p treemapCoverageStatus: 'Topics (BTM): ', data k printString,
+				' topics in ', data hueFamilyCount printString, ' hue families, ',
+				data methodNames size printString, ' methods']
+		ifNone: [].
+	window setLabel: 'Topic Treemap: ', aPackageGlob, '  (BTM hue families)'.
+	^ window
+]
+
+{
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
 }

@@ -26,7 +26,9 @@ Class {
 		'weightMetric',
 		'rollupBytes',
 		'sizeMetric',
-		'rollupDataset'
+		'rollupDataset',
+		'topicData',
+		'rollupTopic'
 	],
 	#classVars : [
 		'TestWeightFloorInvocations',
@@ -335,6 +337,21 @@ SWACodeNode >> datasetWeight [
 ]
 
 {
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:41'
+}
+SWACodeNode >> dominantTopic [
+	"The argmax topic id (0-based) over this subtree's rolled-up distribution, or nil
+	if no topic data / no covered methods below."
+	| dist best bestT |
+	dist := self topicDistribution.
+	dist isEmpty ifTrue: [^ nil].
+	best := -1.0. bestT := nil.
+	dist keysAndValuesDo: [:topic :wgt | wgt > best ifTrue: [best := wgt. bestT := topic]].
+	^ bestT
+]
+
+{
 	#category : #graphviz,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
 }
@@ -428,6 +445,20 @@ SWACodeNode >> flushSizeRollups [
 	rollupBytes := nil.
 	rollupCoverage := nil.
 	rollupDataset := nil
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:41'
+}
+SWACodeNode >> hueFamily [
+	"The hue family index (0-based) for this node's dominant topic, or nil."
+	| td topic |
+	td := self topicData.
+	td ifNil: [^ nil].
+	topic := self dominantTopic.
+	topic ifNil: [^ nil].
+	^ td hueFamilyForTopic: topic
 ]
 
 {
@@ -784,6 +815,49 @@ SWACodeNode >> testWeightFloor [
 	^ self coverageWeightMode == #invocations
 		ifTrue: [self class testWeightFloorInvocations]
 		ifFalse: [self class testWeightFloorTests]
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:41'
+}
+SWACodeNode >> topicData [
+	"The SWATopicData driving #topic coloring, or nil. Set on the root; children
+	inherit it up the parent chain (like #coverageData), so lazily-built nodes see
+	it without per-node wiring."
+	topicData ifNotNil: [^ topicData].
+	^ parent ifNil: [nil] ifNotNil: [parent topicData]
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:41'
+}
+SWACodeNode >> topicData: aTopicDataOrNil [
+	"Set the SWATopicData that drives #topic coloring for this subtree. Normally set
+	only on the root node; children inherit it by walking up the parent chain (see
+	#topicData). Clears any cached dominant-topic roll-up."
+	topicData := aTopicDataOrNil.
+	rollupTopic := nil
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:41'
+}
+SWACodeNode >> topicDistribution [
+	"A Dictionary topicId -> summed weight over this subtree's method leaves, using
+	the inherited SWATopicData. Aggregate tiles roll up their children; method leaves
+	answer their own single distribution. Cached in rollupTopic. Empty if no data."
+	| td |
+	rollupTopic ifNotNil: [^ rollupTopic].
+	td := self topicData.
+	td ifNil: [^ rollupTopic := Dictionary new].
+	rollupTopic := Dictionary new.
+	self children do: [:c |
+		(c topicDistribution) keysAndValuesDo: [:topic :wgt |
+			rollupTopic at: topic put: (rollupTopic at: topic ifAbsent: [0.0]) + wgt]].
+	^ rollupTopic
 ]
 
 {

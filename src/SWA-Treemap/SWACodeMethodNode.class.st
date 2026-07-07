@@ -397,3 +397,21 @@ SWACodeMethodNode >> timeStamp [
 	^ cachedTimeStamp ifNil: [
 		cachedTimeStamp := ([subject timeStamp] on: Error do: [:e | nil]) ifNil: ['']]
 ]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:41'
+}
+SWACodeMethodNode >> topicDistribution [
+	"Leaf override: this method's own topic distribution from the inherited
+	SWATopicData, as a Dictionary topicId -> weight. Empty if the method was pruned
+	out of the model (too few surviving words) or no data is set."
+	| td dist result |
+	rollupTopic ifNotNil: [^ rollupTopic].
+	td := self topicData.
+	td ifNil: [^ rollupTopic := Dictionary new].
+	result := Dictionary new.
+	dist := td distributionFor: self crossRefKey.
+	dist do: [:pair | result at: pair first put: pair last].
+	^ rollupTopic := result
+]

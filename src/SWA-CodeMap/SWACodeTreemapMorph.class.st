@@ -87,7 +87,7 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:51'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
 }
 SWACodeTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch on the active color mode. A minted dataset-metric symbol
@@ -102,6 +102,7 @@ SWACodeTreemapMorph >> baseColorForNode: aNode [
 	colorMode == #recency ifTrue: [^ self colorByRecency: aNode].
 	colorMode == #author ifTrue: [^ self colorByAuthor: aNode].
 	colorMode == #duplication ifTrue: [^ self colorByDuplication: aNode].
+	colorMode == #topic ifTrue: [^ self colorByTopic: aNode].
 	colorMode == #byteComposition ifTrue: [^ Color gray: 0.18].   "bar drawn on top"
 	^ self colorByKind: aNode
 ]
@@ -240,6 +241,33 @@ SWACodeTreemapMorph >> colorByRecency: aNode [
 	"t=1 (recent) -> hue 10 (red-orange); t=0 (old) -> hue 230 (blue)."
 	hue := 230.0 - (t * 220.0).
 	^ Color h: hue s: 0.75 v: 0.9
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
+}
+SWACodeTreemapMorph >> colorByTopic: aNode [
+	"Tile base color in #topic mode.
+
+	METHOD LEAVES get a solid hue from their dominant topic's hue family; brightness
+	encodes the dominant topic's weight (confidence). Methods with no topic (pruned
+	from the model, or no data) get a neutral dark gray.
+
+	AGGREGATE tiles (package/class/category) get a neutral DARK base; the topic-
+	mixture proportional bar (#drawTopicBar:in:on:) is painted on TOP in
+	#drawTileContent:in:on:, so the base only shows through where the bar is skipped."
+	| fam hue conf dist dom |
+	(aNode isKindOf: SWACodeMethodNode) ifFalse: [^ Color h: 0 s: 0.0 v: 0.2].
+	fam := aNode hueFamily.
+	fam ifNil: [^ Color gray: 0.22].
+	hue := self hueForFamily: fam.
+	dist := aNode topicDistribution.
+	dom := aNode dominantTopic.
+	conf := (dom notNil and: [dist notEmpty])
+		ifTrue: [(dist at: dom ifAbsent: [0.5]) min: 1.0]
+		ifFalse: [0.5].
+	^ Color h: hue s: 0.65 v: (0.55 + (conf * 0.4))
 ]
 
 {
@@ -707,7 +735,7 @@ SWACodeTreemapMorph >> drawDuplicationBar: aNode in: screenR on: aCanvas [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:59'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:43'
 }
 SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	"Extra per-tile content painted over the fill, before frame/label.
@@ -720,6 +748,10 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	DUPLICATION mode (#colorMode == #duplication): on AGGREGATE tiles paint the
 	'percent of methods duplicated' proportional bar (#drawDuplicationBar:in:on:);
 	method leaves keep their solid heat color, so fall through. Then return.
+
+	TOPIC mode (#colorMode == #topic): on AGGREGATE tiles paint the topic-mixture
+	bar (#drawTopicBar:in:on:); method leaves keep their solid hue, so fall through.
+	Then return.
 
 	Otherwise, under a loaded COVERAGE overlay, paint a horizontal proportional bar
 	across an AGGREGATE tile, left to right:
@@ -739,6 +771,10 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	colorMode == #duplication ifTrue: [
 		(aNode isKindOf: SWACodeMethodNode) ifFalse: [
 			self drawDuplicationBar: aNode in: screenR on: aCanvas].
+		^ self].
+	colorMode == #topic ifTrue: [
+		(aNode isKindOf: SWACodeMethodNode) ifFalse: [
+			self drawTopicBar: aNode in: screenR on: aCanvas].
 		^ self].
 	props := self coverageProportionsForNode: aNode.
 	props ifNil: [^ self].
@@ -769,6 +805,35 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 			aCanvas fillRectangle: (x @ screenR top corner: segRight @ screenR bottom)
 				color: assoc value.
 			x := segRight]]
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
+}
+SWACodeTreemapMorph >> drawTopicBar: aNode in: screenR on: aCanvas [
+	"Paint a horizontal proportional topic-mixture bar across an AGGREGATE tile.
+	Each segment is one topic present in the subtree, width proportional to its
+	rolled-up weight, colored by that topic's hue family. Segments are drawn in
+	descending-weight order so the dominant topic leads. Pixel-fill only."
+	| dist total sorted x drawnSoFar |
+	dist := aNode topicDistribution.
+	dist isEmpty ifTrue: [^ self].
+	total := dist values inject: 0.0 into: [:s :v | s + v].
+	total <= 0 ifTrue: [^ self].
+	sorted := dist associations asSortedCollection: [:a :b | a value >= b value].
+	x := screenR left.
+	drawnSoFar := 0.0.
+	sorted do: [:assoc |
+		| topic hue segRight |
+		topic := assoc key.
+		drawnSoFar := drawnSoFar + assoc value.
+		hue := self hueForFamily: (self topicDataOrNil ifNotNil: [:td | td hueFamilyForTopic: topic]).
+		segRight := (screenR left + (screenR width * drawnSoFar / total)) rounded min: screenR right.
+		hue ifNotNil: [
+			aCanvas fillRectangle: (x @ screenR top corner: segRight @ screenR bottom)
+				color: (Color h: hue s: 0.6 v: 0.8)].
+		x := segRight]
 ]
 
 {
@@ -1062,6 +1127,21 @@ SWACodeTreemapMorph >> hasRenderedAggregateChildrenUnder: aNode [
 ]
 
 {
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
+}
+SWACodeTreemapMorph >> hueForFamily: familyIndex [
+	"Map a 0-based hue family index to a hue angle (degrees). Spread the families
+	evenly around the wheel using the topic data's hueFamilyCount when available,
+	else 12. familyIndex nil -> nil (neutral tile)."
+	| td n |
+	familyIndex ifNil: [^ nil].
+	td := self topicDataOrNil.
+	n := (td notNil and: [td hueFamilyCount > 0]) ifTrue: [td hueFamilyCount] ifFalse: [12].
+	^ (familyIndex \\ n) * 360.0 / n
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:05'
 }
@@ -1087,6 +1167,16 @@ SWACodeTreemapMorph >> isDuplicationProvenanceActive [
 	"True when a duplication (link-capable) decoration metric is active, so the side
 	pane lists near-duplicates and a click there DIFFS rather than navigates."
 	^ self decorationMetric notNil and: [self decorationMetric supportsLinks]
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
+}
+SWACodeTreemapMorph >> isTopicProvenanceActive [
+	"True when the map is in #topic color mode and topic data is loaded, so the
+	side pane lists the selection's topic mixture instead of coverage provenance."
+	^ colorMode == #topic and: [self topicDataOrNil notNil]
 ]
 
 {
@@ -1325,7 +1415,7 @@ SWACodeTreemapMorph >> previewDuplicatePairFrom: fromKey to: toKey [
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> provenanceListForSelection [
 	"Mode-aware side pane. When a DUPLICATION decoration metric is active:
@@ -1335,8 +1425,15 @@ SWACodeTreemapMorph >> provenanceListForSelection [
 	   to the top 50 with a '... N more' note.
 	The method-vs-container split is by NODE KIND (SWACodeMethodNode), NOT by crossRefKey
 	-- classes DO have a crossRefKey but are still containers whose methods we aggregate.
-	Entries are  label -> navigateKey. Otherwise fall back to coverage provenance."
+	Entries are  label -> navigateKey.
+
+	When #topic color mode is active, list the selection's TOPIC MIXTURE instead
+	('NN%  topWords', best-first). Otherwise fall back to coverage provenance."
 	| metric node |
+	self isTopicProvenanceActive ifTrue: [
+		node := self selectedNode.
+		node ifNil: [^ #()].
+		^ self topicProvenanceListFor: node].
 	metric := self decorationMetric.
 	(metric notNil and: [metric supportsLinks]) ifTrue: [
 		node := self selectedNode.
@@ -1352,15 +1449,18 @@ SWACodeTreemapMorph >> provenanceListForSelection [
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> provenanceListTitle [
-	"Mode-aware side-pane title. Duplication metric active:
+	"Mode-aware side-pane title. Topic mode active -> the selection's topic label
+	or topic-span count. Duplication metric active:
 	 - a METHOD selection -> its near-duplicate count;
 	 - ANY container (package/class/category) -> total near-duplicate PAIRS under the
 	   subtree.
 	Split by NODE KIND, not crossRefKey (classes have a key but are containers here)."
 	| metric node |
+	self isTopicProvenanceActive ifTrue: [
+		^ self topicProvenanceTitleFor: self selectedNode].
 	metric := self decorationMetric.
 	(metric notNil and: [metric supportsLinks]) ifTrue: [
 		node := self selectedNode.
@@ -1540,6 +1640,57 @@ SWACodeTreemapMorph >> testProvenanceNoteForNode: aNode [
 		'covers ', methods size printString, ' method',
 		(methods size = 1 ifTrue: [''] ifFalse: ['s']),
 		' (shown in green)'
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
+}
+SWACodeTreemapMorph >> topicDataOrNil [
+	"The SWATopicData in effect for this map (inherited from the root node), or nil."
+	^ rootNode ifNil: [nil] ifNotNil: [rootNode topicData]
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
+}
+SWACodeTreemapMorph >> topicProvenanceListFor: aNode [
+	"The topic-mixture rows for a selection in #topic mode: one entry per topic
+	present in the node's (rolled-up) distribution, best-first, as
+	  'NN%  w1 w2 w3 ...'  ->  navigateKey.
+	The navigate key is the node's own crossRefKey (clicking re-selects it; topics
+	aren't separately navigable), so container rows stay inert-but-harmless."
+	| td dist total sorted navKey |
+	td := self topicDataOrNil.
+	td ifNil: [^ #()].
+	dist := aNode topicDistribution.
+	dist isEmpty ifTrue: [^ #()].
+	total := dist values inject: 0.0 into: [:s :v | s + v].
+	total <= 0 ifTrue: [^ #()].
+	navKey := aNode crossRefKey ifNil: [''].
+	sorted := dist associations asSortedCollection: [:a :b | a value >= b value].
+	^ (sorted collect: [:assoc |
+		| pct label |
+		pct := (assoc value / total * 100) rounded.
+		label := pct printString, '%  ', (td labelForTopic: assoc key).
+		label -> navKey]) asArray
+]
+
+{
+	#category : #topic,
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
+}
+SWACodeTreemapMorph >> topicProvenanceTitleFor: aNode [
+	"Side-pane heading in #topic mode: for a METHOD leaf, its dominant topic label;
+	for a CONTAINER, how many topics its subtree spans."
+	| dist |
+	aNode ifNil: [^ 'Topics'].
+	dist := aNode topicDistribution.
+	dist isEmpty ifTrue: [^ 'No topic (method pruned or no data)'].
+	(aNode isKindOf: SWACodeMethodNode) ifTrue: [
+		^ 'Topic: ', (self topicDataOrNil labelForTopic: aNode dominantTopic)].
+	^ 'Topic mix (', dist size printString, ' topics in subtree)'
 ]
 
 {
