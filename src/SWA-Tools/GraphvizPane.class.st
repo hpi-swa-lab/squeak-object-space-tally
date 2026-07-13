@@ -183,17 +183,36 @@ GraphvizPane >> graph [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:55'
 }
 GraphvizPane >> graph: aGraphvizMorph [
-	"Place the given GraphvizMorph inside the scroller (a TransformMorph)."
+	"Place the given GraphvizMorph inside the scroller, resetting the view to the
+	top-left at 100%."
+	self graph: aGraphvizMorph keepView: false
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:55'
+}
+GraphvizPane >> graph: aGraphvizMorph keepView: keepView [
+	"Place the given GraphvizMorph inside the scroller (a TransformMorph). When
+	keepView is true, preserve the current zoom (scroller scale) and pan (scroller
+	offset) across the swap -- used when the graph is RE-rendered with the same
+	layout (e.g. a color-mode change) so the user stays where they were. When false,
+	reset to the top-left at 100%."
+	| savedOffset savedScale |
+	savedOffset := scroller offset.
+	savedScale := scroller scale.
 	graph ifNotNil: [graph delete].
 	graph := aGraphvizMorph.
 	graph position: 0 @ 0.
 	graph panHandler: self.
 	scroller removeAllMorphs.
 	scroller addMorph: graph.
-	scroller offset: 0 @ 0.
+	keepView
+		ifTrue: [scroller scale: savedScale. scroller offset: savedOffset]
+		ifFalse: [zoom := 1.0. scroller scale: 1.0. scroller offset: 0 @ 0].
 	buttons ifNil: [self addZoomButtons].
 	self setScrollDeltas.
 ]
@@ -223,11 +242,13 @@ GraphvizPane >> hUnadjustedScrollRange [
 
 {
 	#category : #'event handling',
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:11'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:50'
 }
 GraphvizPane >> handlesMouseWheel: evt [
-	"Always handle the wheel when zooming; otherwise defer to scrolling."
-	(evt controlKeyPressed or: [evt commandKeyPressed]) ifTrue: [^ true].
+	"Always handle the wheel when zooming; otherwise defer to scrolling. The wheel
+	EVENT does not carry keyboard modifiers on this platform, so read the live
+	Ctrl/Cmd state from the Sensor instead of evt."
+	self zoomModifierActiveFor: evt ifTrue: [^ true].
 	^ super handlesMouseWheel: evt
 ]
 
@@ -292,16 +313,35 @@ GraphvizPane >> minZoom [
 
 {
 	#category : #'event handling',
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:11'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:50'
 }
 GraphvizPane >> mouseWheel: evt [
-	"Ctrl/Cmd + wheel zooms about the pointer; plain wheel scrolls."
-	(evt controlKeyPressed or: [evt commandKeyPressed])
-		ifTrue: [
-			evt isWheelUp ifTrue: [self zoom: zoom * 1.15 at: evt position].
-			evt isWheelDown ifTrue: [self zoom: zoom / 1.15 at: evt position].
-			^ self].
+	"Ctrl/Cmd + wheel zooms about the pointer; plain wheel scrolls. The wheel event
+	does not carry keyboard modifiers on this platform, so the Ctrl/Cmd state is
+	read live from the Sensor (see #zoomModifierActiveFor:ifTrue:)."
+	self zoomModifierActiveFor: evt ifTrue: [
+		evt isWheelUp ifTrue: [self zoom: zoom * 1.15 at: evt position].
+		evt isWheelDown ifTrue: [self zoom: zoom / 1.15 at: evt position].
+		^ self].
 	super mouseWheel: evt
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:43'
+}
+GraphvizPane >> onFieldClick: aBlock [
+	"Forward record sub-field click handling to the wrapped GraphvizMorph."
+	graph onFieldClick: aBlock
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:42'
+}
+GraphvizPane >> onMenuRequest: aBlock [
+	"Forward right-click context-menu requests to the wrapped GraphvizMorph."
+	graph onMenuRequest: aBlock
 ]
 
 {
@@ -442,6 +482,24 @@ GraphvizPane >> zoom: aFactor at: aGlobalPoint [
 }
 GraphvizPane >> zoomIn [
 	self zoom: zoom * 1.25
+]
+
+{
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:50'
+}
+GraphvizPane >> zoomModifierActiveFor: evt ifTrue: aBlock [
+	"Answer (and, when true, run aBlock) whether the zoom modifier (Ctrl or Cmd) is
+	held. Prefer the event's own modifier bits, but fall back to the live Sensor
+	state because MouseWheelEvents arrive here WITHOUT modifier bits on this
+	platform (verified: evt controlKeyPressed is always false under Ctrl+wheel)."
+	| active |
+	active := evt controlKeyPressed
+		or: [evt commandKeyPressed
+		or: [Sensor controlKeyPressed
+		or: [Sensor commandKeyPressed]]].
+	active ifTrue: [aBlock value].
+	^ active
 ]
 
 {

@@ -47,6 +47,35 @@ Class {
 }
 
 {
+	#category : #styling,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
+}
+SWAView >> aboutToStyle: aStyler [
+	"Shout styling hook (this morph is the source pane's model). Give the styler the
+	selected node's class context so ivars/selectors highlight correctly, then allow
+	styling to proceed. The class is taken from #styleClassOrNil when the node
+	supplies it (code/treemap nodes), else from #methodReference (flamegraph frames).
+	Subclasses may override to suppress styling (e.g. while showing a diff)."
+	| cls |
+	cls := self styleClassForSelection.
+	(cls notNil and: [aStyler respondsTo: #classOrMetaClass:])
+		ifTrue: [aStyler classOrMetaClass: cls].
+	^ true
+]
+
+{
+	#category : #styling,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
+}
+SWAView >> aboutToStyle: aStyler requestor: anObject [
+	"2-arg Shout hook the styler actually sends; delegates to the 1-arg
+	#aboutToStyle:, mirroring Model>>aboutToStyle:requestor:. A SWAView is the
+	source pane's Shout model (see SWANavPanel>>newSourceMorph), so every view
+	needs this."
+	^ self aboutToStyle: aStyler
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:26'
 }
@@ -174,6 +203,59 @@ SWAView >> colorForNode: aNode [
 	(self isSearchDimmed: aNode)
 		ifTrue: [^ base alphaMixed: 0.16 with: (Color gray: 0.1)].
 	^ base
+]
+
+{
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:32'
+}
+SWAView >> colorMenuMorph [
+	"Build the Color (instant recolor) menu from #colorModeOptions, ticking the
+	current #colorMode. Generic mechanism shared by every SWAView: the context menu
+	and the header 'Color' button. Answers nil when the view offers no color options.
+	Selecting an item sends #colorMode: to the view."
+	| opts current menu |
+	opts := self colorModeOptions.
+	opts isEmpty ifTrue: [^ nil].
+	current := self colorMode.
+	menu := MenuMorph new defaultTarget: self.
+	opts do: [:pair | | mode label |
+		mode := pair first.
+		label := current == mode
+			ifTrue: ['* ', pair second]
+			ifFalse: ['   ', pair second].
+		menu add: label selector: #colorMode: argument: mode].
+	^ menu
+]
+
+{
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:32'
+}
+SWAView >> colorMode [
+	"The active color mode symbol (from #colorModeOptions), or nil if the view has
+	no switchable coloring. Subclasses that recolor override this with an ivar."
+	^ nil
+]
+
+{
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:32'
+}
+SWAView >> colorMode: aSymbol [
+	"Set the active color mode and recolor. Default: no-op (view has no switchable
+	coloring). Subclasses override to store the mode and re-render."
+	^ self
+]
+
+{
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:32'
+}
+SWAView >> colorModeOptions [
+	"{ colorModeSymbol. menuLabel } pairs offered by the Color menu. Default: none
+	(no Color menu). Subclasses that support recoloring override this."
+	^ #()
 ]
 
 {
@@ -667,6 +749,18 @@ SWAView >> navPanel: aSWANavPanel [
 ]
 
 {
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:32'
+}
+SWAView >> popUpColorMenu [
+	"Pop up the Color menu standalone (header 'Color' button). No-op if the view
+	offers no color options."
+	| menu |
+	menu := self colorMenuMorph.
+	menu ifNotNil: [menu popUpInWorld: self world]
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
 }
@@ -939,6 +1033,22 @@ SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 	self highlightWeights: (useInvocations
 		ifTrue: [aCoverageData invocationMap]
 		ifFalse: [aCoverageData resultMap])
+]
+
+{
+	#category : #styling,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
+}
+SWAView >> styleClassForSelection [
+	"The class/metaclass context for Shout styling of the selected node's source,
+	or nil. Prefers #styleClassOrNil (code + treemap nodes); falls back to the first
+	element of #methodReference (st-spy flamegraph frames)."
+	selectedNode ifNil: [^ nil].
+	(selectedNode respondsTo: #styleClassOrNil)
+		ifTrue: [^ selectedNode styleClassOrNil].
+	(selectedNode respondsTo: #methodReference)
+		ifTrue: [^ selectedNode methodReference ifNotNil: [:ref | ref first]].
+	^ nil
 ]
 
 {

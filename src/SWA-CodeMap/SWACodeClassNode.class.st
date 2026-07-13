@@ -64,6 +64,16 @@ SWACodeClassNode >> crossRefKey [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:25'
+}
+SWACodeClassNode >> instVarNames [
+	"The receiver class's own instance-variable names (UML state / attributes),
+	in definition order. Excludes inherited ivars."
+	^ subject instVarNames
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
 }
 SWACodeClassNode >> kind [
@@ -93,25 +103,98 @@ SWACodeClassNode >> name [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:12'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:26'
+}
+SWACodeClassNode >> recordFieldNodes [
+	"The SWACodeNode for each record field, by field index, matching the row order
+	produced by #recordLabel: index 0 = the class name row, then one entry PER IVAR
+	(the class itself -- selecting a state row selects the class, since an ivar is
+	not a browsable node), then one entry per method in #recordMethodNodes order.
+	Used to resolve a clicked field index back to the node it represents."
+	| out |
+	out := OrderedCollection new.
+	out add: self.                                   "0: name row"
+	self instVarNames do: [:v | out add: self].      "ivar rows -> the class"
+	out addAll: self recordMethodNodes.              "method rows"
+	^ out asArray
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:40'
 }
 SWACodeClassNode >> recordLabel [
-	"A DOT record label (UML-style): class name on top, instance methods below,
-	then a separated compartment of class-side (static) methods. Static methods
-	are prefixed with '$' (UML static marker). Each method line ends with '\\l'
-	so field text is LEFT-justified. The whole record is one node."
-	| ws inst stat |
+	"The default UML class box (flat fill by kind). See #recordLabelColorMode:maxLoc:."
+	^ self recordLabelColorMode: #kind maxLoc: 0
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 19:01'
+}
+SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc [
+	"A Graphviz HTML-like label (UML class box) as a <table>: class name (bold) on
+	top, a STATE compartment (one row per ivar), then a METHODS compartment (one row
+	per method). Compartments are separated by <hr/> rules; rows are borderless and
+	left-aligned. Row order matches #recordFieldNodes. Static methods are prefixed
+	with '$' (UML static marker).
+
+	aColorMode selects the fill:
+	  #kind -- flat pastel table background per node kind (the default).
+	  #loc  -- neutral table background, and each METHOD cell is tinted by its LOC on
+	           a green->red heat ramp scaled to aMaxLoc (the max method LOC in the
+	           whole diagram, so colors are comparable across classes).
+
+	Meant to be emitted between < and > in the DOT node statement (an HTML label)."
+	| ws bg ivars idx locMode |
+	locMode := aColorMode = #loc.
+	bg := locMode ifTrue: ['#f4f4f4'] ifFalse: [self dotFillColor].
+	ivars := self instVarNames.
+	ws := WriteStream on: String new.
+	ws nextPutAll: '<table border="1" cellborder="0" cellspacing="0" cellpadding="3" bgcolor="'.
+	ws nextPutAll: bg; nextPutAll: '">'.
+	"Name compartment."
+	ws nextPutAll: '<tr><td align="text"><b>'.
+	ws nextPutAll: (SWACodeNode htmlEscape: self name).
+	ws nextPutAll: '</b><br align="left"/></td></tr>'.
+	"State compartment."
+	idx := 0.
+	ivars isEmpty ifFalse: [
+		ws nextPutAll: '<hr/>'.
+		ivars do: [:v |
+			idx := idx + 1.
+			ws nextPutAll: '<tr><td align="text" port="m', idx printString, '">'.
+			ws nextPutAll: (SWACodeNode htmlEscape: v).
+			ws nextPutAll: '<br align="left"/></td></tr>']].
+	"Methods compartment (per-cell LOC tint in #loc mode)."
+	self recordMethodNodes isEmpty ifFalse: [
+		ws nextPutAll: '<hr/>'.
+		self recordMethodNodes do: [:m | | text cellBg |
+			idx := idx + 1.
+			text := m isStatic ifTrue: ['$', m name] ifFalse: [m name].
+			ws nextPutAll: '<tr><td align="text" port="m', idx printString, '"'.
+			locMode ifTrue: [
+				cellBg := SWACodeNode locHeatColor: m loc max: aMaxLoc.
+				ws nextPutAll: ' bgcolor="'; nextPutAll: cellBg; nextPutAll: '"'].
+			ws nextPutAll: '>'.
+			ws nextPutAll: (SWACodeNode htmlEscape: text).
+			ws nextPutAll: '<br align="left"/></td></tr>']].
+	ws nextPutAll: '</table>'.
+	^ ws contents
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:43'
+}
+SWACodeClassNode >> recordMethodNodes [
+	"The method nodes as laid out in #recordLabel: instance methods first, then
+	static (class-side) methods. This ordering defines the record's method field
+	order (record field index = this index + 1; field 0 is the class name)."
+	| inst stat |
 	inst := self methodNodes reject: [:m | m isStatic].
 	stat := self methodNodes select: [:m | m isStatic].
-	ws := WriteStream on: String new.
-	ws nextPutAll: (SWACodeNode dotEscape: self name).
-	inst do: [:m |
-		ws nextPutAll: ' | '; nextPutAll: (SWACodeNode dotEscape: m name, '  (', m loc printString, ')'); nextPutAll: '\l'].
-	stat isEmpty ifFalse: [
-		ws nextPutAll: ' |'.   "blank separator compartment"
-		stat do: [:m |
-			ws nextPutAll: ' | '; nextPutAll: (SWACodeNode dotEscape: '$', m name, '  (', m loc printString, ')'); nextPutAll: '\l']].
-	^ ws contents
+	^ inst asArray, stat asArray
 ]
 
 {

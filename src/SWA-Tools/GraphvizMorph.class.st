@@ -24,7 +24,12 @@ Class {
 		'graphSize',
 		'nodeAction',
 		'panHandler',
-		'engine'
+		'engine',
+		'fieldRects',
+		'fieldAction',
+		'selectionRect',
+		'selectionColor',
+		'menuAction'
 	],
 	#category : #'SWA-Tools',
 	#'squeak_changestamp' : '<historical>'
@@ -89,6 +94,23 @@ GraphvizMorph >> dotSource [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
+}
+GraphvizMorph >> drawOn: aCanvas [
+	"Draw the layout image (super), then, if an element is selected, frame it with a
+	blue selection border via the shared SWASelectionPainter (same feedback the
+	treemap uses). The enclosing scroll/zoom pane transforms this canvas, so the
+	frame tracks the graph as it pans and zooms."
+	super drawOn: aCanvas.
+	selectionRect ifNotNil: [:r |
+		SWASelectionPainter
+			selectionFrameOn: aCanvas
+			rect: (r translateBy: self bounds origin)
+			color: self selectionColor]
+]
+
+{
 	#category : #menu,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
 }
@@ -120,6 +142,24 @@ GraphvizMorph >> engine: aString [
 
 {
 	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:43'
+}
+GraphvizMorph >> fieldAt: aWorldPoint [
+	"Answer the record sub-field hit by aWorldPoint as an Association
+	nodeName -> fieldIndex (0-based, top-to-bottom), or nil. fieldRects are in
+	morph-local pixel coordinates, so subtract our origin. Fields are contiguous
+	within a node, so first containment wins."
+	| local |
+	fieldRects isNil ifTrue: [^ nil].
+	local := aWorldPoint - self bounds origin.
+	fieldRects do: [:assoc |
+		((assoc value second) containsPoint: local)
+			ifTrue: [^ assoc key -> (assoc value first)]].
+	^ nil
+]
+
+{
+	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/17/2026 15:28'
 }
 GraphvizMorph >> handlesMouseDown: evt [
@@ -128,14 +168,20 @@ GraphvizMorph >> handlesMouseDown: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:22'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:42'
 }
 GraphvizMorph >> mouseDown: evt [
-	"Hit-test the click against node rectangles; if a node is hit, fire the
-	node action. Otherwise, if a panHandler is set, let it pan; else fall
-	back to default behavior (e.g. dragging via halo)."
-	| node |
-
+	"Right-click (yellow button) with a menuAction set -> fire the context menu.
+	Otherwise hit-test the click: if a fieldAction is set and the click lands in a
+	record sub-field, fire it with nodeName -> fieldIndex; else if a node is hit and
+	a nodeAction is set, fire that with the node name; else pan (if a panHandler is
+	set) or fall back to default behavior (e.g. dragging via halo)."
+	| field node |
+	(evt yellowButtonPressed and: [menuAction notNil])
+		ifTrue: [^ menuAction value: evt].
+	fieldAction ifNotNil: [
+		field := self fieldAt: evt cursorPoint.
+		field ifNotNil: [^ fieldAction value: field]].
 	node := self nodeAt: evt cursorPoint.
 	(node notNil and: [nodeAction notNil])
 		ifTrue: [^ nodeAction value: node].
@@ -189,6 +235,28 @@ GraphvizMorph >> nodeRectsAvailable [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:43'
+}
+GraphvizMorph >> onFieldClick: aBlock [
+	"Set a one-argument block evaluated with the clicked record sub-field as an
+	Association nodeName -> fieldIndex (0-based). Takes precedence over the plain
+	node action when the click lands inside a record field."
+	fieldAction := aBlock
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:42'
+}
+GraphvizMorph >> onMenuRequest: aBlock [
+	"Set a one-argument block evaluated with the triggering event when the user
+	right-clicks (yellow button) the graph background, so an owner can pop up a
+	context menu."
+	menuAction := aBlock
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'SqueakXR 6/18/2026 10:54'
 }
 GraphvizMorph >> onNodeClick: aBlock [
@@ -223,28 +291,90 @@ GraphvizMorph >> parsePlain: plainText withForm: form [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:58'
+}
+GraphvizMorph >> rectForNode: aDotId [
+	"The whole-node pixel rectangle for the node with the given dot id, or nil."
+	nodeRects ifNil: [^ nil].
+	^ nodeRects at: aDotId ifAbsent: [nil]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:58'
+}
+GraphvizMorph >> rectForNode: aDotId field: aFieldIndex [
+	"The pixel rectangle of record sub-field aFieldIndex (0-based) of the node with
+	the given dot id, or nil if there is no such field."
+	fieldRects ifNil: [^ nil].
+	fieldRects do: [:assoc |
+		(assoc key = aDotId and: [assoc value first = aFieldIndex])
+			ifTrue: [^ assoc value second]].
+	^ nil
+]
+
+{
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:21'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:42'
 }
 GraphvizMorph >> render [
-	"Run the external layout command (self engine, e.g. 'dot' or 'neato') to produce a PNG
-	and a -Tplain layout. Load the PNG as our image and parse the plain output into node
-	rectangles. The .dot file is written with LF line endings since the engine rejects bare CRs."
-	| dir dotFile pngFile plainFile form plainText eng |
+	"Run the external layout engine (self engine, e.g. 'dot') to produce a PNG plus
+	a -Tjson layout. Load the PNG as our image and parse the JSON into node
+	rectangles AND per-field (record compartment) rectangles via GraphvizJsonParser.
+	JSON is used instead of -Tplain: it is properly structured (no whitespace-token
+	fragility) and carries record sub-field geometry, enabling sub-node clicks.
+	The .dot file is written with LF line endings since the engine rejects bare CRs."
+	| dir dotFile pngFile jsonFile form jsonText eng parser |
 	eng := self engine.
 	dir := FileDirectory default fullNameFor: 'graphvizmorph'.
 	dotFile := dir, '.dot'.
 	pngFile := dir, '.png'.
-	plainFile := dir, '.plain'.
+	jsonFile := dir, '.json'.
 	(FileStream forceNewFileNamed: dotFile) nextPutAll: dotSource withUnixLineEndings; close.
 	(OSProcess waitForCommand: eng, ' -Tpng ', dotFile, ' -o ', pngFile) exitStatus = 0
 		ifFalse: [^ self error: eng, ' -Tpng failed'].
-	(OSProcess waitForCommand: eng, ' -Tplain ', dotFile, ' -o ', plainFile) exitStatus = 0
-		ifFalse: [^ self error: eng, ' -Tplain failed'].
+	(OSProcess waitForCommand: eng, ' -Tjson ', dotFile, ' -o ', jsonFile) exitStatus = 0
+		ifFalse: [^ self error: eng, ' -Tjson failed'].
 	form := PNGReadWriter formFromFileNamed: pngFile.
 	self image: form.
-	plainText := (FileStream fileNamed: plainFile) contentsOfEntireFile.
-	self parsePlain: plainText withForm: form
+	jsonText := (FileStream fileNamed: jsonFile) contentsOfEntireFile.
+	parser := GraphvizJsonParser parse: jsonText pixelExtent: form extent.
+	graphScale := parser scale.
+	graphSize := parser graphSize.
+	nodeRects := parser nodeRects.
+	fieldRects := parser fieldRects
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:58'
+}
+GraphvizMorph >> selectionColor [
+	^ selectionColor ifNil: [Color blue]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:58'
+}
+GraphvizMorph >> selectionColor: aColor [
+	"The color of the selection frame (default blue)."
+	selectionColor := aColor.
+	self changed
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:58'
+}
+GraphvizMorph >> selectionRect: aRectangleOrNil [
+	"Set the morph-local pixel rectangle to frame as the persistent selection
+	(or nil to clear), and redraw. Coordinates are in the same local pixel space
+	as nodeRects / fieldRects."
+	selectionRect = aRectangleOrNil ifTrue: [^ self].
+	selectionRect := aRectangleOrNil.
+	self changed
 ]
 
 {

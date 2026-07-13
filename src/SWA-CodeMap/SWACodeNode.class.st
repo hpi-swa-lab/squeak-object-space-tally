@@ -55,6 +55,53 @@ SWACodeNode class >> dotEscape: aString [
 ]
 
 {
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:40'
+}
+SWACodeNode class >> hexColor: aColor [
+	"A Graphviz '#rrggbb' hex string for aColor."
+	| to255 |
+	to255 := [:c | (c * 255) rounded min: 255 max: 0].
+	^ '#',
+		((to255 value: aColor red) printStringBase: 16 nDigits: 2),
+		((to255 value: aColor green) printStringBase: 16 nDigits: 2),
+		((to255 value: aColor blue) printStringBase: 16 nDigits: 2)
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:48'
+}
+SWACodeNode class >> htmlEscape: aString [
+	"Escape a string for use as text inside a Graphviz HTML-like label
+	(<table>...). Only &, <, > are special there."
+	| ws |
+	ws := WriteStream on: String new.
+	aString asString do: [:ch |
+		ch = $& ifTrue: [ws nextPutAll: '&amp;']
+		ifFalse: [ch = $< ifTrue: [ws nextPutAll: '&lt;']
+		ifFalse: [ch = $> ifTrue: [ws nextPutAll: '&gt;']
+		ifFalse: [ws nextPut: ch]]]].
+	^ ws contents
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:40'
+}
+SWACodeNode class >> locHeatColor: aLoc max: aMaxLoc [
+	"A green->yellow->red heat color for aLoc (lines of code), scaled against aMaxLoc.
+	Low LOC is green (hue 120), high LOC is red (hue 0); a log scale spreads the long
+	tail of small methods. Answers a Graphviz '#rrggbb' hex string."
+	| frac hue |
+	frac := (aMaxLoc notNil and: [aMaxLoc > 0 and: [aLoc > 0]])
+		ifTrue: [((aLoc + 1) ln / (aMaxLoc + 1) ln) min: 1.0 max: 0.0]
+		ifFalse: [0.0].
+	hue := 120.0 * (1.0 - frac).   "120=green -> 0=red"
+	^ self hexColor: (Color h: hue s: 0.65 v: 0.95)
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }
@@ -198,6 +245,83 @@ SWACodeNode >> children [
 	"Lazily build child nodes the first time they are asked for."
 	children ifNil: [children := self buildChildren].
 	^ children
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:40'
+}
+SWACodeNode >> classDiagramGraph [
+	"The class diagram with the default flat (by kind) coloring. See
+	#classDiagramGraphColorMode:."
+	^ self classDiagramGraphColorMode: #kind
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:41'
+}
+SWACodeNode >> classDiagramGraphColorMode: aColorMode [
+	"Build a Graphviz DOT UML class diagram of every SWACodeClassNode in this
+	subtree. Each in-package class is an HTML-table node (name + state + methods,
+	see SWACodeClassNode>>recordLabelColorMode:maxLoc:). A class whose superclass is
+	NOT in the graph gets a lightgray PLACEHOLDER box for that external superclass.
+	Edges are inheritance (subclass -> superclass), UML empty-triangle arrowheads,
+	ORTHOGONAL routing. Placeholder nodes are not added to ids (clicking them is a
+	no-op).
+
+	aColorMode is the per-row fill mode (#kind flat-by-kind, or #loc green->red heat
+	by method LOC). For #loc the ramp is scaled to the MAX method LOC across all
+	classes here, so colors are comparable across the whole diagram. Answer
+	{ dotString. ids. false } matching GraphvizPane's tuple shape."
+	| dot ids classNodes byName externalIds maxLoc |
+	classNodes := OrderedCollection new.
+	self withAllChildrenDo: [:node |
+		(node isKindOf: SWACodeClassNode) ifTrue: [classNodes add: node]].
+	byName := Dictionary new.
+	classNodes do: [:cn | byName at: cn name put: cn].
+	"Max method LOC across the whole diagram (heat-ramp reference)."
+	maxLoc := 0.
+	classNodes do: [:cn | cn recordMethodNodes do: [:m | maxLoc := maxLoc max: m loc]].
+	dot := WriteStream on: String new.
+	ids := IdentityDictionary new.
+	externalIds := Dictionary new.
+	dot nextPutAll: 'digraph classes {'; nextPut: Character lf.
+	dot nextPutAll: '  rankdir=BT;'; nextPut: Character lf.
+	dot nextPutAll: '  splines=ortho;'; nextPut: Character lf.
+	dot nextPutAll: '  node [shape=plaintext, fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
+	dot nextPutAll: '  edge [arrowhead=empty];'; nextPut: Character lf.
+	"In-package class nodes (HTML table, per-row fill from the color mode)."
+	classNodes do: [:cn |
+		ids at: cn put: cn dotId.
+		dot
+			nextPutAll: '  '; nextPutAll: cn dotId;
+			nextPutAll: ' [label=<'; nextPutAll: (cn recordLabelColorMode: aColorMode maxLoc: maxLoc);
+			nextPutAll: '>];'; nextPut: Character lf].
+	"Placeholder boxes for external superclasses (de-duplicated by name)."
+	classNodes do: [:cn |
+		(cn superclassName notNil and: [(byName includesKey: cn superclassName) not]) ifTrue: [
+			(externalIds includesKey: cn superclassName) ifFalse: [ | pid |
+				pid := 'ext_', (externalIds size + 1) printString.
+				externalIds at: cn superclassName put: pid.
+				dot
+					nextPutAll: '  '; nextPutAll: pid;
+					nextPutAll: ' [shape=box, style="filled", fillcolor="lightgray", label="';
+					nextPutAll: (SWACodeNode dotEscape: cn superclassName);
+					nextPutAll: '"];'; nextPut: Character lf]]].
+	"Inheritance edges: to an in-package class, or to a placeholder."
+	classNodes do: [:cn |
+		cn superclassName ifNotNil: [:scn | | targetId |
+			targetId := (byName includesKey: scn)
+				ifTrue: [(byName at: scn) dotId]
+				ifFalse: [externalIds at: scn ifAbsent: [nil]].
+			targetId ifNotNil: [
+				dot
+					nextPutAll: '  '; nextPutAll: cn dotId;
+					nextPutAll: ' -> '; nextPutAll: targetId;
+					nextPutAll: ';'; nextPut: Character lf]]].
+	dot nextPutAll: '}'; nextPut: Character lf.
+	^ { dot contents. ids. false }
 ]
 
 {
@@ -538,6 +662,19 @@ SWACodeNode >> methodCount [
 SWACodeNode >> name [
 	"Display name. Subclasses override."
 	^ subject printString
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:21'
+}
+SWACodeNode >> openClassDiagram [
+	"Open a UML class diagram: each class a record box (name + method compartments),
+	edges are inheritance (subclass -> superclass)."
+	^ self
+		openGraph: [self classDiagramGraph]
+		engine: 'dot'
+		label: 'Class Diagram: ', self name
 ]
 
 {

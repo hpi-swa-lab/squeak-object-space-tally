@@ -1168,7 +1168,7 @@ SWANavPanel >> peerPanels [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:38'
 }
 SWANavPanel >> popUpColorMenu [
 	"Header 'Color' button: pop up the same Color menu the right-click context menu
@@ -1399,7 +1399,7 @@ SWANavPanel >> setStructureMode: aKey [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:38'
 }
 SWANavPanel >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
@@ -1415,8 +1415,12 @@ SWANavPanel >> setView: aViewMorph [
 
 	Cross-referencing another open view is no longer a dedicated X-ref/Clear button
 	pair: open peers appear as entries in the Data menu (pick one to color by it, pick
-	None to clear), unifying 'which source colors this map' into one selector."
-	| crumbFont detailFont metaFont backButton browseButton showButton crumbRow |
+	None to clear), unifying 'which source colors this map' into one selector.
+
+	Each optional button is gated on the overlay actually SUPPORTING it (non-empty
+	Size/Color options, Data/Tree/Links protocols), so a view can opt into just the
+	subset it implements -- e.g. the graph view exposes an overlay offering only Color."
+	| crumbFont detailFont metaFont backButton browseButton showButton crumbRow ovl |
 	view := aViewMorph.
 	crumbFont := TextStyle default fontOfPointSize: 12.
 	detailFont := (TextStyle default fontOfPointSize: 15) emphasized: 1.
@@ -1461,17 +1465,21 @@ SWANavPanel >> setView: aViewMorph [
 	(view respondsTo: #selectTileNode:) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
 	headerRow addMorphBack: showButton.
-	"Data / Tree / Size / Color / Links. Data leads (top-level source picker: loaded
-	datasets AND open peers for cross-reference, sets fitting axis defaults). Tree
-	picks the base STRUCTURE (morph the view into another tool). Data is offered on
-	ANY dataset-capable view (all SWA views now are)."
-	(view respondsTo: #overlayMorph) ifTrue: [
+	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it.
+	Data leads (top-level source picker: loaded datasets AND open peers for
+	cross-reference). Tree picks the base STRUCTURE. Size/Color are shown only when
+	the overlay offers a non-empty option list, so a view can light up just Color
+	(the graph) without a dead Size button."
+	ovl := self treemapOverlay.
+	ovl ifNotNil: [
 		(view respondsTo: #selectDataset:) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Data' action: #popUpDataMenu)].
 		self showsTreeButton ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
-		headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu).
-		headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu).
+		((ovl respondsTo: #sizeModeOptions) and: [ovl sizeModeOptions notEmpty]) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu)].
+		((ovl respondsTo: #colorModeOptions) and: [ovl colorModeOptions notEmpty]) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu)].
 		(view respondsTo: #decorationMetric) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [

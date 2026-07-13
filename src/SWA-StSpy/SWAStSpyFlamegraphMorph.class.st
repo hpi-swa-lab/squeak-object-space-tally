@@ -37,31 +37,6 @@ SWAStSpyFlamegraphMorph class >> on: aNode [
 ]
 
 {
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:53'
-}
-SWAStSpyFlamegraphMorph >> aboutToStyle: aStyler [
-	"Shout styling hook (called because we are the source pane's model). Configure
-	the styler with the selected frame's class so ivars/selectors highlight in
-	context, and allow styling to proceed."
-	| ref |
-	ref := selectedNode ifNotNil: [:n | n methodReference].
-	(ref notNil and: [aStyler respondsTo: #classOrMetaClass:])
-		ifTrue: [aStyler classOrMetaClass: ref first].
-	^ true
-]
-
-{
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:53'
-}
-SWAStSpyFlamegraphMorph >> aboutToStyle: aStyler requestor: anObject [
-	"Shout styling hook (2-arg form the styler actually sends). Delegates to the
-	1-arg #aboutToStyle:, mirroring Model>>aboutToStyle:requestor:."
-	^ self aboutToStyle: aStyler
-]
-
-{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:53'
 }

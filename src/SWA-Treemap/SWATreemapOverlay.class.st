@@ -78,7 +78,7 @@ SWATreemapOverlay >> colorModeOptions [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:06'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:00'
 }
 SWATreemapOverlay >> drawOn: aCanvas [
 	"HOVER feedback (transient): a white border on the tile under the cursor + fading
@@ -86,34 +86,31 @@ SWATreemapOverlay >> drawOn: aCanvas [
 	balloon never worked here). A RED border marks any secondary-selection tile
 	(hover-independent). Hover NEVER changes the selection -- the persistent CLICK
 	selection + decorations are drawn by subclass #drawOn: overrides. Requires
-	#wantsEveryMouseMove so button-up moves are delivered."
-	| origin screenR node r alpha parentColor hoveredNode |
+	#wantsEveryMouseMove so button-up moves are delivered. Border/tooltip drawing is
+	delegated to the shared SWASelectionPainter."
+	| origin hoveredNode |
 	origin := self position.
 	"--- Secondary selection: red border (hover-independent) ---"
 	self drawSecondarySelectionOn: aCanvas origin: origin.
 	hoveredTile ifNil: [^ self].
 	hoveredNode := hoveredTile key.
 	"--- Hovered tile: white border ---"
-	screenR := hoveredTile value translateBy: origin.
-	aCanvas frameRectangle: screenR width: 2 color: Color white.
-	"--- Walk parent chain upward, fading from bright cyan to dim ---"
-	node := hoveredNode parent.
-	alpha := 0.7.
-	[node notNil and: [node parent notNil "stop at synthetic root"]] whileTrue: [
-		r := treemapMorph rectForNode: node.
-		r ifNotNil: [
-			parentColor := Color cyan alpha: alpha.
-			screenR := r translateBy: origin.
-			aCanvas frameRectangle: screenR width: 2 color: parentColor].
-		alpha := (alpha - 0.15) max: 0.15.
-		node := node parent].
+	SWASelectionPainter
+		hoverFrameOn: aCanvas
+		rect: (hoveredTile value translateBy: origin).
+	"--- Fading cyan ancestor borders ---"
+	SWASelectionPainter
+		ancestorFramesOn: aCanvas
+		from: hoveredNode
+		rectBlock: [:node | | r | r := treemapMorph rectForNode: node.
+			r ifNotNil: [r translateBy: origin]].
 	"--- Our own tooltip for the hovered tile ---"
 	self drawTooltipFor: hoveredNode on: aCanvas origin: origin
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
 }
 SWATreemapOverlay >> drawSecondarySelectionOn: aCanvas origin: origin [
 	"Draw a RED border around the view's secondary-selection tile, if any. Unlike
@@ -127,72 +124,51 @@ SWATreemapOverlay >> drawSecondarySelectionOn: aCanvas origin: origin [
 	sec ifNil: [^ self].
 	r := treemapMorph rectForNode: sec.
 	r ifNil: [^ self].
-	aCanvas frameRectangle: (r translateBy: origin) width: 2 color: Color red
+	SWASelectionPainter
+		frame: (r translateBy: origin) on: aCanvas width: 2 color: Color red
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:40'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:00'
 }
 SWATreemapOverlay >> drawSelectionBorderFor: aNode on: aCanvas origin: origin [
-	"Draw the persistent CLICK-selection border for aNode: a distinct YELLOW 3px frame
-	(deliberately different from the transient WHITE 2px hover border), plus fading
-	cyan ancestor borders. Drawn every frame from the persistent selectedNode, so the
-	selection stays visible -- and distinguishable from hover -- as the mouse moves
-	over other tiles or leaves the canvas. Shared by all treemap overlays."
-	| selRect node alpha r parentColor screenR |
+	"Draw the persistent CLICK-selection border for aNode: a distinct YELLOW 3px
+	frame (deliberately different from the transient WHITE 2px hover border), plus
+	fading cyan ancestor borders. Drawn every frame from the persistent selectedNode,
+	so the selection stays visible -- and distinguishable from hover -- as the mouse
+	moves over other tiles or leaves the canvas. Delegates the actual drawing to the
+	shared SWASelectionPainter so all views stay visually consistent."
+	| selRect |
 	aNode ifNil: [^ self].
 	selRect := treemapMorph rectForNode: aNode.
 	selRect ifNil: [^ self].
-	aCanvas frameRectangle: (selRect translateBy: origin) width: 3 color: Color yellow.
-	node := aNode parent.
-	alpha := 0.7.
-	[node notNil and: [node parent notNil]] whileTrue: [
-		r := treemapMorph rectForNode: node.
-		r ifNotNil: [
-			parentColor := Color cyan alpha: alpha.
-			screenR := r translateBy: origin.
-			aCanvas frameRectangle: screenR width: 2 color: parentColor].
-		alpha := (alpha - 0.15) max: 0.15.
-		node := node parent]
+	SWASelectionPainter
+		selectionFrameOn: aCanvas
+		rect: (selRect translateBy: origin)
+		color: Color yellow.
+	SWASelectionPainter
+		ancestorFramesOn: aCanvas
+		from: aNode
+		rectBlock: [:node | | r | r := treemapMorph rectForNode: node.
+			r ifNotNil: [r translateBy: origin]]
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 12:11'
+	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:00'
 }
 SWATreemapOverlay >> drawTooltipFor: aNode on: aCanvas origin: origin [
-	"Draw a small hover label -- JUST the entity NAME -- near the mouse (canvas-drawn;
-	Morphic's balloon never worked here). Enough to read a tiny tile; click for full
-	details. Offset off the cursor and clamped to stay inside the overlay."
-	| name font pad w h boxOrigin anchor maxRight maxBottom |
+	"Draw a small hover label -- JUST the entity NAME -- near the mouse. Delegates to
+	the shared SWASelectionPainter (canvas-drawn; Morphic's balloon never worked
+	here). Enough to read a tiny tile; click for full details."
 	aNode ifNil: [^ self].
 	hoverPoint ifNil: [^ self].
-	name := aNode name.
-	(name isNil or: [name isEmpty]) ifTrue: [^ self].
-	font := TextStyle default fontOfPointSize: 10.
-	pad := 4.
-	w := (font widthOfString: name) + (pad * 2).
-	h := font height + (pad * 2).
-	"anchor at the mouse (local coords), offset below-right of the cursor"
-	anchor := (hoverPoint + origin) + (14 @ 18).
-	"clamp inside the overlay's on-screen bounds"
-	maxRight := origin x + self width.
-	maxBottom := origin y + self height.
-	boxOrigin := anchor.
-	(boxOrigin x + w) > maxRight ifTrue: [boxOrigin := (maxRight - w - 2) @ boxOrigin y].
-	(boxOrigin y + h) > maxBottom ifTrue: [boxOrigin := boxOrigin x @ ((hoverPoint + origin) y - h - 8)].
-	boxOrigin := (boxOrigin x max: origin x + 2) @ (boxOrigin y max: origin y + 2).
-	aCanvas
-		frameAndFillRectangle: (boxOrigin extent: w @ h)
-		fillColor: (Color black alpha: 0.82)
-		borderWidth: 1
-		borderColor: (Color gray: 0.6).
-	aCanvas
-		drawString: name
-		at: (boxOrigin x + pad) @ (boxOrigin y + pad)
-		font: font
-		color: Color white
+	SWASelectionPainter
+		tooltipOn: aCanvas
+		string: aNode name
+		at: (hoverPoint + origin) + (14 @ 18)
+		bounds: (origin extent: self extent)
 ]
 
 {

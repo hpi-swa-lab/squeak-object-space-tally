@@ -50,32 +50,6 @@ SWATreemapMorph class >> on: aNode [
 ]
 
 {
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
-}
-SWATreemapMorph >> aboutToStyle: aStyler [
-	"Shout styling hook (this morph is the source pane's model). If the selected
-	node can supply a class context (#styleClassOrNil), configure the styler so
-	ivars/selectors highlight correctly. Allow styling to proceed."
-	| cls |
-	cls := (selectedNode notNil and: [selectedNode respondsTo: #styleClassOrNil])
-		ifTrue: [selectedNode styleClassOrNil]
-		ifFalse: [nil].
-	(cls notNil and: [aStyler respondsTo: #classOrMetaClass:])
-		ifTrue: [aStyler classOrMetaClass: cls].
-	^ true
-]
-
-{
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
-}
-SWATreemapMorph >> aboutToStyle: aStyler requestor: anObject [
-	"2-arg Shout hook the styler actually sends; delegates to #aboutToStyle:."
-	^ self aboutToStyle: aStyler
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:10'
 }
