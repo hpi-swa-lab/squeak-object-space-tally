@@ -15,7 +15,8 @@ Class {
 		'nodesByDotId',
 		'fieldNodesByDotId',
 		'rectKeyByNode',
-		'colorMode'
+		'colorMode',
+		'leafKind'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -149,6 +150,19 @@ SWACodeGraphMorph >> colorModeOptions [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:25'
+}
+SWACodeGraphMorph >> depthLabelString [
+	"Friendly Depth-button text for this view's three granularities."
+	^ 'Depth: ', (leafKind caseOf: {
+		[#class]  -> ['Classes'].
+		[#state]  -> ['+State'].
+		[#method] -> ['+Methods'] }
+		otherwise: ['Classes'])
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
@@ -201,11 +215,12 @@ SWACodeGraphMorph >> graphNodeClicked: aDotId [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:33'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:29'
 }
 SWACodeGraphMorph >> initialize [
 	super initialize.
 	mode := #classDiagram.
+	leafKind := #class.
 	nodesByDotId := Dictionary new.
 	self
 		layoutPolicy: TableLayout new;
@@ -221,6 +236,49 @@ SWACodeGraphMorph >> initialize [
 	graphPane onNodeClick: [:dotId | self graphNodeClicked: dotId].
 	graphPane hResizing: #spaceFill; vResizing: #spaceFill.
 	self addMorphBack: graphPane
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:15'
+}
+SWACodeGraphMorph >> leafKind [
+	"The render granularity: #class (boxes show name + state only) or #method (full
+	boxes including one row per method). Drives the shared nav-panel Depth button."
+	^ leafKind
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+}
+SWACodeGraphMorph >> leafKind: aSymbol [
+	"Set the render granularity and rebuild. Three depths are meaningful for a UML
+	class diagram: #class (name box only), #state (name + instance variables), and
+	#method (name + state + methods). Anything else (the treemap's #package/#category)
+	is normalized to the nearest of the three, so the shared Depth button never lands
+	the graph on an unsupported depth. Rebuilds resetting the view, since the box
+	layout changes."
+	| normalized |
+	normalized := (aSymbol = #class or: [aSymbol = #package])
+		ifTrue: [#class]
+		ifFalse: [(aSymbol = #state or: [aSymbol = #category])
+			ifTrue: [#state]
+			ifFalse: [#method]].
+	leafKind = normalized ifTrue: [^ self].
+	leafKind := normalized.
+	rootNode ifNotNil: [self rebuildGraph]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+}
+SWACodeGraphMorph >> leafKindOrder [
+	"The granularities the Depth button cycles through for THIS view (as opposed to
+	the treemap's package->class->category->method). A class diagram has three
+	meaningful depths: classes only, classes + state, and classes + state + methods."
+	^ { #class. #state. #method }
 ]
 
 {
@@ -268,7 +326,7 @@ SWACodeGraphMorph >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:56'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
 }
 SWACodeGraphMorph >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the current mode and hand it to the embedded
@@ -276,14 +334,18 @@ SWACodeGraphMorph >> rebuildGraphKeepView: keepView [
 	for the class diagram, fieldNodesByDotId (dot-id -> field node array) for
 	per-row sub-field clicks; and rectKeyByNode (node -> dot-id -> fieldIndexOrNil)
 	so a selection can be located as a highlight rectangle. The class diagram honors
-	the active #colorMode (#kind / #loc). Re-seat the morph in the pane, preserving
-	the current zoom + pan when keepView is true (e.g. a color-mode recolor, which
-	keeps the same layout) and resetting to top-left/100% otherwise."
-	| tuple ids |
+	the active #colorMode (#kind / #loc) AND the active #leafKind granularity
+	(#class = classes only, #state = classes + state, #method = classes + state +
+	methods). Re-seat the morph in the pane, preserving the current zoom + pan when
+	keepView is true (e.g. a color-mode recolor, which keeps the same layout) and
+	resetting to top-left/100% otherwise."
+	| tuple ids showState showMethods |
 	rootNode ifNil: [^ self].
+	showState := self showsState.
+	showMethods := self showsMethods.
 	tuple := mode = #containment
 		ifTrue: [rootNode containmentGraph]
-		ifFalse: [rootNode classDiagramGraphColorMode: self colorMode].
+		ifFalse: [rootNode classDiagramGraphColorMode: self colorMode showState: showState showMethods: showMethods].
 	nodesByDotId := Dictionary new.
 	fieldNodesByDotId := Dictionary new.
 	rectKeyByNode := IdentityDictionary new.
@@ -292,7 +354,7 @@ SWACodeGraphMorph >> rebuildGraphKeepView: keepView [
 		nodesByDotId at: dotId put: node.
 		rectKeyByNode at: node put: (dotId -> nil).
 		(node isKindOf: SWACodeClassNode) ifTrue: [ | fields |
-			fields := node recordFieldNodes.
+			fields := node recordFieldNodesShowState: showState showMethods: showMethods.
 			fieldNodesByDotId at: dotId put: fields.
 			"Field 0 is the class name (whole node). Rows 1..N are ivar/method rows;
 			map each DISTINCT row node to its field rect -- but never overwrite the
@@ -382,6 +444,25 @@ SWACodeGraphMorph >> selectionPathString [
 	^ selectedNode
 		ifNil: ['']
 		ifNotNil: [:n | n pathString]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
+}
+SWACodeGraphMorph >> showsMethods [
+	"Whether the current granularity renders method rows inside class boxes."
+	^ leafKind = #method
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
+}
+SWACodeGraphMorph >> showsState [
+	"Whether the current granularity renders the state (instance-variable) compartment
+	inside class boxes. Off only at the coarsest #class granularity."
+	^ leafKind ~= #class
 ]
 
 {

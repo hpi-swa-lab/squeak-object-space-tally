@@ -103,19 +103,39 @@ SWACodeClassNode >> name [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:14'
 }
 SWACodeClassNode >> recordFieldNodes [
+	"Full field-node list (name + ivars + methods). See #recordFieldNodesShowMethods:."
+	^ self recordFieldNodesShowMethods: true
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+}
+SWACodeClassNode >> recordFieldNodesShowMethods: showMethods [
+	"State-always-on variant. See #recordFieldNodesShowState:showMethods:."
+	^ self recordFieldNodesShowState: true showMethods: showMethods
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:22'
+}
+SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethods [
 	"The SWACodeNode for each record field, by field index, matching the row order
-	produced by #recordLabel: index 0 = the class name row, then one entry PER IVAR
-	(the class itself -- selecting a state row selects the class, since an ivar is
-	not a browsable node), then one entry per method in #recordMethodNodes order.
-	Used to resolve a clicked field index back to the node it represents."
+	produced by #recordLabelColorMode:maxLoc:showState:showMethods:: index 0 = the
+	class name row, then -- when showState is true -- one entry PER IVAR (the class
+	itself -- selecting a state row selects the class, since an ivar is not a
+	browsable node), then -- when showMethods is true -- one entry per method in
+	#recordMethodNodes order. Used to resolve a clicked field index back to the node
+	it represents."
 	| out |
 	out := OrderedCollection new.
-	out add: self.                                   "0: name row"
-	self instVarNames do: [:v | out add: self].      "ivar rows -> the class"
-	out addAll: self recordMethodNodes.              "method rows"
+	out add: self.                                            "0: name row"
+	showState ifTrue: [self instVarNames do: [:v | out add: self]].  "ivar rows -> the class"
+	showMethods ifTrue: [out addAll: self recordMethodNodes].        "method rows"
 	^ out asArray
 ]
 
@@ -130,57 +150,79 @@ SWACodeClassNode >> recordLabel [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 19:01'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:14'
 }
 SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc [
+	"The full UML class box (name + state + methods). See
+	#recordLabelColorMode:maxLoc:showMethods: for the coarser (classes-only) variant."
+	^ self recordLabelColorMode: aColorMode maxLoc: aMaxLoc showMethods: true
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:22'
+}
+SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showMethods: showMethods [
+	"State-always-on variant. See #recordLabelColorMode:maxLoc:showState:showMethods:
+	for the three-way granularity (which can also hide the state compartment)."
+	^ self
+		recordLabelColorMode: aColorMode maxLoc: aMaxLoc
+		showState: true showMethods: showMethods
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+}
+SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: showState showMethods: showMethods [
 	"A Graphviz HTML-like label (UML class box) as a <table>: class name (bold) on
-	top, a STATE compartment (one row per ivar), then a METHODS compartment (one row
-	per method). Compartments are separated by <hr/> rules; rows are borderless and
-	left-aligned. Row order matches #recordFieldNodes. Static methods are prefixed
-	with '$' (UML static marker).
+	top, then -- when showState is true -- a STATE compartment (one row per ivar),
+	then -- when showMethods is true -- a METHODS compartment (one row per method).
+	Compartments are separated by <hr/> rules; rows are borderless and left-aligned.
+	Row order matches #recordFieldNodesShowState:showMethods:.
 
-	aColorMode selects the fill:
-	  #kind -- flat pastel table background per node kind (the default).
-	  #loc  -- neutral table background, and each METHOD cell is tinted by its LOC on
-	           a green->red heat ramp scaled to aMaxLoc (the max method LOC in the
-	           whole diagram, so colors are comparable across classes).
+	The two flags give three meaningful granularities:
+	  showState=false, showMethods=false -- classes only (name box)
+	  showState=true,  showMethods=false -- classes + state
+	  showState=true,  showMethods=true  -- classes + state + methods
 
-	Meant to be emitted between < and > in the DOT node statement (an HTML label)."
-	| ws bg ivars idx locMode |
-	locMode := aColorMode = #loc.
-	bg := locMode ifTrue: ['#f4f4f4'] ifFalse: [self dotFillColor].
-	ivars := self instVarNames.
+	aColorMode selects the fill: #kind (flat by-kind table background) or #loc
+	(neutral background + per-method LOC heat tint, scaled to aMaxLoc). Meant to be
+	emitted between < and > in the DOT node statement (an HTML label)."
+	| ws idx |
 	ws := WriteStream on: String new.
 	ws nextPutAll: '<table border="1" cellborder="0" cellspacing="0" cellpadding="3" bgcolor="'.
-	ws nextPutAll: bg; nextPutAll: '">'.
-	"Name compartment."
-	ws nextPutAll: '<tr><td align="text"><b>'.
-	ws nextPutAll: (SWACodeNode htmlEscape: self name).
-	ws nextPutAll: '</b><br align="left"/></td></tr>'.
-	"State compartment."
+	ws nextPutAll: (self recordTableBgColorMode: aColorMode); nextPutAll: '">'.
+	self recordNameRowOn: ws.
 	idx := 0.
-	ivars isEmpty ifFalse: [
-		ws nextPutAll: '<hr/>'.
-		ivars do: [:v |
-			idx := idx + 1.
-			ws nextPutAll: '<tr><td align="text" port="m', idx printString, '">'.
-			ws nextPutAll: (SWACodeNode htmlEscape: v).
-			ws nextPutAll: '<br align="left"/></td></tr>']].
-	"Methods compartment (per-cell LOC tint in #loc mode)."
-	self recordMethodNodes isEmpty ifFalse: [
-		ws nextPutAll: '<hr/>'.
-		self recordMethodNodes do: [:m | | text cellBg |
-			idx := idx + 1.
-			text := m isStatic ifTrue: ['$', m name] ifFalse: [m name].
-			ws nextPutAll: '<tr><td align="text" port="m', idx printString, '"'.
-			locMode ifTrue: [
-				cellBg := SWACodeNode locHeatColor: m loc max: aMaxLoc.
-				ws nextPutAll: ' bgcolor="'; nextPutAll: cellBg; nextPutAll: '"'].
-			ws nextPutAll: '>'.
-			ws nextPutAll: (SWACodeNode htmlEscape: text).
-			ws nextPutAll: '<br align="left"/></td></tr>']].
+	showState ifTrue: [idx := self recordStateCompartmentOn: ws startingAt: idx].
+	showMethods ifTrue: [
+		idx := self recordMethodCompartmentOn: ws startingAt: idx colorMode: aColorMode maxLoc: aMaxLoc].
 	ws nextPutAll: '</table>'.
 	^ ws contents
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+}
+SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMode: aColorMode maxLoc: aMaxLoc [
+	"Emit the METHODS compartment (one row per method, static methods prefixed '$'),
+	preceded by an <hr/> rule, into ws. Ports continue from startIndex. In #loc mode
+	each cell is tinted by its LOC on a green->red ramp scaled to aMaxLoc. Answer the
+	next free port index. Emits nothing (and answers startIndex) when there are no
+	methods."
+	| idx locMode |
+	idx := startIndex.
+	self recordMethodNodes isEmpty ifTrue: [^ idx].
+	locMode := aColorMode = #loc.
+	ws nextPutAll: '<hr/>'.
+	self recordMethodNodes do: [:m | | text cellBg |
+		idx := idx + 1.
+		text := m isStatic ifTrue: ['$', m name] ifFalse: [m name].
+		cellBg := locMode ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc] ifFalse: [nil].
+		self recordRowOn: ws port: idx bgColor: cellBg text: text].
+	^ idx
 ]
 
 {
@@ -195,6 +237,62 @@ SWACodeClassNode >> recordMethodNodes [
 	inst := self methodNodes reject: [:m | m isStatic].
 	stat := self methodNodes select: [:m | m isStatic].
 	^ inst asArray, stat asArray
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:27'
+}
+SWACodeClassNode >> recordNameRowOn: ws [
+	"Emit the class-name compartment (bold, left-aligned) into ws."
+	ws nextPutAll: '<tr><td align="text"><b>'.
+	ws nextPutAll: (SWACodeNode htmlEscape: self name).
+	ws nextPutAll: '</b><br align="left"/></td></tr>'
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+}
+SWACodeClassNode >> recordRowOn: ws port: portIndex bgColor: bgColorOrNil text: aString [
+	"Emit one borderless, left-aligned table row into ws: a named port (for click
+	geometry), an optional cell background (LOC tint), and the escaped text."
+	ws nextPutAll: '<tr><td align="text" port="m', portIndex printString, '"'.
+	bgColorOrNil ifNotNil: [:c |
+		ws nextPutAll: ' bgcolor="'; nextPutAll: c; nextPutAll: '"'].
+	ws nextPutAll: '>'.
+	ws nextPutAll: (SWACodeNode htmlEscape: aString).
+	ws nextPutAll: '<br align="left"/></td></tr>'
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+}
+SWACodeClassNode >> recordStateCompartmentOn: ws startingAt: startIndex [
+	"Emit the STATE compartment (one row per instance variable), preceded by an <hr/>
+	rule, into ws. Ports continue from startIndex. Answer the next free port index.
+	Emits nothing (and answers startIndex) when there are no ivars."
+	| idx |
+	idx := startIndex.
+	self instVarNames isEmpty ifTrue: [^ idx].
+	ws nextPutAll: '<hr/>'.
+	self instVarNames do: [:v |
+		idx := idx + 1.
+		self recordRowOn: ws port: idx bgColor: nil text: v].
+	^ idx
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:27'
+}
+SWACodeClassNode >> recordTableBgColorMode: aColorMode [
+	"The <table> background color for a UML class box: a neutral gray in #loc mode
+	(so per-method LOC tints read clearly), else the flat by-kind fill."
+	^ aColorMode = #loc
+		ifTrue: ['#f4f4f4']
+		ifFalse: [self dotFillColor]
 ]
 
 {

@@ -42,7 +42,8 @@ Class {
 		'events',
 		'sampleCount',
 		'launchTime',
-		'showProgress'
+		'showProgress',
+		'preflightError'
 	],
 	#category : #'SWA-StSpy',
 	#'squeak_changestamp' : '<historical>'
@@ -192,6 +193,36 @@ SWAStSpy >> buildTreeFromEvents [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
+}
+SWAStSpy >> checkPreflight [
+	"Validate that a recording can actually start, and stash a human-readable
+	reason in #preflightError if not. Catches the failure modes that otherwise
+	manifest as a silent empty log ('wrote NOTHING / never started'):
+	  1. target pid does not exist,
+	  2. a stale st-spy (or other tracer) already holds ptrace on the target --
+	     under ptrace_scope only ONE tracer may attach, so ours would fail its
+	     attach instantly, before writing any banner.
+	Returns true if OK to launch, false (with #preflightError set) otherwise."
+	| tracer |
+	preflightError := nil.
+	pid ifNil: [preflightError := 'No target pid set.'. ^ false].
+	(FileDirectory default fileOrDirectoryExists: '/proc/', pid printString)
+		ifFalse: [preflightError := 'Target process ', pid printString, ' is not running.'. ^ false].
+	tracer := self tracerPid.
+	(tracer notNil and: [tracer > 0]) ifTrue: [
+		preflightError :=
+			'pid ', pid printString, ' is ALREADY being ptrace-attached by process ',
+			tracer printString, ' (likely a stale st-spy).', String cr,
+			'Under ptrace_scope only one tracer may attach at a time, so this run',
+			' would fail its attach immediately and write nothing.', String cr,
+			'Kill the stale tracer first:  sudo kill ', tracer printString.
+		^ false].
+	^ true
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
@@ -218,38 +249,55 @@ SWAStSpy >> errorText [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:29'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
 }
 SWAStSpy >> failed [
 	"True if st-spy reported a fatal error (e.g. the target pid does not exist, or
 	sudo/permission failed) and will never produce a trace. Guard against false
 	positives: the success line 'Samples: N Errors: 0' contains 'Errors', and a
-	completed run is never a failure."
+	completed run is never a failure.
+
+	IMPORTANT (race): st-spy runs under `sudo -n` and must acquire sudo creds and
+	ptrace-attach before it writes its startup banner. That startup latency is
+	variable (sub-second when warm, several seconds when the box is loaded or
+	ptrace contends). #launchTime is stamped at fork time -- BEFORE sudo even
+	runs -- so an empty log shortly after launch does NOT mean 'never started',
+	it usually means 'not attached yet'. Treating an empty log as failure too
+	eagerly produced false 'wrote NOTHING' verdicts on slow-but-fine runs.
+	So: a pre-flight rejection or an EXPLICIT error string in the log is an
+	immediate failure; an empty/quiet log is only failure once we are close to
+	the overall deadline (duration + startup slack)."
 	| log |
+	preflightError ifNotNil: [^ true].
 	self isReady ifTrue: [^ false].
 	log := self logContents asLowercase.
-	log isEmpty ifFalse: [
+	log withBlanksTrimmed isEmpty ifFalse: [
 		"Any of these in the log mean st-spy launched but bailed out fatally."
 		^ (#('error:' 'permission denied' 'a password is required'
 			'no such process' 'operation not permitted' 'failed to'
 			'panicked') anySatisfy: [:needle | log includesSubstring: needle])].
 	"Empty log: st-spy may simply not have started writing yet. Only treat an
-	empty log as a failure once enough time has passed that it SHOULD have written
-	its startup banner -- otherwise it is just 'not ready yet'."
+	empty log as a failure once we are within a few seconds of the overall
+	deadline used by the wait loops (duration + 20s), so we never give up while
+	sudo/ptrace startup is still plausibly in flight."
 	^ launchTime notNil
-		and: [DateAndTime now > (launchTime + 8 seconds)]
+		and: [DateAndTime now > (launchTime + (duration + 15) seconds)]
 ]
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:29'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:50'
 }
 SWAStSpy >> failureReason [
 	"A human-readable explanation for why no trace appeared, for the warning
-	dialog. Distinguishes the three observed failure modes: st-spy launched and
-	logged an error, st-spy never wrote anything (likely sudo/ptrace never ran),
-	or it simply ran out of time while still working."
+	dialog. Distinguishes the failure modes: a pre-flight rejection (target gone
+	or already traced), st-spy launched and logged an error, st-spy never wrote
+	anything (likely sudo/ptrace never ran), or it simply ran out of time while
+	still working."
 	| log |
+	preflightError ifNotNil: [
+		^ 'st-spy did not launch (pre-flight check failed):', String cr, String cr,
+			preflightError].
 	log := self logContents.
 	log withBlanksTrimmed isEmpty ifTrue: [
 		^ 'st-spy wrote NOTHING to its log -- it never started.',
@@ -473,12 +521,17 @@ SWAStSpy >> rate: samplesPerSecond [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:29'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
 }
 SWAStSpy >> record [
 	"Launch st-spy detached in the background and return IMMEDIATELY -- this does
 	NOT block the calling process or the UI. The trace is written asynchronously
 	over the next `duration` seconds.
+
+	Runs a pre-flight check first (target alive? no stale tracer already attached?)
+	so the common 'wrote NOTHING / never started' collisions surface as a clear
+	message via #failureReason instead of a silent empty log. If pre-flight fails
+	we do NOT launch; #failed answers true and #failureReason explains why.
 
 	To act on the result, either:
 	  - poll #isReady / call #buildWhenReady from your own logic, or
@@ -491,6 +544,7 @@ SWAStSpy >> record [
 	rootNode := nil.
 	events := nil.
 	launchTime := DateAndTime now.
+	self checkPreflight ifFalse: [^ self].
 	PipeableOSProcess command: self recordCommand.
 	^ self
 ]
@@ -572,6 +626,26 @@ SWAStSpy >> showProgress: aBoolean [
 SWAStSpy >> traceFileReady [
 	"Backwards-compatible alias for #isReady."
 	^ self isReady
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
+}
+SWAStSpy >> tracerPid [
+	"The pid of the process currently ptrace-attached to our target #pid, or 0 if
+	none. Read from /proc/<pid>/status. NB: procfs files report size 0, so the VM
+	cannot slurp them via #contentsOfEntireFile -- we shell out and parse instead.
+	Returns nil if the target pid is gone or the status line can't be read."
+	| out line digits |
+	pid ifNil: [^ nil].
+	out := [(PipeableOSProcess command: 'grep -h TracerPid /proc/', pid printString, '/status') output]
+		on: Error do: [:e | ''].
+	(out isNil or: [out isEmpty]) ifTrue: [^ nil].
+	line := out lines detect: [:l | l includesSubstring: 'TracerPid:'] ifNone: [^ nil].
+	digits := (line select: [:ch | ch isDigit]).
+	digits isEmpty ifTrue: [^ nil].
+	^ digits asNumber
 ]
 
 {

@@ -259,16 +259,39 @@ SWACodeNode >> classDiagramGraph [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:41'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:15'
 }
 SWACodeNode >> classDiagramGraphColorMode: aColorMode [
+	"The full class diagram (classes + methods). See
+	#classDiagramGraphColorMode:showMethods: for the classes-only granularity."
+	^ self classDiagramGraphColorMode: aColorMode showMethods: true
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+}
+SWACodeNode >> classDiagramGraphColorMode: aColorMode showMethods: showMethods [
+	"State-always-on variant. See #classDiagramGraphColorMode:showState:showMethods:."
+	^ self classDiagramGraphColorMode: aColorMode showState: true showMethods: showMethods
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+}
+SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showMethods: showMethods [
 	"Build a Graphviz DOT UML class diagram of every SWACodeClassNode in this
-	subtree. Each in-package class is an HTML-table node (name + state + methods,
-	see SWACodeClassNode>>recordLabelColorMode:maxLoc:). A class whose superclass is
-	NOT in the graph gets a lightgray PLACEHOLDER box for that external superclass.
-	Edges are inheritance (subclass -> superclass), UML empty-triangle arrowheads,
-	ORTHOGONAL routing. Placeholder nodes are not added to ids (clicking them is a
-	no-op).
+	subtree. Each in-package class is an HTML-table node (name, plus a state
+	compartment when showState, plus a methods compartment when showMethods; see
+	SWACodeClassNode>>recordLabelColorMode:maxLoc:showState:showMethods:). A class
+	whose superclass is NOT in the graph gets a lightgray PLACEHOLDER box for that
+	external superclass. Edges are inheritance (subclass -> superclass), UML
+	empty-triangle arrowheads, ORTHOGONAL routing. Placeholder nodes are not added to
+	ids (clicking them is a no-op).
+
+	showState / showMethods are the granularity: classes only (both false), classes +
+	state (state only), or classes + state + methods (both true).
 
 	aColorMode is the per-row fill mode (#kind flat-by-kind, or #loc green->red heat
 	by method LOC). For #loc the ramp is scaled to the MAX method LOC across all
@@ -296,7 +319,7 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode [
 		ids at: cn put: cn dotId.
 		dot
 			nextPutAll: '  '; nextPutAll: cn dotId;
-			nextPutAll: ' [label=<'; nextPutAll: (cn recordLabelColorMode: aColorMode maxLoc: maxLoc);
+			nextPutAll: ' [label=<'; nextPutAll: (cn recordLabelColorMode: aColorMode maxLoc: maxLoc showState: showState showMethods: showMethods);
 			nextPutAll: '>];'; nextPut: Character lf].
 	"Placeholder boxes for external superclasses (de-duplicated by name)."
 	classNodes do: [:cn |

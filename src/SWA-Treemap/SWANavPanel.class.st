@@ -594,17 +594,22 @@ SWANavPanel >> crossReferenceAsDataset: aPeerPanel [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:55'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:16'
 }
 SWANavPanel >> cycleLeafKind [
-	"Depth button: cycle the view's render depth (leafKind) through
-	Package -> Class -> Category -> Method -> Package. (Full/nil is omitted -- it
-	renders the whole tree at once, which doesn't make sense here.) Only affects
+	"Depth button: cycle the view's render depth (leafKind). The default order is
+	Package -> Class -> Category -> Method -> Package (Full/nil omitted; it renders
+	the whole tree at once, which doesn't make sense here). A view may narrow this to
+	its own meaningful depths by answering #leafKindOrder -- e.g. the class diagram
+	cycles just Class <-> Method (classes only vs classes + methods). Only affects
 	rendering; the tree and metric roll-ups are unchanged, so this is cheap to
-	re-apply. If the view is currently at Full (nil), the first press goes to Package."
+	re-apply. If the view is at a depth outside the order, the first press goes to
+	the order's first entry."
 	| order current next |
 	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
-	order := { #package. #class. #category. #method }.
+	order := (view respondsTo: #leafKindOrder)
+		ifTrue: [view leafKindOrder]
+		ifFalse: [{ #package. #class. #category. #method }].
 	current := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
 	next := order at: ((order indexOf: current) \\ order size) + 1.
 	view leafKind: next.
@@ -1768,12 +1773,16 @@ SWANavPanel >> updateCoveringTests [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:54'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:25'
 }
 SWANavPanel >> updateDepthLabel [
-	"Relabel the depth button to reflect the view's current render depth (leafKind)."
+	"Relabel the depth button to reflect the view's current render depth (leafKind).
+	A view may supply its own friendlier text via #depthLabelString (e.g. the class
+	diagram maps #class/#state/#method to Classes / +State / +Methods)."
 	| kind text |
 	depthButton ifNil: [^ self].
+	(view respondsTo: #depthLabelString) ifTrue: [
+		^ depthButton label: view depthLabelString].
 	kind := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
 	text := kind
 		ifNil: ['Depth: Full']
