@@ -13,7 +13,7 @@ Color: classic warm flame palette, hashed by frame name for stable, distinguisha
 Open via SWAStSpy>>openFlamegraph, or directly: SWAStSpyFlamegraphMorph on: aSWAStSpyNode.
 "
 Class {
-	#name : #SWAStSpyFlamegraphMorph,
+	#name : #SWASamplingTallyFlamegraphMorph,
 	#superclass : #SWAView,
 	#instVars : [
 		'focusNode',
@@ -29,10 +29,10 @@ Class {
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:52'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpyFlamegraphMorph class >> on: aNode [
-	"Create a flamegraph rooted at the given SWAStSpyNode (duck-typed)."
+SWASamplingTallyFlamegraphMorph class >> on: aNode [
+	"Create a flamegraph rooted at the given SWASamplingTallyNode (duck-typed)."
 	^ self new setRoot: aNode
 ]
 
@@ -40,7 +40,7 @@ SWAStSpyFlamegraphMorph class >> on: aNode [
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:53'
 }
-SWAStSpyFlamegraphMorph >> ancestorChain [
+SWASamplingTallyFlamegraphMorph >> ancestorChain [
 	"focusNode's ancestors, root-first (excluding focusNode itself)."
 	| chain n |
 	chain := OrderedCollection new.
@@ -53,7 +53,7 @@ SWAStSpyFlamegraphMorph >> ancestorChain [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:27'
 }
-SWAStSpyFlamegraphMorph >> baseColorForNode: aNode [
+SWASamplingTallyFlamegraphMorph >> baseColorForNode: aNode [
 	"Classic flamegraph warm palette: reds/oranges/yellows, deterministic per
 	frame name so the same method is always the same color."
 	| h hue sat bri |
@@ -68,7 +68,7 @@ SWAStSpyFlamegraphMorph >> baseColorForNode: aNode [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:22'
 }
-SWAStSpyFlamegraphMorph >> breadcrumbString [
+SWASamplingTallyFlamegraphMorph >> breadcrumbString [
 	"Compact breadcrumb of the zoom focus (root .. focusNode), elided from the
 	HEAD so the deepest (most relevant) frames stay visible, plus the focus total."
 	| parts node path |
@@ -86,7 +86,7 @@ SWAStSpyFlamegraphMorph >> breadcrumbString [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
 }
-SWAStSpyFlamegraphMorph >> browseSelected [
+SWASamplingTallyFlamegraphMorph >> browseSelected [
 	"Open a system browser on the selected frame's method, if it is a resolvable
 	Smalltalk frame. Wired to the Browse button via actionSelector: #browseSelected.
 	Beeps for native/VM frames or when nothing is selected."
@@ -99,7 +99,7 @@ SWAStSpyFlamegraphMorph >> browseSelected [
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:58'
 }
-SWAStSpyFlamegraphMorph >> computeFrames [
+SWASamplingTallyFlamegraphMorph >> computeFrames [
 	"Build `frames` -- a flat list of {node. rect. depth. isAncestor} -- in LOCAL
 	coordinates (origin 0@0), so the layout can be rendered into a cached Form and
 	blitted at #position on every draw. Width is proportional to totalSize;
@@ -136,7 +136,7 @@ SWAStSpyFlamegraphMorph >> computeFrames [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:57'
 }
-SWAStSpyFlamegraphMorph >> drawLabelFor: aNode in: r on: aCanvas font: font [
+SWASamplingTallyFlamegraphMorph >> drawLabelFor: aNode in: r on: aCanvas font: font [
 	"Draw aNode's name inside rect r, clipped, only if there is room."
 	self
 		drawLabelString: (aNode name ifNil: ['?'])
@@ -147,7 +147,7 @@ SWAStSpyFlamegraphMorph >> drawLabelFor: aNode in: r on: aCanvas font: font [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:57'
 }
-SWAStSpyFlamegraphMorph >> drawLabelString: aString in: r on: aCanvas font: font color: aColor [
+SWASamplingTallyFlamegraphMorph >> drawLabelString: aString in: r on: aCanvas font: font color: aColor [
 	"Draw aString inside rect r, clipped + tilde-truncated to fit, in aColor.
 	Only when there is room."
 	| charW maxChars text |
@@ -169,7 +169,7 @@ SWAStSpyFlamegraphMorph >> drawLabelString: aString in: r on: aCanvas font: font
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> drawOn: aCanvas [
+SWASamplingTallyFlamegraphMorph >> drawOn: aCanvas [
 	"Blit the cached static layer (rendered once, in local coords). No per-frame
 	recompute or background fill here -- that is what caused the flicker."
 	| form |
@@ -186,7 +186,7 @@ SWAStSpyFlamegraphMorph >> drawOn: aCanvas [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:22'
 }
-SWAStSpyFlamegraphMorph >> elideHead: aString to: maxChars [
+SWASamplingTallyFlamegraphMorph >> elideHead: aString to: maxChars [
 	"Truncate aString to maxChars, dropping characters from the FRONT and prefixing
 	an ellipsis, so the tail (end) is always visible."
 	aString size <= maxChars ifTrue: [^ aString].
@@ -197,7 +197,7 @@ SWAStSpyFlamegraphMorph >> elideHead: aString to: maxChars [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> ensureCachedForm [
+SWASamplingTallyFlamegraphMorph >> ensureCachedForm [
 	"Render the whole flamegraph into a Form once (local coords). Re-used as a
 	single blit on every subsequent draw until the layout invalidates -- this is
 	what eliminates the per-frame fill/repaint flicker."
@@ -214,7 +214,7 @@ SWAStSpyFlamegraphMorph >> ensureCachedForm [
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> ensureFrames [
+SWASamplingTallyFlamegraphMorph >> ensureFrames [
 	"Recompute the frame layout (and drop the cached form) if it is missing or was
 	laid out for a different extent (the window may have resized the morph)."
 	(frames isNil or: [frames isEmpty or: [framesBounds ~= self bounds]])
@@ -225,7 +225,7 @@ SWAStSpyFlamegraphMorph >> ensureFrames [
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> extent: aPoint [
+SWASamplingTallyFlamegraphMorph >> extent: aPoint [
 	"On a real size change, invalidate the layout and the cached form so the next
 	draw re-renders at the new extent."
 	aPoint = self extent ifFalse: [
@@ -238,7 +238,7 @@ SWAStSpyFlamegraphMorph >> extent: aPoint [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> flushCache [
+SWASamplingTallyFlamegraphMorph >> flushCache [
 	"Drop the cached Form so the next draw rebuilds it."
 	cachedForm := nil.
 	self changed
@@ -248,7 +248,7 @@ SWAStSpyFlamegraphMorph >> flushCache [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:10'
 }
-SWAStSpyFlamegraphMorph >> focusNode [
+SWASamplingTallyFlamegraphMorph >> focusNode [
 	^ focusNode
 ]
 
@@ -256,7 +256,7 @@ SWAStSpyFlamegraphMorph >> focusNode [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> focusNode: aNode [
+SWASamplingTallyFlamegraphMorph >> focusNode: aNode [
 	"Zoom so aNode's subtree fills the width. Invalidates the layout + cache."
 	focusNode := aNode.
 	frames := OrderedCollection new.
@@ -268,7 +268,7 @@ SWAStSpyFlamegraphMorph >> focusNode: aNode [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
 }
-SWAStSpyFlamegraphMorph >> frameAt: aPoint [
+SWASamplingTallyFlamegraphMorph >> frameAt: aPoint [
 	"The topmost frame whose (local-coord) rect contains aPoint. aPoint is in world
 	coords, so translate it into local space first."
 	| local |
@@ -281,7 +281,7 @@ SWAStSpyFlamegraphMorph >> frameAt: aPoint [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:54'
 }
-SWAStSpyFlamegraphMorph >> frames [
+SWASamplingTallyFlamegraphMorph >> frames [
 	"The laid-out frames: a list of {node. rect. depth. isAncestor}."
 	^ frames
 ]
@@ -290,7 +290,7 @@ SWAStSpyFlamegraphMorph >> frames [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:01'
 }
-SWAStSpyFlamegraphMorph >> framesBounds [
+SWASamplingTallyFlamegraphMorph >> framesBounds [
 	"The morph bounds the current `frames` were laid out for."
 	^ framesBounds
 ]
@@ -299,7 +299,7 @@ SWAStSpyFlamegraphMorph >> framesBounds [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:53'
 }
-SWAStSpyFlamegraphMorph >> handlesMouseDown: evt [
+SWASamplingTallyFlamegraphMorph >> handlesMouseDown: evt [
 	^ true
 ]
 
@@ -307,7 +307,7 @@ SWAStSpyFlamegraphMorph >> handlesMouseDown: evt [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:10'
 }
-SWAStSpyFlamegraphMorph >> history [
+SWASamplingTallyFlamegraphMorph >> history [
 	^ history
 ]
 
@@ -315,7 +315,7 @@ SWAStSpyFlamegraphMorph >> history [
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:08'
 }
-SWAStSpyFlamegraphMorph >> initialize [
+SWASamplingTallyFlamegraphMorph >> initialize [
 	super initialize.
 	self extent: 1000 @ 600.
 	self color: (Color gray: 0.12).
@@ -331,7 +331,7 @@ SWAStSpyFlamegraphMorph >> initialize [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:37'
 }
-SWAStSpyFlamegraphMorph >> labelFont [
+SWASamplingTallyFlamegraphMorph >> labelFont [
 	"Font for frame labels. BitstreamVeraSans (~21px) is ~50% bigger than the old
 	compact Atlanta, crisp and readable; rows grow to fit (see #initialize). Falls
 	back to a small bitmap font, then the default, if unavailable."
@@ -344,7 +344,7 @@ SWAStSpyFlamegraphMorph >> labelFont [
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:56'
 }
-SWAStSpyFlamegraphMorph >> layoutNode: aNode x: x width: w top: top scaleTotal: scaleTotal [
+SWASamplingTallyFlamegraphMorph >> layoutNode: aNode x: x width: w top: top scaleTotal: scaleTotal [
 	"Emit a LOCAL-coordinate frame for aNode at the given x/width with its top at
 	the given pixel y, then lay out its children left-to-right one rowHeight below.
 	Stops recursing into frames narrower than minFrameWidth or that fall below the
@@ -371,7 +371,7 @@ SWAStSpyFlamegraphMorph >> layoutNode: aNode x: x width: w top: top scaleTotal: 
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
-SWAStSpyFlamegraphMorph >> metaInfo: aString [
+SWASamplingTallyFlamegraphMorph >> metaInfo: aString [
 	"Static run-level meta line (pid / duration / samples / rate), set by the opener."
 	metaInfo := aString
 ]
@@ -380,7 +380,7 @@ SWAStSpyFlamegraphMorph >> metaInfo: aString [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWAStSpyFlamegraphMorph >> metaInfoString [
+SWASamplingTallyFlamegraphMorph >> metaInfoString [
 	"Run-level meta line for the panel. (SWAPane content protocol.)"
 	^ metaInfo ifNil: ['']
 ]
@@ -389,7 +389,7 @@ SWAStSpyFlamegraphMorph >> metaInfoString [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
 }
-SWAStSpyFlamegraphMorph >> mouseDown: evt [
+SWASamplingTallyFlamegraphMorph >> mouseDown: evt [
 	"Left-click a frame: select it (highlight + detail line + source). Click the
 	SAME frame again: zoom into it. Click the collapsed ancestor strip at the top:
 	zoom out one level. Right-click: explore the node."
@@ -419,7 +419,7 @@ SWAStSpyFlamegraphMorph >> mouseDown: evt [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:56'
 }
-SWAStSpyFlamegraphMorph >> refreshChrome [
+SWASamplingTallyFlamegraphMorph >> refreshChrome [
 	"Refresh the nav-panel chrome (breadcrumb, selection, meta) + source pane.
 	No-op when used standalone without a panel."
 	navPanel ifNotNil: [:p | p refresh]
@@ -429,7 +429,7 @@ SWAStSpyFlamegraphMorph >> refreshChrome [
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:57'
 }
-SWAStSpyFlamegraphMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
+SWASamplingTallyFlamegraphMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	"Paint background and every frame into aCanvas, offset by anOrigin (local
 	coords + anOrigin). The collapsed ancestor strip is drawn as a thin dark
 	'zoom out' bar; the selected frame is brightened with a white border."
@@ -463,7 +463,7 @@ SWAStSpyFlamegraphMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:58'
 }
-SWAStSpyFlamegraphMorph >> rowHeight [
+SWASamplingTallyFlamegraphMorph >> rowHeight [
 	^ rowHeight
 ]
 
@@ -471,7 +471,7 @@ SWAStSpyFlamegraphMorph >> rowHeight [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWAStSpyFlamegraphMorph >> selectedSourceString [
+SWASamplingTallyFlamegraphMorph >> selectedSourceString [
 	"Source text for the Show pane: the selected frame's method source, or a
 	placeholder for native/VM frames. (SWAPane content protocol.)"
 	selectedNode ifNil: [^ ''].
@@ -482,7 +482,7 @@ SWAStSpyFlamegraphMorph >> selectedSourceString [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWAStSpyFlamegraphMorph >> selectionPathString [
+SWASamplingTallyFlamegraphMorph >> selectionPathString [
 	"Detail line for the SELECTED frame: name, time, percent of the whole tree, and
 	self time. Empty when nothing is selected. (SWAPane content protocol.)"
 	| rootTotal pct |
@@ -499,7 +499,7 @@ SWAStSpyFlamegraphMorph >> selectionPathString [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:27'
 }
-SWAStSpyFlamegraphMorph >> setRoot: aNode [
+SWASamplingTallyFlamegraphMorph >> setRoot: aNode [
 	rootNode := aNode.
 	focusNode := aNode.
 	frames := OrderedCollection new.
@@ -513,7 +513,7 @@ SWAStSpyFlamegraphMorph >> setRoot: aNode [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
-SWAStSpyFlamegraphMorph >> zoomInto: aNode [
+SWASamplingTallyFlamegraphMorph >> zoomInto: aNode [
 	"Make aNode the new focus, if it has children. Push the current focus onto the
 	history so Back can return, and clear the selection."
 	| kids |
@@ -530,7 +530,7 @@ SWAStSpyFlamegraphMorph >> zoomInto: aNode [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }
-SWAStSpyFlamegraphMorph >> zoomOut [
+SWASamplingTallyFlamegraphMorph >> zoomOut [
 	"Go back to the previous focus from history, clearing the selection."
 	history isEmpty ifTrue: [^ self].
 	selectedNode := nil.

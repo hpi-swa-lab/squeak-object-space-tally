@@ -2,7 +2,7 @@
 Treemap morph specialised for st-spy sampled call trees. Tiles are sized by sample count (SWAStSpyNode>>totalSize). Color is a heat ramp by share of total samples (hot = red), label and balloon show sample counts and percentages.
 "
 Class {
-	#name : #SWAStSpyTreemapMorph,
+	#name : #SWASamplingTallyTreemapMorph,
 	#superclass : #SWATreemapMorph,
 	#category : #'SWA-MessageTally',
 	#'squeak_changestamp' : '<historical>'
@@ -12,7 +12,7 @@ Class {
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:02'
 }
-SWAStSpyTreemapMorph >> balloonStringFor: aNode [
+SWASamplingTallyTreemapMorph >> balloonStringFor: aNode [
 	"Hover balloon: name, wall time + percentage, self time, path."
 	| rootTotal pct |
 	rootTotal := rootNode totalSize max: 1.
@@ -29,7 +29,7 @@ SWAStSpyTreemapMorph >> balloonStringFor: aNode [
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:36'
 }
-SWAStSpyTreemapMorph >> baseColorForNode: aNode [
+SWASamplingTallyTreemapMorph >> baseColorForNode: aNode [
 	"Heat ramp by share of the root's total samples: cold blue -> hot red."
 	| rootTotal frac |
 	rootTotal := rootNode totalSize max: 1.
@@ -41,10 +41,10 @@ SWAStSpyTreemapMorph >> baseColorForNode: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:02'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpyTreemapMorph >> formatWeight: aNumber [
-	"st-spy treemap weights are microseconds of wall time."
+SWASamplingTallyTreemapMorph >> formatWeight: aNumber [
+	"Sampling-tally treemap weights are microseconds of wall time (from st-spy)."
 	^ rootNode formatMicros: aNumber
 ]
 
@@ -52,7 +52,7 @@ SWAStSpyTreemapMorph >> formatWeight: aNumber [
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:02'
 }
-SWAStSpyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
+SWASamplingTallyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 	"Short tile label: frame name, plus wall time when there is room."
 	| name |
 	maxPixels < 16 ifTrue: [^ nil].
@@ -65,7 +65,7 @@ SWAStSpyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWAStSpyTreemapMorph >> metaInfoString [
+SWASamplingTallyTreemapMorph >> metaInfoString [
 	"Meta line: focused subtree's total time + immediate child count.
 	(SWAPane content protocol.)"
 	| focus kids |

@@ -1037,12 +1037,12 @@ SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 
 {
 	#category : #styling,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:56'
 }
 SWAView >> styleClassForSelection [
 	"The class/metaclass context for Shout styling of the selected node's source,
 	or nil. Prefers #styleClassOrNil (code + treemap nodes); falls back to the first
-	element of #methodReference (st-spy flamegraph frames)."
+	element of #methodReference (sampling-tally flamegraph frames)."
 	selectedNode ifNil: [^ nil].
 	(selectedNode respondsTo: #styleClassOrNil)
 		ifTrue: [^ selectedNode styleClassOrNil].

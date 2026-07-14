@@ -1,37 +1,43 @@
 "
-Drives the external `st-spy` profiler and turns its chrome-trace output into a sampled call tree (SWAStSpyNode) viewable in the SWA Explorer and TreeMap.
+The **Sampling Tally**: a statistical (sampling) message tally for Squeak. It drives the external `st-spy` sampler and folds its chrome-trace output into a wall-time-weighted call tree (SWASamplingTallyNode) viewable in the SWA Explorer, Flamegraph, and TreeMap.
+
+This is one of three message-tally flavours in the suite; keep them distinct:
+  - FULL (deterministic) tally -- instruments every send for exact call counts.
+  - STATISTICAL / SAMPLING tally, EXTERNAL -- THIS class, via the st-spy binary.
+  - STATISTICAL / SAMPLING tally, IN-IMAGE -- Squeak's own MessageTally (spyOn:).
+st-spy is an implementation detail of this external sampler, not a user-facing name.
 
 st-spy is an external py-spy-style sampler for OpenSmalltalk VMs (see /home/jens/lively4/st-spy). It is run under sudo (passwordless NOPASSWD rule on the binary path) and writes a chrome://tracing JSON flamechart: nested B/E (begin/end) events carrying entry/exit timestamps, with consecutive identical stacks coalesced into one span. Frames are therefore weighted by WALL TIME (microseconds), not raw sample counts.
 
 NON-BLOCKING by design. #record launches st-spy detached and returns at once; it does NOT freeze the calling process or the UI while sampling. Use one of:
 
 	""non-blocking, auto-open both views when ready""
-	SWAStSpy recordSelfFor: 10.
+	SWASamplingTally recordSelfFor: 10.
 
 	""non-blocking, profile another VM, run your own block when ready""
-	(SWAStSpy onPid: 12345 duration: 10)
+	(SWASamplingTally onPid: 12345 duration: 10)
 		record;
 		whenReadyDo: [:spy | spy openTreemap].
 
 	""explicit non-blocking open""
-	(SWAStSpy onPid: 12345 duration: 10) recordThenOpen.
+	(SWASamplingTally onPid: 12345 duration: 10) recordThenOpen.
 
 	""synchronous (scripts/headless only -- blocks the caller!)""
 	| spy |
-	spy := SWAStSpy onPid: 12345 duration: 10.
+	spy := SWASamplingTally onPid: 12345 duration: 10.
 	spy record; waitForTrace; openExplorer; openTreemap.
 
 	""from an existing trace file, no recording""
-	(SWAStSpy new parseTraceFile: '/tmp/opencode/trace.json') openExplorer; openTreemap.
+	(SWASamplingTally new parseTraceFile: '/tmp/opencode/trace.json') openExplorer; openTreemap.
 
-Lifecycle: #record -> (st-spy runs ~duration s) -> #isReady becomes true -> #buildTree parses + folds the flamechart into #rootNode (a SWAStSpyNode). #whenReadyDo: forks a background poller that builds the tree and runs your block via WorldState addDeferredUIMessage:, so view-opening happens safely on the UI process.
+Lifecycle: #record -> (st-spy runs ~duration s) -> #isReady becomes true -> #buildTree parses + folds the flamechart into #rootNode (a SWASamplingTallyNode). #whenReadyDo: forks a background poller that builds the tree and runs your block via WorldState addDeferredUIMessage:, so view-opening happens safely on the UI process.
 
 Self-profiling note: when pid is this image's own pid, st-spy still briefly pauses the VM per sample, but because it runs detached the image stays responsive.
 
-The path to the st-spy binary is in SWAStSpy class>>stSpyBinary.
+The path to the st-spy binary is in SWASamplingTally class>>stSpyBinary.
 "
 Class {
-	#name : #SWAStSpy,
+	#name : #SWASamplingTally,
 	#superclass : #Object,
 	#instVars : [
 		'pid',
@@ -51,58 +57,58 @@ Class {
 
 {
 	#category : #'class initialization',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:02'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:00'
 }
-SWAStSpy class >> initialize [
-	"Register the Apps-menu entry for st-spy self profiling.
+SWASamplingTally class >> initialize [
+	"Register the Apps-menu entry for sampling-tally self profiling.
 	Idempotent: removes any prior entry for this receiver first."
 	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
 	TheWorldMenu unregisterOpenCommandWithReceiver: self.
 	TheWorldMenu registerOpenCommand: {
-		'st-spy Self Profile'.
+		'Sampling Tally (Self Profile)'.
 		{self. #open}.
-		'Sample this image for 10s with st-spy and open a flamegraph' }
+		'Sample this image for 10s (statistical/sampling tally via st-spy) and open a flamegraph' }
 ]
 
 {
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:58'
 }
-SWAStSpy class >> onPid: anInteger duration: seconds [
+SWASamplingTally class >> onPid: anInteger duration: seconds [
 	^ self new pid: anInteger; duration: seconds; yourself
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:44'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpy class >> open [
+SWASamplingTally class >> open [
 	"Apps-menu entry point: profile THIS image for 10 seconds (non-blocking, with
 	the morphic progress bar) and auto-open the flamegraph when ready. Mirrors
-	`SWAStSpy recordSelfFor: 10`."
+	`SWASamplingTally recordSelfFor: 10`."
 	^ self recordSelfFor: 10
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpy class >> recordSelfFor: seconds [
+SWASamplingTally class >> recordSelfFor: seconds [
 	"Convenience, NON-BLOCKING: profile THIS image for `seconds` at the default
-	100 Hz, then auto-open the flamegraph. Returns the SWAStSpy immediately (its
-	rootNode is nil until recording completes)."
+	100 Hz, then auto-open the flamegraph. Returns the SWASamplingTally immediately
+	(its rootNode is nil until recording completes)."
 	^ self recordSelfFor: seconds atRate: 100
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:58'
 }
-SWAStSpy class >> recordSelfFor: seconds atRate: hz [
+SWASamplingTally class >> recordSelfFor: seconds atRate: hz [
 	"Convenience, NON-BLOCKING: profile THIS image for `seconds` at `hz` samples
 	per second, then auto-open the flamegraph. Each sample pauses the VM ~0.5 ms,
-	so e.g. 500 Hz ~= 25% pause time; the ceiling is ~2000 Hz. Returns the SWAStSpy
-	immediately (its rootNode is nil until recording completes)."
+	so e.g. 500 Hz ~= 25% pause time; the ceiling is ~2000 Hz. Returns the
+	SWASamplingTally immediately (its rootNode is nil until recording completes)."
 	^ self new duration: seconds; rate: hz; recordThenOpen; yourself
 ]
 
@@ -110,7 +116,7 @@ SWAStSpy class >> recordSelfFor: seconds atRate: hz [
 	#category : #configuration,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:27'
 }
-SWAStSpy class >> stSpyBinary [
+SWASamplingTally class >> stSpyBinary [
 	"Command used to invoke st-spy. './st-spy' resolves against the VM's working
 	directory (/home/jens/lively4/squeak) and matches a passwordless sudo NOPASSWD
 	rule for that exact path, so #record can run it without a tty password prompt."
@@ -121,7 +127,7 @@ SWAStSpy class >> stSpyBinary [
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:02'
 }
-SWAStSpy class >> unload [
+SWASamplingTally class >> unload [
 	"Remove the Apps-menu entry when the package is unloaded."
 	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
 		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
@@ -131,7 +137,7 @@ SWAStSpy class >> unload [
 	#category : #parsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:05'
 }
-SWAStSpy >> buildTree [
+SWASamplingTally >> buildTree [
 	"Parse the (finished) trace file and fold it into the call tree. Assumes
 	#isReady. Returns the rootNode."
 	self parseTrace.
@@ -140,11 +146,12 @@ SWAStSpy >> buildTree [
 
 {
 	#category : #parsing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:01'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:58'
 }
-SWAStSpy >> buildTreeFromEvents [
+SWASamplingTally >> buildTreeFromEvents [
 	"Fold the flat flamechart B/E event stream into a merged call tree of
-	SWAStSpyNode, weighting frames by TIME (microseconds), not raw event counts.
+	SWASamplingTallyNode, weighting frames by TIME (microseconds), not raw event
+	counts.
 
 	st-spy emits a chrome flamechart: each 'B' carries the frame's entry ts and
 	each matching 'E' its exit ts, and consecutive identical stacks are coalesced
@@ -158,7 +165,7 @@ SWAStSpy >> buildTreeFromEvents [
 	as self time to the node, and add the full span to the parent's child-time
 	accumulator. selfCount/totalCount thus hold microseconds."
 	| root cursor nodeStack tsStack childTimeStack |
-	root := SWAStSpyNode new name: 'root'.
+	root := SWASamplingTallyNode new name: 'root'.
 	cursor := root.
 	nodeStack := OrderedCollection new.
 	tsStack := OrderedCollection new.
@@ -196,7 +203,7 @@ SWAStSpy >> buildTreeFromEvents [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
 }
-SWAStSpy >> checkPreflight [
+SWASamplingTally >> checkPreflight [
 	"Validate that a recording can actually start, and stash a human-readable
 	reason in #preflightError if not. Catches the failure modes that otherwise
 	manifest as a silent empty log ('wrote NOTHING / never started'):
@@ -226,7 +233,7 @@ SWAStSpy >> checkPreflight [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> duration [
+SWASamplingTally >> duration [
 	^ duration
 ]
 
@@ -234,7 +241,7 @@ SWAStSpy >> duration [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> duration: seconds [
+SWASamplingTally >> duration: seconds [
 	duration := seconds
 ]
 
@@ -242,7 +249,7 @@ SWAStSpy >> duration: seconds [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:12'
 }
-SWAStSpy >> errorText [
+SWASamplingTally >> errorText [
 	"The trimmed st-spy error log, for reporting."
 	^ self logContents withBlanksTrimmed
 ]
@@ -251,7 +258,7 @@ SWAStSpy >> errorText [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
 }
-SWAStSpy >> failed [
+SWASamplingTally >> failed [
 	"True if st-spy reported a fatal error (e.g. the target pid does not exist, or
 	sudo/permission failed) and will never produce a trace. Guard against false
 	positives: the success line 'Samples: N Errors: 0' contains 'Errors', and a
@@ -288,7 +295,7 @@ SWAStSpy >> failed [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:50'
 }
-SWAStSpy >> failureReason [
+SWASamplingTally >> failureReason [
 	"A human-readable explanation for why no trace appeared, for the warning
 	dialog. Distinguishes the failure modes: a pre-flight rejection (target gone
 	or already traced), st-spy launched and logged an error, st-spy never wrote
@@ -318,7 +325,7 @@ SWAStSpy >> failureReason [
 	#category : #initialize,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:33'
 }
-SWAStSpy >> initialize [
+SWASamplingTally >> initialize [
 	super initialize.
 	pid := OSProcess thisOSProcess pid.   "default: profile self"
 	duration := 10.
@@ -331,7 +338,7 @@ SWAStSpy >> initialize [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:05'
 }
-SWAStSpy >> isReady [
+SWASamplingTally >> isReady [
 	"True once st-spy has finished and written the completion marker to its log.
 	More reliable than checking file existence, since the file is created early."
 	| log |
@@ -345,7 +352,7 @@ SWAStSpy >> isReady [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:30'
 }
-SWAStSpy >> launchTime [
+SWASamplingTally >> launchTime [
 	"When #record last launched st-spy (nil if never launched). Used by #failed to
 	avoid treating a momentarily-empty log as a failure before st-spy has had time
 	to write its startup banner."
@@ -356,7 +363,7 @@ SWAStSpy >> launchTime [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:12'
 }
-SWAStSpy >> logContents [
+SWASamplingTally >> logContents [
 	"Current contents of st-spy's stdout/stderr log, or '' if not yet present."
 	| log |
 	log := self outputFile, '.log'.
@@ -367,11 +374,11 @@ SWAStSpy >> logContents [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:58'
 }
-SWAStSpy >> openExplorer [
+SWASamplingTally >> openExplorer [
 	"Open an ObjectExplorer on the call tree, hottest frames first. The
-	SWAStSpyNode explorer protocol drives the disclosure/labels."
+	SWASamplingTallyNode explorer protocol drives the disclosure/labels."
 	| window |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
 	window := rootNode explore.
@@ -380,18 +387,18 @@ SWAStSpy >> openExplorer [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:58'
 }
-SWAStSpy >> openFlamegraph [
-	"Open a flamegraph on the call tree (same SWAStSpyNode tree the treemap uses).
-	The shared SWAPane supplies the window chrome (Back/Browse/Show + breadcrumb
-	+ selection-detail line + meta-info line + toggleable source pane). Single click
-	selects a frame; clicking it again zooms in; Back zooms out; Browse opens a
-	system browser on the selected Smalltalk method; Show toggles the source pane;
-	right-click explores. Returns the window."
+SWASamplingTally >> openFlamegraph [
+	"Open a flamegraph on the call tree (same SWASamplingTallyNode tree the treemap
+	uses). The shared SWAPane supplies the window chrome (Back/Browse/Show +
+	breadcrumb + selection-detail line + meta-info line + toggleable source pane).
+	Single click selects a frame; clicking it again zooms in; Back zooms out; Browse
+	opens a system browser on the selected Smalltalk method; Show toggles the source
+	pane; right-click explores. Returns the window."
 	| flame panel window |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
-	flame := SWAStSpyFlamegraphMorph on: rootNode.
+	flame := SWASamplingTallyFlamegraphMorph on: rootNode.
 	flame metaInfo: 'pid ', pid printString,
 		'   ', (rootNode formatMicros: sampleCount), ' total',
 		'   ', sampleCount printString, ' samples',
@@ -400,7 +407,7 @@ SWAStSpy >> openFlamegraph [
 	panel := SWAPane on: flame.
 
 	window := panel openInWindow.
-	window setLabel: 'st-spy Flamegraph  ', (rootNode formatMicros: sampleCount),
+	window setLabel: 'Sampling Tally Flamegraph  ', (rootNode formatMicros: sampleCount),
 		'  (pid ', pid printString, ')'.
 	window extent: (Display extent * 0.7) rounded.
 	window center: Display center.
@@ -409,18 +416,18 @@ SWAStSpy >> openFlamegraph [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:59'
 }
-SWAStSpy >> openTreemap [
+SWASamplingTally >> openTreemap [
 	"Open a squarified treemap of the call tree (tiles sized by wall time), using
 	the shared SWAPane window chrome (Back/Browse/Show + breadcrumb +
 	selection-path + meta-info line + hover overlay)."
 	| treemap overlay panel window |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
-	treemap := SWAStSpyTreemapMorph on: rootNode.
+	treemap := SWASamplingTallyTreemapMorph on: rootNode.
 	treemap extent: (Display extent * 0.7) rounded.
 
-	overlay := SWAStSpyTreemapOverlay new.
+	overlay := SWASamplingTallyTreemapOverlay new.
 	overlay treemapMorph: treemap.
 	overlay extent: treemap extent.
 	treemap overlayMorph: overlay.
@@ -429,7 +436,7 @@ SWAStSpy >> openTreemap [
 	panel := SWAPane on: treemap.
 
 	window := panel openInWindow.
-	window setLabel: 'st-spy Treemap  ', (rootNode formatMicros: sampleCount), '  (pid ', pid printString, ')'.
+	window setLabel: 'Sampling Tally Treemap  ', (rootNode formatMicros: sampleCount), '  (pid ', pid printString, ')'.
 	window extent: (Display extent * 0.7) rounded.
 	window center: Display center.
 	^ window
@@ -439,7 +446,7 @@ SWAStSpy >> openTreemap [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> outputFile [
+SWASamplingTally >> outputFile [
 	"The chrome-trace JSON path st-spy writes to (defaults under /tmp/opencode)."
 	^ outputFile ifNil: [outputFile :=
 		'/tmp/opencode/stspy-', pid printString, '-',
@@ -450,7 +457,7 @@ SWAStSpy >> outputFile [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> outputFile: aPathString [
+SWASamplingTally >> outputFile: aPathString [
 	outputFile := aPathString
 ]
 
@@ -458,7 +465,7 @@ SWAStSpy >> outputFile: aPathString [
 	#category : #parsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> parseTrace [
+SWASamplingTally >> parseTrace [
 	"Read and JSON-parse the chrome-trace file into `events` (an Array of
 	Dictionaries with at least 'ph', 'name', 'ts')."
 	| contents |
@@ -471,7 +478,7 @@ SWAStSpy >> parseTrace [
 	#category : #parsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> parseTraceFile: aPathString [
+SWASamplingTally >> parseTraceFile: aPathString [
 	"Build the tree from an existing chrome-trace file (skip recording)."
 	outputFile := aPathString.
 	self parseTrace.
@@ -483,7 +490,7 @@ SWAStSpy >> parseTraceFile: aPathString [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:58'
 }
-SWAStSpy >> pid [
+SWASamplingTally >> pid [
 	^ pid
 ]
 
@@ -491,17 +498,17 @@ SWAStSpy >> pid [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> pid: anInteger [
+SWASamplingTally >> pid: anInteger [
 	pid := anInteger
 ]
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:02'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpy >> printOn: aStream [
+SWASamplingTally >> printOn: aStream [
 	aStream
-		nextPutAll: 'SWAStSpy(pid ';
+		nextPutAll: 'SWASamplingTally(pid ';
 		print: pid;
 		nextPutAll: ', ';
 		print: duration;
@@ -515,7 +522,7 @@ SWAStSpy >> printOn: aStream [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> rate: samplesPerSecond [
+SWASamplingTally >> rate: samplesPerSecond [
 	rate := samplesPerSecond
 ]
 
@@ -523,7 +530,7 @@ SWAStSpy >> rate: samplesPerSecond [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
 }
-SWAStSpy >> record [
+SWASamplingTally >> record [
 	"Launch st-spy detached in the background and return IMMEDIATELY -- this does
 	NOT block the calling process or the UI. The trace is written asynchronously
 	over the next `duration` seconds.
@@ -553,7 +560,7 @@ SWAStSpy >> record [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> recordCommand [
+SWASamplingTally >> recordCommand [
 	"The shell command that runs st-spy detached in the background, writing a
 	chrome trace to #outputFile and its log alongside. Backgrounded with & so the
 	calling image is not blocked while st-spy samples."
@@ -572,7 +579,7 @@ SWAStSpy >> recordCommand [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:34'
 }
-SWAStSpy >> recordThenOpen [
+SWASamplingTally >> recordThenOpen [
 	"Non-blocking: start recording and arrange for the Flamegraph to open
 	automatically once the trace is ready. Returns immediately."
 	self record.
@@ -582,10 +589,10 @@ SWAStSpy >> recordThenOpen [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:58'
 }
-SWAStSpy >> rootNode [
-	"The SWAStSpyNode call tree (nil until #record / #buildTreeFromEvents)."
+SWASamplingTally >> rootNode [
+	"The SWASamplingTallyNode call tree (nil until #record / #buildTreeFromEvents)."
 	^ rootNode
 ]
 
@@ -593,7 +600,7 @@ SWAStSpy >> rootNode [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
 }
-SWAStSpy >> sampleCount [
+SWASamplingTally >> sampleCount [
 	"Number of samples folded into the tree (root totalCount)."
 	^ sampleCount
 ]
@@ -602,7 +609,7 @@ SWAStSpy >> sampleCount [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:33'
 }
-SWAStSpy >> showProgress [
+SWASamplingTally >> showProgress [
 	"Whether #whenReadyDo: emits a coarse 1s progress tick to the Transcript while
 	st-spy records. ON by default; this slightly perturbs the measurement (the
 	poller wakes once a second and writes), so turn it OFF for the most accurate
@@ -614,7 +621,7 @@ SWAStSpy >> showProgress [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:34'
 }
-SWAStSpy >> showProgress: aBoolean [
+SWASamplingTally >> showProgress: aBoolean [
 	"Set whether to emit coarse 1s progress ticks while recording. Default true."
 	showProgress := aBoolean
 ]
@@ -623,7 +630,7 @@ SWAStSpy >> showProgress: aBoolean [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:05'
 }
-SWAStSpy >> traceFileReady [
+SWASamplingTally >> traceFileReady [
 	"Backwards-compatible alias for #isReady."
 	^ self isReady
 ]
@@ -632,7 +639,7 @@ SWAStSpy >> traceFileReady [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
 }
-SWAStSpy >> tracerPid [
+SWASamplingTally >> tracerPid [
 	"The pid of the process currently ptrace-attached to our target #pid, or 0 if
 	none. Read from /proc/<pid>/status. NB: procfs files report size 0, so the VM
 	cannot slurp them via #contentsOfEntireFile -- we shell out and parse instead.
@@ -652,7 +659,7 @@ SWAStSpy >> tracerPid [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:30'
 }
-SWAStSpy >> waitForTrace [
+SWASamplingTally >> waitForTrace [
 	"SYNCHRONOUS: block the calling process until the trace is ready, then build
 	the tree. Use only from scripts/headless where blocking is acceptable; from
 	the UI prefer #whenReadyDo: / #recordThenOpen. Returns self."
@@ -670,7 +677,7 @@ SWAStSpy >> waitForTrace [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:37'
 }
-SWAStSpy >> waitQuietly [
+SWASamplingTally >> waitQuietly [
 	"Block the current (background) process polling until st-spy is ready, has
 	failed, or the deadline passes. No UI. Returns self."
 	| deadline |
@@ -684,7 +691,7 @@ SWAStSpy >> waitQuietly [
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:39'
 }
-SWAStSpy >> waitWithProgress [
+SWASamplingTally >> waitWithProgress [
 	"Like #waitQuietly, but drive the standard morphic SystemProgressMorph (the bar
 	at the bottom of the World) so recording is visible without touching the
 	Transcript. All Morphic mutation (open / update value / close) is pushed to the
@@ -731,15 +738,15 @@ SWAStSpy >> waitWithProgress [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 13:37'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:58'
 }
-SWAStSpy >> whenReadyDo: aBlock [
+SWASamplingTally >> whenReadyDo: aBlock [
 	"Fork a low-priority background process that waits (without blocking the
 	caller or the UI) until the trace is ready, builds the call tree, then
-	evaluates aBlock with this SWAStSpy on the UI process. If st-spy fails early
-	(bad pid, permission, etc.) or times out, pops up a visible warning instead.
-	While recording, shows a morphic SystemProgressMorph (the standard bar at the
-	bottom of the World) updated once a second, unless #showProgress is false.
+	evaluates aBlock with this SWASamplingTally on the UI process. If st-spy fails
+	early (bad pid, permission, etc.) or times out, pops up a visible warning
+	instead. While recording, shows a morphic SystemProgressMorph (the standard bar
+	at the bottom of the World) updated once a second, unless #showProgress is false.
 	Returns self immediately."
 	[self showProgress
 		ifTrue: [self waitWithProgress]

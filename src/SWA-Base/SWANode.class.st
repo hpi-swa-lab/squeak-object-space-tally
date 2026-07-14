@@ -34,13 +34,13 @@ SWANode >> children [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:32'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:56'
 }
 SWANode >> crossRefKey [
 	"Canonical cross-view identity String, or nil if this node is not
 	cross-referenceable. Classes answer their class name; methods answer
 	'ClassName>>selector'. Packages/categories/native frames answer nil.
-	Used to link the independent CodeMap / StSpy / SpaceTally views."
+	Used to link the independent CodeMap / SamplingTally / SpaceTally views."
 	^ nil
 ]
 

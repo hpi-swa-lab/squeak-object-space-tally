@@ -8,7 +8,7 @@ Tree semantics: each node is a method frame (or the synthetic 'root'). #selfCoun
 Build with: parent addChildNamed: aString -- which finds-or-creates a child. After folding all samples, send #rollUpTotals to compute totalCount bottom-up.
 "
 Class {
-	#name : #SWAStSpyNode,
+	#name : #SWASamplingTallyNode,
 	#superclass : #SWANode,
 	#instVars : [
 		'name',
@@ -25,7 +25,7 @@ Class {
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:00'
 }
-SWAStSpyNode >> addSelfTime: micros [
+SWASamplingTallyNode >> addSelfTime: micros [
 	"Add `micros` microseconds of time during which this frame was the innermost
 	(leaf) frame on the stack."
 	selfCount := selfCount + micros
@@ -35,7 +35,7 @@ SWAStSpyNode >> addSelfTime: micros [
 	#category : #browsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
 }
-SWAStSpyNode >> browse [
+SWASamplingTallyNode >> browse [
 	"Open a system browser on this frame's method, if it resolves to one. Returns
 	true if a browser was opened, false for native/unresolvable frames."
 	| ref |
@@ -49,7 +49,7 @@ SWAStSpyNode >> browse [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:00'
 }
-SWAStSpyNode >> bumpSelf [
+SWASamplingTallyNode >> bumpSelf [
 	"Legacy single-count bump (1 sample as leaf). Prefer #addSelfTime: for
 	flamechart traces that carry real durations."
 	selfCount := selfCount + 1
@@ -59,7 +59,7 @@ SWAStSpyNode >> bumpSelf [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> category [
+SWASamplingTallyNode >> category [
 	^ category
 ]
 
@@ -67,22 +67,22 @@ SWAStSpyNode >> category [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> category: aString [
+SWASamplingTallyNode >> category: aString [
 	category := aString
 ]
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpyNode >> childNamed: aString [
+SWASamplingTallyNode >> childNamed: aString [
 	"Find or create the child frame with this name, allocating the children
 	collection lazily."
 	children ifNil: [children := OrderedCollection new].
 	^ children
 		detect: [:c | c name = aString]
 		ifNone: [ | child |
-			child := SWAStSpyNode new.
+			child := SWASamplingTallyNode new.
 			child name: aString; parent: self.
 			children add: child.
 			child]
@@ -92,7 +92,7 @@ SWAStSpyNode >> childNamed: aString [
 	#category : #browsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:40'
 }
-SWAStSpyNode >> compiledMethod [
+SWASamplingTallyNode >> compiledMethod [
 	"The CompiledMethod this frame names, or nil for native/unresolvable frames."
 	| ref |
 	ref := self methodReference.
@@ -106,7 +106,7 @@ SWAStSpyNode >> compiledMethod [
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:33'
 }
-SWAStSpyNode >> crossRefKey [
+SWASamplingTallyNode >> crossRefKey [
 	"A resolvable Smalltalk frame cross-references as 'ClassName>>selector'
 	(matching SWACodeMethodNode). Native/unresolvable frames answer nil.
 	The class portion is taken from the resolved class so metaclass framing
@@ -121,7 +121,7 @@ SWAStSpyNode >> crossRefKey [
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> edgeLabel [
+SWASamplingTallyNode >> edgeLabel [
 	^ nil
 ]
 
@@ -129,7 +129,7 @@ SWAStSpyNode >> edgeLabel [
 	#category : #exploring,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> explorerContents [
+SWASamplingTallyNode >> explorerContents [
 	"Child frames sorted by totalCount descending (hottest first), wrapped for the
 	ObjectExplorer tree."
 	| sorted |
@@ -145,7 +145,7 @@ SWAStSpyNode >> explorerContents [
 	#category : #exploring,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:01'
 }
-SWAStSpyNode >> explorerItemName [
+SWASamplingTallyNode >> explorerItemName [
 	"Tree-line label: 'total% duration  name' so hot frames are obvious.
 	Counts/times are in microseconds (flamechart durations)."
 	| pct rootTotal |
@@ -162,7 +162,7 @@ SWAStSpyNode >> explorerItemName [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> filename [
+SWASamplingTallyNode >> filename [
 	^ filename
 ]
 
@@ -170,7 +170,7 @@ SWAStSpyNode >> filename [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> filename: aString [
+SWASamplingTallyNode >> filename: aString [
 	filename := aString
 ]
 
@@ -178,7 +178,7 @@ SWAStSpyNode >> filename: aString [
 	#category : #printing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:01'
 }
-SWAStSpyNode >> formatMicros: micros [
+SWASamplingTallyNode >> formatMicros: micros [
 	"Human-readable duration from a microsecond count."
 	micros < 1000 ifTrue: [^ micros printString, ' us'].
 	micros < 1000000 ifTrue: [^ ((micros / 1000.0) roundTo: 0.1) printString, ' ms'].
@@ -189,7 +189,7 @@ SWAStSpyNode >> formatMicros: micros [
 	#category : #exploring,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> hasContentsInExplorer [
+SWASamplingTallyNode >> hasContentsInExplorer [
 	"Show a disclosure triangle only if we have child frames."
 	^ self children notEmpty
 ]
@@ -198,7 +198,7 @@ SWAStSpyNode >> hasContentsInExplorer [
 	#category : #initialize,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> initialize [
+SWASamplingTallyNode >> initialize [
 	super initialize.
 	selfCount := 0.
 	totalCount := 0.
@@ -209,7 +209,7 @@ SWAStSpyNode >> initialize [
 	#category : #browsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
 }
-SWAStSpyNode >> isSmalltalkFrame [
+SWASamplingTallyNode >> isSmalltalkFrame [
 	"True if this frame names a resolvable Smalltalk method we can browse."
 	^ self methodReference notNil
 ]
@@ -218,7 +218,7 @@ SWAStSpyNode >> isSmalltalkFrame [
 	#category : #browsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:16'
 }
-SWAStSpyNode >> methodReference [
+SWASamplingTallyNode >> methodReference [
 	"If this frame's name looks like a Smalltalk method -- 'Class>>selector' or
 	'Class class>>selector' -- answer { theClass. selectorSymbol }, else nil.
 	Native/VM frames (epoll_wait, copyBits, 0x7858..., poll) answer nil."
@@ -247,7 +247,7 @@ SWAStSpyNode >> methodReference [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> name [
+SWASamplingTallyNode >> name [
 	"Short label for treemap/explorer."
 	^ name ifNil: ['root']
 ]
@@ -256,7 +256,7 @@ SWAStSpyNode >> name [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> name: aString [
+SWASamplingTallyNode >> name: aString [
 	name := aString
 ]
 
@@ -264,7 +264,7 @@ SWAStSpyNode >> name: aString [
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> otherParents [
+SWASamplingTallyNode >> otherParents [
 	"Call-tree nodes have a single parent; the overlay guards on nil, so answering
 	nil disables that decoration."
 	^ nil
@@ -272,11 +272,11 @@ SWAStSpyNode >> otherParents [
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 16:57'
 }
-SWAStSpyNode >> printOn: aStream [
+SWASamplingTallyNode >> printOn: aStream [
 	aStream
-		nextPutAll: 'SWAStSpyNode(';
+		nextPutAll: 'SWASamplingTallyNode(';
 		nextPutAll: self name;
 		nextPutAll: ' self=';
 		print: selfCount;
@@ -291,7 +291,7 @@ SWAStSpyNode >> printOn: aStream [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> rollUpTotals [
+SWASamplingTallyNode >> rollUpTotals [
 	"Compute totalCount bottom-up: own self samples plus all descendants.
 	Returns this node's totalCount."
 	totalCount := selfCount + (self children
@@ -303,7 +303,7 @@ SWAStSpyNode >> rollUpTotals [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> rootTotalCount [
+SWASamplingTallyNode >> rootTotalCount [
 	"totalCount of the tree root, for percentage display."
 	^ parent isNil ifTrue: [totalCount] ifFalse: [parent rootTotalCount]
 ]
@@ -312,7 +312,7 @@ SWAStSpyNode >> rootTotalCount [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> selfCount [
+SWASamplingTallyNode >> selfCount [
 	"Number of samples in which this frame was the innermost frame."
 	^ selfCount
 ]
@@ -321,7 +321,7 @@ SWAStSpyNode >> selfCount [
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> selfSize [
+SWASamplingTallyNode >> selfSize [
 	"Samples owned directly by this frame (it was the innermost frame)."
 	^ selfCount
 ]
@@ -330,7 +330,7 @@ SWAStSpyNode >> selfSize [
 	#category : #browsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 16:00'
 }
-SWAStSpyNode >> sourceString [
+SWASamplingTallyNode >> sourceString [
 	"The source code of this frame's method, or -- for native/VM or missing frames
 	-- a note wrapped as a single Smalltalk comment so the Shout styler renders it
 	cleanly (as comment text) instead of choking on non-Smalltalk."
@@ -346,7 +346,7 @@ SWAStSpyNode >> sourceString [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> totalCount [
+SWASamplingTallyNode >> totalCount [
 	"Rolled-up sample count over the whole subtree (this frame was on the stack).
 	Valid only after #rollUpTotals."
 	^ totalCount
@@ -356,7 +356,7 @@ SWAStSpyNode >> totalCount [
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }
-SWAStSpyNode >> totalSize [
+SWASamplingTallyNode >> totalSize [
 	"Treemap weight: rolled-up sample count over the subtree. Tiles are squarified
 	by this, so hot call paths get the largest tiles. Min 0 so the treemap skips
 	empty frames."
