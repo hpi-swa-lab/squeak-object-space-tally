@@ -12,9 +12,13 @@ roots and builds a tree of space usage you can explore three ways:
 
 The treemap shares a common view (`SWAView`) and nav panel (`SWANavPanel`) with
 its sibling tools -- the **st-spy** message-tally profiler and the static **Code
-Map** -- so any two open panels can be **cross-referenced**: e.g. colour the Code
-Map by measured memory, or highlight which methods the profiler sampled. See the
-[docs](doc/SWASpaceTally.md#cross-referencing-the-views).
+Map** -- and a common **dataset** layer. Any analysis (coverage, duplication, a
+space tally) can be loaded onto the Code Map to colour/size it, and any open panel
+can be picked as a live data source from the **Data** menu -- e.g. colour the Code
+Map by measured memory, or by which methods the profiler sampled. A space tally
+loaded from a node tree can even *become* the Code Map's structure via the **Tree**
+button (morph one tool into another). See the
+[docs](doc/SWASpaceTally.md#decorating-the-code-map-with-per-class-bytes).
 
 
 ![](squeak-object-space-tally.png)
