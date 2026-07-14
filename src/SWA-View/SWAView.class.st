@@ -42,7 +42,7 @@ Class {
 		'searchQuery',
 		'searchMatchSet'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-View',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -65,12 +65,12 @@ SWAView >> aboutToStyle: aStyler [
 
 {
 	#category : #styling,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAView >> aboutToStyle: aStyler requestor: anObject [
 	"2-arg Shout hook the styler actually sends; delegates to the 1-arg
 	#aboutToStyle:, mirroring Model>>aboutToStyle:requestor:. A SWAView is the
-	source pane's Shout model (see SWANavPanel>>newSourceMorph), so every view
+	source pane's Shout model (see SWAPane>>newSourceMorph), so every view
 	needs this."
 	^ self aboutToStyle: aStyler
 ]
@@ -741,11 +741,11 @@ SWAView >> navPanel [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWAView >> navPanel: aSWANavPanel [
+SWAView >> navPanel: aSWAPane [
 	"The chrome panel that owns my breadcrumb/selection/meta labels + source pane."
-	navPanel := aSWANavPanel
+	navPanel := aSWAPane
 ]
 
 {

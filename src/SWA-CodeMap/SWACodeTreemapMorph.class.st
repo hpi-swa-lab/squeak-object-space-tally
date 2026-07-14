@@ -10,8 +10,7 @@ Class {
 		'dupSimilarity',
 		'dupMinLoc',
 		'dupLoaded',
-		'dupDiffFrom',
-		'highlightedTopic'
+		'dupDiffFrom'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -246,35 +245,19 @@ SWACodeTreemapMorph >> colorByRecency: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:01'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
 }
 SWACodeTreemapMorph >> colorByTopic: aNode [
 	"Tile base color in #topic mode.
 
-	When a single topic is HIGHLIGHTED (clicked in the side pane), every tile --
-	leaf OR aggregate -- is painted in that topic's hue with SATURATION encoding the
-	tile's SHARE of that topic (how much of its topic weight belongs to it): tiles
-	dominated by the topic are vivid, tiles with a trace are near-gray, tiles with
-	none are flat gray. This makes the topic 'light up' across the map. See
-	#highlightedTopicShareForNode:.
-
-	Otherwise (no highlight):
 	METHOD LEAVES get a solid hue from their dominant topic's hue family; brightness
 	encodes the dominant topic's weight (confidence). Methods with no topic (pruned
 	from the model, or no data) get a neutral dark gray.
-	AGGREGATE tiles get a neutral DARK base; the topic-mixture proportional bar
-	(#drawTopicBar:in:on:) is painted on TOP in #drawTileContent:in:on:."
+
+	AGGREGATE tiles (package/class/category) get a neutral DARK base; the topic-
+	mixture proportional bar (#drawTopicBar:in:on:) is painted on TOP in
+	#drawTileContent:in:on:, so the base only shows through where the bar is skipped."
 	| fam hue conf dist dom |
-	highlightedTopic ifNotNil: [
-		| share hHue |
-		share := self highlightedTopicShareForNode: aNode.
-		share ifNil: [^ Color gray: 0.2].
-		hHue := self hueForFamily: (self topicDataOrNil
-			ifNotNil: [:td | td hueFamilyForTopic: highlightedTopic]).
-		hHue ifNil: [^ Color gray: 0.2].
-		"Gamma-boost low shares so a topic that is a minority is still visible, and
-		keep a small brightness lift with share so vivid tiles also read as brighter."
-		^ Color h: hHue s: (share raisedTo: 0.6) v: (0.32 + (share * 0.55))].
 	(aNode isKindOf: SWACodeMethodNode) ifFalse: [^ Color h: 0 s: 0.0 v: 0.2].
 	fam := aNode hueFamily.
 	fam ifNil: [^ Color gray: 0.22].
@@ -305,7 +288,7 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:04'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:27'
 }
 SWACodeTreemapMorph >> colorMode: aSymbol [
 	"Code Map color-mode entry point. Most modes just set the base tint (handled by
@@ -315,11 +298,8 @@ SWACodeTreemapMorph >> colorMode: aSymbol [
 	When the new mode is a coverage-provenance dataset metric, ACTIVATE the test<->method
 	provenance relation (blue tests + click filters) from that metric's source; when it
 	is anything else, deactivate it. This keeps the special coverage behavior even
-	though base color now comes from the metric.
-
-	Leaving #topic mode clears any single-topic highlight so it does not linger."
+	though base color now comes from the metric."
 	| metric |
-	aSymbol == #topic ifFalse: [highlightedTopic := nil].
 	aSymbol == #duplication ifTrue: [
 		dupLoaded == true ifFalse: [self computeDuplicationScores]].
 	aSymbol == #coverage ifTrue: [^ self enterCoverageColorMode].
@@ -630,7 +610,7 @@ SWACodeTreemapMorph >> decorationMetricForMode: aSymbol [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 11:34'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeTreemapMorph >> detailInfoString [
 	"Multi-line details for the Show-mode details box BESIDE the source (one
@@ -639,7 +619,7 @@ SWACodeTreemapMorph >> detailInfoString [
 	METRIC (invocations / covering tests) and DROPS the LOC line. In
 	byte-composition mode, leads with the source byte size and its doc/string/code
 	split. In #duplication mode, leads with the Jaccard duplication score and the
-	best-matching method. '' when nothing is selected. (SWANavPanel content
+	best-matching method. '' when nothing is selected. (SWAPane content
 	protocol.)"
 	| n when whenStr cov comp |
 	n := selectedNode ifNil: [^ ''].
@@ -755,7 +735,7 @@ SWACodeTreemapMorph >> drawDuplicationBar: aNode in: screenR on: aCanvas [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:02'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:43'
 }
 SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 	"Extra per-tile content painted over the fill, before frame/label.
@@ -771,9 +751,7 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 
 	TOPIC mode (#colorMode == #topic): on AGGREGATE tiles paint the topic-mixture
 	bar (#drawTopicBar:in:on:); method leaves keep their solid hue, so fall through.
-	When a single topic is HIGHLIGHTED, skip the bar entirely -- the saturated base
-	color (#colorByTopic:) already encodes each tile's share of that topic. Then
-	return.
+	Then return.
 
 	Otherwise, under a loaded COVERAGE overlay, paint a horizontal proportional bar
 	across an AGGREGATE tile, left to right:
@@ -795,7 +773,6 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 			self drawDuplicationBar: aNode in: screenR on: aCanvas].
 		^ self].
 	colorMode == #topic ifTrue: [
-		highlightedTopic ifNotNil: [^ self].
 		(aNode isKindOf: SWACodeMethodNode) ifFalse: [
 			self drawTopicBar: aNode in: screenR on: aCanvas].
 		^ self].
@@ -1150,52 +1127,6 @@ SWACodeTreemapMorph >> hasRenderedAggregateChildrenUnder: aNode [
 ]
 
 {
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:01'
-}
-SWACodeTreemapMorph >> highlightedTopic [
-	"The 0-based topic id currently emphasized over the map (clicked in the topic
-	side pane), or nil when no single topic is highlighted. See #highlightedTopic:
-	and #colorByTopic:."
-	^ highlightedTopic
-]
-
-{
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:01'
-}
-SWACodeTreemapMorph >> highlightedTopic: topicIdOrNil [
-	"Emphasize a single topic (0-based) across the map: every tile is tinted in that
-	topic's hue, with SATURATION encoding how much of the tile belongs to the topic
-	(its share of the tile's topic weight). nil clears the emphasis and restores the
-	normal per-tile dominant-topic coloring. Toggling the same topic off clears it.
-	Only meaningful in #topic color mode; flushes the cached render either way."
-	highlightedTopic := (highlightedTopic = topicIdOrNil) ifTrue: [nil] ifFalse: [topicIdOrNil].
-	self flushCache.
-	self refreshChrome
-]
-
-{
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:01'
-}
-SWACodeTreemapMorph >> highlightedTopicShareForNode: aNode [
-	"How much of aNode belongs to the currently highlighted topic, as a fraction
-	0.0..1.0 of the node's total (rolled-up) topic weight. For a method leaf this is
-	the topic's own probability; for a container it is the share of that topic among
-	all method-topic weight in the subtree. Answers nil when there is no highlighted
-	topic or the node carries no topic weight at all."
-	| dist total w |
-	highlightedTopic ifNil: [^ nil].
-	dist := aNode topicDistribution.
-	dist isEmpty ifTrue: [^ nil].
-	total := dist values inject: 0.0 into: [:s :v | s + v].
-	total <= 0 ifTrue: [^ nil].
-	w := dist at: highlightedTopic ifAbsent: [0.0].
-	^ w / total
-]
-
-{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
 }
@@ -1321,14 +1252,14 @@ SWACodeTreemapMorph >> loadDuplicationData: aSWADuplicationData [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeTreemapMorph >> metaInfoString [
 	"Per-view meta line for the code treemap. When a node is SELECTED, describe it
 	(author / last changed / LOC); otherwise summarise the focused subtree
 	(LOC / nodes / distinct authors). A coverage overlay, if any, is prefixed so
 	the user always sees whether coverage data is shown, fresh, or running.
-	(SWANavPanel content protocol.)"
+	(SWAPane content protocol.)"
 	| base |
 	base := selectedNode
 		ifNotNil: [:n | self metaInfoStringForNode: n]
@@ -1457,11 +1388,11 @@ SWACodeTreemapMorph >> noteColorMode: aSymbol [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeTreemapMorph >> overlayClass [
 	"The event/menu overlay class this view uses -- a view-policy hook so the
-	SWANavPanel can (re)wire an overlay when morphing structures."
+	SWAPane can (re)wire an overlay when morphing structures."
 	^ SWACodeTreemapOverlay
 ]
 
@@ -1566,13 +1497,13 @@ SWACodeTreemapMorph >> removeDataset: aSWADataset [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeTreemapMorph >> runInfoString [
 	"Line 1 of the panel info area: GENERIC, whole-run info -- the coverage/tally
 	overlay status (if any) followed by a summary of the focused subtree (LOC /
 	nodes / authors / versions). Independent of the current selection, so it stays
-	put while the user clicks around. (SWANavPanel content protocol.)"
+	put while the user clicks around. (SWAPane content protocol.)"
 	| base |
 	base := self metaInfoStringForSubtree: (currentNode ifNil: [rootNode]).
 	(coverageStatus isNil or: [coverageStatus isEmpty]) ifTrue: [^ base].
@@ -1653,12 +1584,12 @@ SWACodeTreemapMorph >> selectedSourceString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeTreemapMorph >> selectionInfoString [
 	"Line 2 of the panel info area: info about the CURRENTLY SELECTED node only
 	(author / last changed / LOC / versions + any coverage value), or '' when
-	nothing is selected. (SWANavPanel content protocol.)"
+	nothing is selected. (SWAPane content protocol.)"
 	^ selectedNode
 		ifNil: ['']
 		ifNotNil: [:n | self metaInfoStringForNode: n]
@@ -1722,53 +1653,44 @@ SWACodeTreemapMorph >> topicDataOrNil [
 
 {
 	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:02'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> topicProvenanceListFor: aNode [
 	"The topic-mixture rows for a selection in #topic mode: one entry per topic
 	present in the node's (rolled-up) distribution, best-first, as
-	  'NN%  label'  ->  navKey.
-	The navKey is a  {#highlightTopic. topicId0Based}  pair; clicking a row calls
-	#highlightTopic: to emphasize that topic across the whole map by saturation (see
-	SWANavPanel>>provenanceIndex:). The currently highlighted topic is marked with a
-	leading '>' so the active row is obvious."
-	| td dist total sorted |
+	  'NN%  w1 w2 w3 ...'  ->  navigateKey.
+	The navigate key is the node's own crossRefKey (clicking re-selects it; topics
+	aren't separately navigable), so container rows stay inert-but-harmless."
+	| td dist total sorted navKey |
 	td := self topicDataOrNil.
 	td ifNil: [^ #()].
 	dist := aNode topicDistribution.
 	dist isEmpty ifTrue: [^ #()].
 	total := dist values inject: 0.0 into: [:s :v | s + v].
 	total <= 0 ifTrue: [^ #()].
+	navKey := aNode crossRefKey ifNil: [''].
 	sorted := dist associations asSortedCollection: [:a :b | a value >= b value].
 	^ (sorted collect: [:assoc |
-		| pct label marker |
+		| pct label |
 		pct := (assoc value / total * 100) rounded.
-		marker := (highlightedTopic notNil and: [highlightedTopic = assoc key])
-			ifTrue: ['> '] ifFalse: [''].
-		label := marker, pct printString, '%  ', (td labelForTopic: assoc key).
-		label -> (Array with: #highlightTopic with: assoc key)]) asArray
+		label := pct printString, '%  ', (td labelForTopic: assoc key).
+		label -> navKey]) asArray
 ]
 
 {
 	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:03'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> topicProvenanceTitleFor: aNode [
 	"Side-pane heading in #topic mode: for a METHOD leaf, its dominant topic label;
-	for a CONTAINER, how many topics its subtree spans. When a topic is highlighted
-	across the map, prepend a note naming it (click it again to clear)."
-	| base dist |
-	base := [
-		aNode ifNil: [^ 'Topics'].
-		dist := aNode topicDistribution.
-		dist isEmpty ifTrue: ['No topic (method pruned or no data)'] ifFalse: [
-			(aNode isKindOf: SWACodeMethodNode)
-				ifTrue: ['Topic: ', (self topicDataOrNil labelForTopic: aNode dominantTopic)]
-				ifFalse: ['Topic mix (', dist size printString, ' topics in subtree)']]] value.
-	highlightedTopic ifNotNil: [
-		^ 'Lit: ', (self topicDataOrNil labelForTopic: highlightedTopic),
-			' (click to clear) - ', base].
-	^ base
+	for a CONTAINER, how many topics its subtree spans."
+	| dist |
+	aNode ifNil: [^ 'Topics'].
+	dist := aNode topicDistribution.
+	dist isEmpty ifTrue: [^ 'No topic (method pruned or no data)'].
+	(aNode isKindOf: SWACodeMethodNode) ifTrue: [
+		^ 'Topic: ', (self topicDataOrNil labelForTopic: aNode dominantTopic)].
+	^ 'Topic mix (', dist size printString, ' topics in subtree)'
 ]
 
 {

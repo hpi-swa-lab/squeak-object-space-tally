@@ -352,14 +352,14 @@ SWADatasetTest >> testDataSelectorOverridesPersistUntilNextPick [
 
 {
 	#category : #'tests - loading',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:14'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWADatasetTest >> testDatasetNameForPath [
 	"The Load button derives a dataset's display name from the file's base name.
 	Regression: #substrings: is not understood in this image (was a live DNU in
 	#datasetNameFor:) -- this pins the actual parsing across separators and nil."
 	| p |
-	p := SWANavPanel new.
+	p := SWAPane new.
 	self assert: (p datasetNameFor: '/home/jens/first.json') equals: 'first.json'.
 	self assert: (p datasetNameFor: 'C:\d\second.json') equals: 'second.json'.
 	self assert: (p datasetNameFor: 'bare.json') equals: 'bare.json'.

@@ -266,11 +266,11 @@ SWASpaceTallyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWASpaceTallyTreemapMorph >> metaInfoString [
 	"Meta line: focused subtree's total bytes + immediate child count.
-	(SWANavPanel content protocol.)"
+	(SWAPane content protocol.)"
 	| focus kids |
 	focus := currentNode ifNil: [rootNode].
 	focus ifNil: [^ ''].
@@ -281,10 +281,10 @@ SWASpaceTallyTreemapMorph >> metaInfoString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWASpaceTallyTreemapMorph >> overlayClass [
 	"The event/menu overlay class this view uses -- a view-policy hook so the
-	SWANavPanel can (re)wire an overlay when morphing structures."
+	SWAPane can (re)wire an overlay when morphing structures."
 	^ SWASpaceTallyTreemapOverlay
 ]

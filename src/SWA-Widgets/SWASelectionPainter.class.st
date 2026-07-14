@@ -13,7 +13,7 @@ Colors/widths are centralized here so every view's selection feedback stays visu
 Class {
 	#name : #SWASelectionPainter,
 	#superclass : #Object,
-	#category : #'SWA-Treemap',
+	#category : #'SWA-Widgets',
 	#'squeak_changestamp' : '<historical>'
 }
 

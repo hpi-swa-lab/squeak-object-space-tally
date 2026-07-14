@@ -36,7 +36,7 @@ Class {
 		'layoutProgress',
 		'leafKind'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-View',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -605,11 +605,11 @@ SWATreemapMorph >> selectedNode: aNodeOrNil [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:55'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWATreemapMorph >> selectedSourceString [
 	"Source text for the Show pane. Default: the selected node's #sourceString if it
-	has one, else empty. (SWANavPanel content protocol.)"
+	has one, else empty. (SWAPane content protocol.)"
 	(selectedNode notNil and: [selectedNode respondsTo: #sourceString])
 		ifTrue: [^ selectedNode sourceString].
 	^ ''

@@ -155,7 +155,7 @@ SWACodeNode class >> testWeightFloorTests: anInteger [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:41'
+	#'squeak_changestamp' : 'jl 7/14/2026 15:42'
 }
 SWACodeNode >> avgChangeCount [
 	"Average number of recorded versions per method over this subtree (rolled-up
@@ -377,41 +377,13 @@ SWACodeNode >> commentLines [
 ]
 
 {
-	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:03'
-}
-SWACodeNode >> containmentGraph [
-	"Build a Graphviz DOT graph of this subtree as a containment tree
-	(Package -> Class -> Category -> Method). Answer { dotString. ids. truncated }
-	where ids is an IdentityDictionary node -> dot-id string for click mapping,
-	matching the tuple shape used by GraphvizPane. 'truncated' is always false here."
-	| dot ids |
-	dot := WriteStream on: String new.
-	ids := IdentityDictionary new.
-	dot nextPutAll: 'digraph code {'; nextPut: Character lf.
-	dot nextPutAll: '  rankdir=LR;'; nextPut: Character lf.
-	dot nextPutAll: '  node [fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
-	self withAllChildrenDo: [:node |
-		ids at: node put: node dotId.
-		node dotNodeStatementOn: dot].
-	self withAllChildrenDo: [:node |
-		node children do: [:child |
-			dot
-				nextPutAll: '  '; nextPutAll: node dotId;
-				nextPutAll: ' -> '; nextPutAll: child dotId;
-				nextPutAll: ';'; nextPut: Character lf]].
-	dot nextPutAll: '}'; nextPut: Character lf.
-	^ { dot contents. ids. false }
-]
-
-{
 	#category : #'coverage-weight',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeNode >> coverageData [
 	"The SWACoverageData driving coverage-WEIGHTED layout (tiles sized by covering-
 	test count instead of LOC), or nil for the normal LOC view. Set on the root by
-	SWANavPanel class>>openCoverage:onPackageNamed:; children inherit it by walking
+	SWAPane class>>openCoverage:onPackageNamed:; children inherit it by walking
 	up the parent chain, so lazily-built nodes see it without per-node wiring."
 	coverageData ifNotNil: [^ coverageData].
 	^ parent ifNil: [nil] ifNotNil: [parent coverageData]
@@ -715,18 +687,6 @@ SWACodeNode >> openClassTreemap [
 	#category : #graphviz,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
 }
-SWACodeNode >> openContainmentGraph [
-	"Open the Package -> Class -> Category -> Method containment graph."
-	^ self
-		openGraph: [self containmentGraph]
-		engine: 'dot'
-		label: 'Code Map: ', self name, '  (containment)'
-]
-
-{
-	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:37'
-}
 SWACodeNode >> openGraph: aTupleOrBlock engine: engineString label: aLabel [
 	"Open a GraphvizPane on a { dotString. ids. truncated } tuple. The first arg
 	may be the tuple itself or a 0-arg block that produces it (preferred, so the
@@ -776,13 +736,13 @@ SWACodeNode >> openTreemap [
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:49'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 	"Open a squarified treemap of this code subtree (tiles sized by LOC). The full
 	tree is built so LOC/recency/author roll up from real methods, but layout stops
 	at aLeafKindOrNil (e.g. #class to show packages+classes but no methods); nil
-	lays out the full tree down to methods. The shared SWANavPanel supplies the
+	lays out the full tree down to methods. The shared SWAPane supplies the
 	window chrome. A single progress bar covers the build + layout phases."
 	| treemap overlay panel window total label bounds |
 	total := (self estimatedNodeCount max: 1) * 2.   "build pass + layout pass"
@@ -811,7 +771,7 @@ SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
 
-	panel := SWANavPanel on: treemap.
+	panel := SWAPane on: treemap.
 
 	label := aLeafKindOrNil
 		ifNil: ['Code Treemap: ', self name, '  (LOC)']
@@ -820,7 +780,7 @@ SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 	window setLabel: label.
 	"Default bounds: sized so the wrapped header + info lines + map fit without the
 	visualization overflowing the bottom. Clipped to the screen if smaller."
-	bounds := SWANavPanel defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
+	bounds := SWAPane defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
 	window bounds: bounds.
 	"Stop the window from shrinking narrower than one full button row (the bar
 	wraps above that floor); does not force it WIDER than the default."

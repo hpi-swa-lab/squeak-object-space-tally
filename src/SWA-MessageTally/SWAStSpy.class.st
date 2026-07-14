@@ -45,7 +45,7 @@ Class {
 		'showProgress',
 		'preflightError'
 	],
-	#category : #'SWA-StSpy',
+	#category : #'SWA-MessageTally',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -380,11 +380,11 @@ SWAStSpy >> openExplorer [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:56'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAStSpy >> openFlamegraph [
 	"Open a flamegraph on the call tree (same SWAStSpyNode tree the treemap uses).
-	The shared SWANavPanel supplies the window chrome (Back/Browse/Show + breadcrumb
+	The shared SWAPane supplies the window chrome (Back/Browse/Show + breadcrumb
 	+ selection-detail line + meta-info line + toggleable source pane). Single click
 	selects a frame; clicking it again zooms in; Back zooms out; Browse opens a
 	system browser on the selected Smalltalk method; Show toggles the source pane;
@@ -397,7 +397,7 @@ SWAStSpy >> openFlamegraph [
 		'   ', sampleCount printString, ' samples',
 		'   ', rate printString, ' Hz'.
 
-	panel := SWANavPanel on: flame.
+	panel := SWAPane on: flame.
 
 	window := panel openInWindow.
 	window setLabel: 'st-spy Flamegraph  ', (rootNode formatMicros: sampleCount),
@@ -409,11 +409,11 @@ SWAStSpy >> openFlamegraph [
 
 {
 	#category : #views,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAStSpy >> openTreemap [
 	"Open a squarified treemap of the call tree (tiles sized by wall time), using
-	the shared SWANavPanel window chrome (Back/Browse/Show + breadcrumb +
+	the shared SWAPane window chrome (Back/Browse/Show + breadcrumb +
 	selection-path + meta-info line + hover overlay)."
 	| treemap overlay panel window |
 	rootNode ifNil: [^ self error: 'No tree yet -- send #record first'].
@@ -426,7 +426,7 @@ SWAStSpy >> openTreemap [
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
 
-	panel := SWANavPanel on: treemap.
+	panel := SWAPane on: treemap.
 
 	window := panel openInWindow.
 	window setLabel: 'st-spy Treemap  ', (rootNode formatMicros: sampleCount), '  (pid ', pid printString, ')'.

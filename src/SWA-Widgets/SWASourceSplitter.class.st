@@ -14,7 +14,7 @@ Class {
 		'dragging',
 		'lastY'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-Widgets',
 	#'squeak_changestamp' : '<historical>'
 }
 

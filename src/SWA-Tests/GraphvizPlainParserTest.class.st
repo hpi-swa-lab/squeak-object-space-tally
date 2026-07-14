@@ -5,7 +5,7 @@ and the inch->pixel coordinate mapping (including Y-axis flip).
 Class {
 	#name : #GraphvizPlainParserTest,
 	#superclass : #TestCase,
-	#category : #'SWA-Tools',
+	#category : #'SWA-Tests',
 	#'squeak_changestamp' : '<historical>'
 }
 

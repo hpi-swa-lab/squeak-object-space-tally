@@ -4,7 +4,7 @@ Treemap morph specialised for st-spy sampled call trees. Tiles are sized by samp
 Class {
 	#name : #SWAStSpyTreemapMorph,
 	#superclass : #SWATreemapMorph,
-	#category : #'SWA-StSpy',
+	#category : #'SWA-MessageTally',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -63,11 +63,11 @@ SWAStSpyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAStSpyTreemapMorph >> metaInfoString [
 	"Meta line: focused subtree's total time + immediate child count.
-	(SWANavPanel content protocol.)"
+	(SWAPane content protocol.)"
 	| focus kids |
 	focus := currentNode ifNil: [rootNode].
 	focus ifNil: [^ ''].

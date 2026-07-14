@@ -35,7 +35,7 @@ Class {
 		'locs',
 		'params'
 	],
-	#category : #'SWA-CodeMap-Duplication',
+	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }
 

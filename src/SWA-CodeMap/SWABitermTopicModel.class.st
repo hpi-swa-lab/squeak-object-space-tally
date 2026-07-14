@@ -69,7 +69,7 @@ Class {
 
 {
 	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:51'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
 }
 SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps toFile: aFilePath [
 	"Shared background runner for the BTM generators (whole-image and per-package),
@@ -80,30 +80,12 @@ SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: 
 	Opens a SWACoverageRunPanel Stop window, forks the corpus build + Gibbs fit +
 	JSON write at userBackgroundPriority, updates the status line per phase, honours
 	STOP between sweeps (writing the partially-converged model), and auto-closes.
-	Headless: runs inline. Returns the file path immediately.
-
-	See #generateInBackground:label:k:sweeps:toFile:thenDo: to chain the LLM
-	labeling stage afterwards."
-	^ self generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps
-		toFile: aFilePath thenDo: nil
-]
-
-{
-	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
-}
-SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps toFile: aFilePath thenDo: aContinuationBlock [
-	"As #generateInBackground:label:k:sweeps:toFile:, but when the fit finishes
-	normally (not stopped, non-empty corpus) evaluate aContinuationBlock afterwards
-	-- used to chain the LLM labeling stage. aContinuationBlock runs in the same
-	background process, right after the JSON is written and this panel closes, so it
-	may open its own progress panel. Pass nil for no continuation."
+	Headless: runs inline. Returns the file path immediately."
 	| panel work |
 	panel := SWACoverageRunPanel new
 		openInWindowTitled: 'BTM topics (', aLabel, ') -> ', aFilePath;
 		yourself.
-	work := [ | model td nDocs nBiterms ran completed |
-		completed := false.
+	work := [ | model td nDocs nBiterms ran |
 		panel status: 'Harvesting methods for ', aLabel, '...'.
 		model := aModelBlock value.
 		model k: kTopics.
@@ -121,14 +103,12 @@ SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: 
 				panel status: 'Inferring distributions + writing JSON...'.
 				td := model asTopicData.
 				td writeToFile: aFilePath.
-				completed := panel stopRequested not.
 				panel finishAndClose: (panel stopRequested
 					ifTrue: ['STOPPED after ', ran printString, ' sweeps; wrote ',
 						td methodNames size printString, ' methods -> ', aFilePath]
 					ifFalse: ['Done. ', ran printString, ' sweeps, ',
 						td methodNames size printString, ' methods, k=', kTopics printString,
-						' -> ', aFilePath])].
-		(completed and: [aContinuationBlock notNil]) ifTrue: [aContinuationBlock value]].
+						' -> ', aFilePath])]].
 	(Smalltalk at: #World ifAbsent: [nil]) isNil
 		ifTrue: [work value. ^ aFilePath].
 	work forkAt: Processor userBackgroundPriority.
@@ -172,28 +152,6 @@ SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopic
 	^ self generateInBackground: [self onPackageNamed: aPackageName]
 		label: aPackageName
 		k: kTopics sweeps: nSweeps toFile: aFilePath
-]
-
-{
-	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
-}
-SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps toFile: aFilePath thenLabel: labelBoolean [
-	"Run the full pipeline for a package: STAGE 1 fits the BTM (own Stop panel), then
-	-- if labelBoolean -- STAGE 2 labels the topics with the default local LLM in its
-	own Stop panel. Stage 2 is chained AFTER stage 1's background work finishes (so
-	the file exists first). Returns the file path immediately.
-
-	(SWABitermTopicModel generatePackageInBackground: 'SqueakXR' k: 20 sweeps: 100
-		toFile: 'squeakxr-topics.json' thenLabel: true)"
-	labelBoolean ifFalse: [
-		^ self generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps
-			toFile: aFilePath].
-	^ self
-		generateInBackground: [self onPackageNamed: aPackageName]
-		label: aPackageName
-		k: kTopics sweeps: nSweeps toFile: aFilePath
-		thenDo: [self labelTopicsInBackground: aFilePath]
 ]
 
 {
@@ -248,60 +206,6 @@ SWABitermTopicModel class >> generateWholeImageK: kTopics sweeps: nSweeps toFile
 			td := model asTopicData.
 			result := td writeToFile: aFilePath].
 	^ result
-]
-
-{
-	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
-}
-SWABitermTopicModel class >> labelTopicsInBackground: aFilePath [
-	"STAGE 2 with the default local LLM endpoint/model. See
-	#labelTopicsInBackground:endpoint:model:.
-
-	(SWABitermTopicModel labelTopicsInBackground: 'squeakxr-topics.json')"
-	^ self labelTopicsInBackground: aFilePath
-		endpoint: SWATopicData defaultLlmEndpoint
-		model: SWATopicData defaultLlmModel
-]
-
-{
-	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
-}
-SWABitermTopicModel class >> labelTopicsInBackground: aFilePath endpoint: anEndpoint model: aModel [
-	"STAGE 2 of the topic pipeline: load the topics JSON produced by
-	#generatePackageInBackground:... , ask a local LLM to give each topic a one/two
-	word label, and rewrite the file (now carrying 'topicLabels'). Progress is shown
-	in a SWACoverageRunPanel Stop window just like stage 1, one line per topic, and
-	STOP keeps whatever labels were produced so far. Headless: runs inline. Returns
-	the file path immediately.
-
-	(SWABitermTopicModel labelTopicsInBackground: 'squeakxr-topics.json'
-		endpoint: SWATopicData defaultLlmEndpoint model: SWATopicData defaultLlmModel)"
-	| panel work |
-	panel := SWACoverageRunPanel new
-		openInWindowTitled: 'BTM label (', aModel, ') -> ', aFilePath;
-		yourself.
-	work := [ | data n |
-		panel status: 'Loading topics from ', aFilePath, '...'.
-		data := SWATopicData new loadFromFile: aFilePath.
-		n := data k.
-		panel status: 'Labeling ', n printString, ' topics with ', aModel, '...'.
-		data
-			labelTopicsWithLlmEndpoint: anEndpoint
-			model: aModel
-			progress: [:frac :tid :lbl |
-				panel status: aModel, ': topic ', (tid + 1) printString, '/', n printString,
-					'  "', lbl, '"']
-			untilStopped: [panel stopRequested].
-		data writeToFile: aFilePath.
-		panel finishAndClose: (panel stopRequested
-			ifTrue: ['STOPPED; wrote partial labels -> ', aFilePath]
-			ifFalse: ['Done. Labeled ', n printString, ' topics -> ', aFilePath])].
-	(Smalltalk at: #World ifAbsent: [nil]) isNil
-		ifTrue: [work value. ^ aFilePath].
-	work forkAt: Processor userBackgroundPriority.
-	^ aFilePath
 ]
 
 {

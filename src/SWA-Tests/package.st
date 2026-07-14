@@ -1,4 +1,4 @@
 Package {
 	#'squeak_changestamp' : true,
-	#name : #'SWA-StSpy'
+	#name : #'SWA-Tests'
 }

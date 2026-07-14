@@ -28,7 +28,7 @@ The view calls #refresh on its panel after selection/zoom changes to update all
 labels (and the source pane if shown).
 "
 Class {
-	#name : #SWANavPanel,
+	#name : #SWAPane,
 	#superclass : #Morph,
 	#instVars : [
 		'view',
@@ -58,7 +58,7 @@ Class {
 		'activeStructureKey',
 		'searchField'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-View',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -66,7 +66,7 @@ Class {
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:49'
 }
-SWANavPanel class >> defaultWindowBounds [
+SWAPane class >> defaultWindowBounds [
 	"Preferred opening bounds for a Code Map window: wide enough for the full button
 	bar on one row and tall enough that the wrapped header + info lines + map all
 	fit without the visualization overflowing the bottom edge. Clamped up to the
@@ -76,15 +76,15 @@ SWANavPanel class >> defaultWindowBounds [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:46'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> enforceMinimumWidthOn: aWindow [
-	"Find the SWANavPanel inside aWindow and have it set the window's minimum width
+SWAPane class >> enforceMinimumWidthOn: aWindow [
+	"Find the SWAPane inside aWindow and have it set the window's minimum width
 	to the button bar's natural one-row width (widening the window to it if the
 	requested default was narrower). Keeps every opener's explicit #extent: as a
 	PREFERRED size that is then clamped up to fit the buttons."
 	aWindow allMorphs
-		detect: [:m | m isKindOf: SWANavPanel]
+		detect: [:m | m isKindOf: SWAPane]
 		ifFound: [:p | p enforceMinimumWindowWidth]
 		ifNone: []
 ]
@@ -93,7 +93,7 @@ SWANavPanel class >> enforceMinimumWidthOn: aWindow [
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
 }
-SWANavPanel class >> initialize [
+SWAPane class >> initialize [
 	"Register the Apps-menu entry for the code map.
 	Idempotent: removes any prior entry for this receiver first."
 	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
@@ -108,7 +108,7 @@ SWANavPanel class >> initialize [
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel class >> on: aViewMorph [
+SWAPane class >> on: aViewMorph [
 	"Build a navigation panel wrapping aViewMorph (a treemap/flamegraph morph)."
 	^ self new setView: aViewMorph
 ]
@@ -117,29 +117,29 @@ SWANavPanel class >> on: aViewMorph [
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:51'
 }
-SWANavPanel class >> open [
+SWAPane class >> open [
 	"Apps-menu action: open the whole-image code map (all packages, classes as leaves)."
 	^ self openOnPackageNamed: '*' leafKind: #class
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:36'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openByteCompositionOnPackageNamed: aPackageGlob [
+SWAPane class >> openByteCompositionOnPackageNamed: aPackageGlob [
 	"Byte-composition treemap rendered down to methods (leafKind nil) so the
 	per-method doc/string/code bar is visible. See
 	#openByteCompositionOnPackageNamed:leafKind:.
 
-	(SWANavPanel openByteCompositionOnPackageNamed: 'Morphic*')"
+	(SWAPane openByteCompositionOnPackageNamed: 'Morphic*')"
 	^ self openByteCompositionOnPackageNamed: aPackageGlob leafKind: nil
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:50'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openByteCompositionOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
+SWAPane class >> openByteCompositionOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
 	"Open a BYTE-COMPOSITION code treemap: tiles sized by SOURCE-TEXT byte size and
 	COLOURED by the doc/string/code composition bar (teal = documentation,
 	amber = string literals, green-gray = code). Size and colour are independent
@@ -156,8 +156,8 @@ SWANavPanel class >> openByteCompositionOnPackageNamed: aPackageGlob leafKind: a
 	a weak dictionary keyed on each CompiledMethod, so it is parsed once and reused
 	across reopens, self-cleaning when methods are recompiled or removed.
 
-	(SWANavPanel openByteCompositionOnPackageNamed: 'Kernel' leafKind: nil)
-	(SWANavPanel openByteCompositionOnPackageNamed: '*' leafKind: nil)"
+	(SWAPane openByteCompositionOnPackageNamed: 'Kernel' leafKind: nil)
+	(SWAPane openByteCompositionOnPackageNamed: '*' leafKind: nil)"
 	| root window |
 	root := (SWACodeRootNode new)
 		name: aPackageGlob;
@@ -175,9 +175,9 @@ SWANavPanel class >> openByteCompositionOnPackageNamed: aPackageGlob leafKind: a
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:22'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlob [
+SWAPane class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlob [
 	"Open a coverage-WEIGHTED code treemap: same package -> class -> category ->
 	method structure as #openOnPackageNamed:, but tiles are sized by the actual
 	covered counts (covering-test count per method, rolled up) instead of LOC.
@@ -188,8 +188,8 @@ SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlo
 	aCoverageFileName is a SWACoverageData JSON file (Class>>selector keyed, image-
 	independent). aPackageGlob is a String>>match: glob over package names.
 
-	(SWANavPanel openCoverage: 'morphic-coverage.json' onPackageNamed: '*')
-	(SWANavPanel openCoverage: 'squeak-coverage.json' onPackageNamed: 'Morphic*')"
+	(SWAPane openCoverage: 'morphic-coverage.json' onPackageNamed: '*')
+	(SWAPane openCoverage: 'squeak-coverage.json' onPackageNamed: 'Morphic*')"
 	^ self openCoverage: aCoverageFileName onPackageNamed: aPackageGlob leafKind: nil
 ]
 
@@ -197,7 +197,7 @@ SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlo
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:37'
 }
-SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlob leafKind: aKindOrNil [
+SWAPane class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlob leafKind: aKindOrNil [
 	"See #openCoverage:onPackageNamed:. Sizes tiles by covering-TEST count. aKindOrNil
 	stops RENDERING at that #kind (roll-ups still build over the full tree); nil
 	renders down to methods."
@@ -207,9 +207,9 @@ SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlo
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:50'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlob leafKind: aKindOrNil weightMode: aWeightMode [
+SWAPane class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlob leafKind: aKindOrNil weightMode: aWeightMode [
 	"Coverage-WEIGHTED code treemap. aWeightMode selects the tile-size metric:
 	  #tests       -- distinct covering-test count per method (default), or
 	  #invocations -- raw call count (how many times each method actually ran).
@@ -221,7 +221,7 @@ SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlo
 	the user can switch among Structure / Methods / LOC / Bytes / call count /
 	covering tests in place.
 
-	(SWANavPanel openCoverage: 'morphic-coverage.json' onPackageNamed: '*'
+	(SWAPane openCoverage: 'morphic-coverage.json' onPackageNamed: '*'
 		leafKind: nil weightMode: #invocations)"
 	| data mode root window note label |
 	data := SWACoverageData fromFile: aCoverageFileName.
@@ -243,7 +243,7 @@ SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlo
 		ifFound: [:tm | tm showCoverageData: data weightMode: mode]
 		ifNone: [].
 	window allMorphs
-		detect: [:m | m isKindOf: SWANavPanel]
+		detect: [:m | m isKindOf: SWAPane]
 		ifFound: [:p |
 			p treemapCoverageStatus: 'Coverage (', mode, '-weighted): ',
 				data coveredMethodCount printString, ' methods, ',
@@ -258,40 +258,40 @@ SWANavPanel class >> openCoverage: aCoverageFileName onPackageNamed: aPackageGlo
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:38'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openInvocations: aCoverageFileName onPackageNamed: aPackageGlob [
+SWAPane class >> openInvocations: aCoverageFileName onPackageNamed: aPackageGlob [
 	"Open a coverage treemap sized by RAW INVOCATION COUNT -- how many times each
 	method was actually called during the run -- instead of covering-test count.
 	Requires data generated by an invocation-counting runner (falls back to test
 	count, with a note, for older JSON files).
 
-	(SWANavPanel openInvocations: 'morphic-coverage.json' onPackageNamed: '*')"
+	(SWAPane openInvocations: 'morphic-coverage.json' onPackageNamed: '*')"
 	^ self openCoverage: aCoverageFileName onPackageNamed: aPackageGlob
 		leafKind: nil weightMode: #invocations
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:55'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openOnPackageNamed: aPackageName [
+SWAPane class >> openOnPackageNamed: aPackageName [
 	"Open a code-structure treemap (package -> classes -> categories -> methods)
-	wrapped in a SWANavPanel. Defaults to #class render depth (Full/nil is omitted
+	wrapped in a SWAPane. Defaults to #class render depth (Full/nil is omitted
 	from the depth cycle -- it tiles the whole tree at once, which is unwieldy on a
 	broad glob); cycle deeper/shallower with the Depth button.
 
-	(SWANavPanel openOnPackageNamed: 'Morphic-Kernel')"
+	(SWAPane openOnPackageNamed: 'Morphic-Kernel')"
 	^ self openOnPackageNamed: aPackageName leafKind: #class
 ]
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:49'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
+SWAPane class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
 	"Open a code-structure treemap (root -> packages -> classes -> categories ->
-	methods) wrapped in a SWANavPanel, with Back/Browse/Show/Depth/Full chrome.
+	methods) wrapped in a SWAPane, with Back/Browse/Show/Depth/Full chrome.
 
 	aPackageGlob is a String>>match: glob matched against all package names. A plain
 	name ('Kernel') simply matches one package; 'Morphic*' or '*' match many. We
@@ -306,8 +306,8 @@ SWANavPanel class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
 	up the click overlay (select / zoom / explore / context menu), the two-phase
 	progress bar, the panel chrome, and the default window bounds.
 
-	(SWANavPanel openOnPackageNamed: 'Kernel' leafKind: nil)
-	(SWANavPanel openOnPackageNamed: '*' leafKind: #class)"
+	(SWAPane openOnPackageNamed: 'Kernel' leafKind: nil)
+	(SWAPane openOnPackageNamed: '*' leafKind: #class)"
 	| root window |
 	root := (SWACodeRootNode new)
 		name: aPackageGlob;
@@ -322,7 +322,7 @@ SWANavPanel class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
 }
-SWANavPanel class >> openPanels [
+SWAPane class >> openPanels [
 	"All nav panels currently live in the world (still owned by a window/world).
 	Discovered live rather than via a registry so closed panels drop out
 	automatically."
@@ -331,9 +331,9 @@ SWANavPanel class >> openPanels [
 
 {
 	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:43'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
+SWAPane class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 	"Open a normal (LOC-weighted) code treemap tinted by a Biterm Topic Model.
 	Loads an SWATopicData JSON file (Class>>selector keyed, image-independent),
 	sets it on the root so #topic color mode paints each method-leaf tile by its
@@ -342,7 +342,7 @@ SWANavPanel class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 	Generate the file first (whole-image or per-package):
 	  (SWABitermTopicModel onPackageNamed: 'Morphic') buildAndRun: 200) writeToFile: 'morphic-topics.json'
 
-	(SWANavPanel openTopics: 'morphic-topics.json' onPackageNamed: 'Morphic*')"
+	(SWAPane openTopics: 'morphic-topics.json' onPackageNamed: 'Morphic*')"
 	| data root window |
 	data := SWATopicData new loadFromFile: aTopicFileName.
 	root := (SWACodeRootNode new)
@@ -356,7 +356,7 @@ SWANavPanel class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 		ifFound: [:tm | tm colorMode: #topic]
 		ifNone: [].
 	window allMorphs
-		detect: [:m | m isKindOf: SWANavPanel]
+		detect: [:m | m isKindOf: SWAPane]
 		ifFound: [:p |
 			p treemapCoverageStatus: 'Topics (BTM): ', data k printString,
 				' topics in ', data hueFamilyCount printString, ' hue families, ',
@@ -370,7 +370,7 @@ SWANavPanel class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
 }
-SWANavPanel class >> unload [
+SWAPane class >> unload [
 	"Remove the Apps-menu entry."
 	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
 		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
@@ -380,7 +380,7 @@ SWANavPanel class >> unload [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
 }
-SWANavPanel >> acquireTestCoverageThenColor [
+SWAPane >> acquireTestCoverageThenColor [
 	"Run test coverage WITH provenance for the shown packages (forked, Stop-able),
 	then color the map by it. Invoked lazily when the user picks 'By test coverage'
 	in the Color menu with no coverage data loaded yet -- the menu-driven equivalent
@@ -411,7 +411,7 @@ SWANavPanel >> acquireTestCoverageThenColor [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
-SWANavPanel >> activeStructureKey [
+SWAPane >> activeStructureKey [
 	"The structure symbol currently displayed (#intrinsic by default)."
 	^ activeStructureKey ifNil: [activeStructureKey := #intrinsic]
 ]
@@ -420,7 +420,7 @@ SWANavPanel >> activeStructureKey [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> breadcrumbContents [
+SWAPane >> breadcrumbContents [
 	"Breadcrumb string from the view (empty if unsupported)."
 	^ (view respondsTo: #breadcrumbString)
 		ifTrue: [view breadcrumbString ifNil: ['']]
@@ -431,7 +431,7 @@ SWANavPanel >> breadcrumbContents [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
-SWANavPanel >> browseSelected [
+SWAPane >> browseSelected [
 	"Browse button: delegate to the view (it knows what 'selected' means)."
 	(view respondsTo: #browseSelected)
 		ifTrue: [view browseSelected]
@@ -442,7 +442,7 @@ SWANavPanel >> browseSelected [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> buttonLabelled: aString action: aSelector [
+SWAPane >> buttonLabelled: aString action: aSelector [
 	"A header button that sends aSelector to THIS panel when pressed."
 	^ SimpleButtonMorph new
 		label: aString;
@@ -457,7 +457,7 @@ SWANavPanel >> buttonLabelled: aString action: aSelector [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:44'
 }
-SWANavPanel >> chooseJsonFilePrompt: aPromptString [
+SWAPane >> chooseJsonFilePrompt: aPromptString [
 	"Open a *.json file chooser and answer the chosen full path, or nil if cancelled.
 	Falls back to a text path prompt if no file chooser is available (e.g. headless).
 	aPromptString labels the fallback text prompt."
@@ -475,7 +475,7 @@ SWANavPanel >> chooseJsonFilePrompt: aPromptString [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:23'
 }
-SWANavPanel >> clearCoverage [
+SWAPane >> clearCoverage [
 	"Remove the coverage overlay and its status line. Also drops the coverage data
 	from the root node (so the #invocations/#tests SIZE metrics disappear) and, if
 	the map was sized by one of those dynamic metrics, reverts the size to LOC so it
@@ -497,7 +497,7 @@ SWANavPanel >> clearCoverage [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
-SWANavPanel >> codeMapView [
+SWAPane >> codeMapView [
 	"The intrinsic Code Map view (holds the loaded datasets). It is the view first
 	wrapped by this panel; registered under #intrinsic on first structure access."
 	^ self structureViews at: #intrinsic ifAbsent: [
@@ -509,7 +509,7 @@ SWANavPanel >> codeMapView [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:38'
 }
-SWANavPanel >> codeRoot [
+SWAPane >> codeRoot [
 	"The SWACodeRootNode this panel's code map is showing, or nil if the wrapped
 	view is not a code map."
 	| tm |
@@ -523,7 +523,7 @@ SWANavPanel >> codeRoot [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
 }
-SWANavPanel >> collectInvocationTally [
+SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, overlay
 	the green tally ramp, and clear the live-tally state. Resets the Tally button.
 	Status shown in the meta line, no dialog."
@@ -545,7 +545,7 @@ SWANavPanel >> collectInvocationTally [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
 }
-SWANavPanel >> coverageTally [
+SWAPane >> coverageTally [
 	"Button action: toggle the live invocation tally. First press instruments the
 	shown packages; second press collects counts and overlays them."
 	| root |
@@ -559,7 +559,7 @@ SWANavPanel >> coverageTally [
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
 }
-SWANavPanel >> crossRefMenuLabel [
+SWAPane >> crossRefMenuLabel [
 	"Human-readable label for this panel in a cross-reference chooser:
 	the enclosing window's title, else the view's class name."
 	| win |
@@ -572,7 +572,7 @@ SWANavPanel >> crossRefMenuLabel [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:56'
 }
-SWANavPanel >> crossReferenceAsDataset: aPeerPanel [
+SWAPane >> crossReferenceAsDataset: aPeerPanel [
 	"Data-menu action for a peer entry: wrap the peer view as a #peer dataset (its
 	per-key weight becomes a color metric), retain + select it. This IS the old X-ref
 	behavior, now a normal, mix-and-matchable dataset. If this peer is already loaded
@@ -596,7 +596,7 @@ SWANavPanel >> crossReferenceAsDataset: aPeerPanel [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:16'
 }
-SWANavPanel >> cycleLeafKind [
+SWAPane >> cycleLeafKind [
 	"Depth button: cycle the view's render depth (leafKind). The default order is
 	Package -> Class -> Category -> Method -> Package (Full/nil omitted; it renders
 	the whole tree at once, which doesn't make sense here). A view may narrow this to
@@ -621,7 +621,7 @@ SWANavPanel >> cycleLeafKind [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
-SWANavPanel >> dataMenuMorph [
+SWAPane >> dataMenuMorph [
 	"Build the top-level Data menu for ANY view: None, one entry per RETAINED dataset,
 	then -- below a separator -- one entry per OPEN PEER view (cross-reference as a
 	dataset, replacing the old X-ref button). The active dataset is ticked. Peer
@@ -655,7 +655,7 @@ SWANavPanel >> dataMenuMorph [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:13'
 }
-SWANavPanel >> datasetNameFor: aPath [
+SWAPane >> datasetNameFor: aPath [
 	"A short display name for a dataset loaded from aPath: the file's base name."
 	| segs |
 	aPath ifNil: [^ 'loaded'].
@@ -667,7 +667,7 @@ SWANavPanel >> datasetNameFor: aPath [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:48'
 }
-SWANavPanel >> deselect [
+SWAPane >> deselect [
 	"Header 'Deselect' button: clear the current selection so the map shows EVERYTHING
 	again -- drops the selected tile, any link/coverage selection filters, and any
 	duplicate diff. Restores the full overview and forces a repaint of the map + its
@@ -687,7 +687,7 @@ SWANavPanel >> deselect [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:59'
 }
-SWANavPanel >> detailInfoContents [
+SWAPane >> detailInfoContents [
 	"Multi-line details for the Show-mode details box (beside the source). Views opt
 	in by implementing #detailInfoString; otherwise '' (no box content)."
 	(view respondsTo: #detailInfoString) ifTrue: [^ view detailInfoString ifNil: ['']].
@@ -698,7 +698,7 @@ SWANavPanel >> detailInfoContents [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:07'
 }
-SWANavPanel >> enclosingWindow [
+SWAPane >> enclosingWindow [
 	"The SystemWindow that contains this panel, or nil if opened bare in the world."
 	^ self ownerThatIsA: SystemWindow
 ]
@@ -707,7 +707,7 @@ SWANavPanel >> enclosingWindow [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:45'
 }
-SWANavPanel >> enforceMinimumWindowWidth [
+SWAPane >> enforceMinimumWindowWidth [
 	"Set the enclosing window's MINIMUM width to the button bar's natural one-row
 	width (#headerNaturalWidth), and widen the window to it if it is currently
 	narrower. This guarantees the window can't be sized so narrow that buttons clip,
@@ -725,7 +725,7 @@ SWANavPanel >> enforceMinimumWindowWidth [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:46'
 }
-SWANavPanel >> exportCoverage [
+SWAPane >> exportCoverage [
 	"Button: write the current provenance coverage (SWACoverageData) to a reusable,
 	image-independent JSON file. (Export is a save -- a text prompt with a default
 	path is friendlier than a chooser for naming a new file.)"
@@ -745,7 +745,7 @@ SWANavPanel >> exportCoverage [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
 }
-SWANavPanel >> focusSearchField: evt [
+SWAPane >> focusSearchField: evt [
 	"Give the header search field keyboard focus (Ctrl+F). Selects any existing text so
 	the user can type over it immediately."
 	searchField ifNil: [^ self].
@@ -757,7 +757,7 @@ SWANavPanel >> focusSearchField: evt [
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
 }
-SWANavPanel >> growCoveringTestsPaneBy: deltaPixels [
+SWAPane >> growCoveringTestsPaneBy: deltaPixels [
 	"Widen (positive) or narrow (negative) the covering-tests / duplicates list column
 	by deltaPixels, from the SWAListSplitter drag. Clamped to a sane range; the source
 	pane (spaceFill) absorbs the change. Relays out the Show row."
@@ -773,7 +773,7 @@ SWANavPanel >> growCoveringTestsPaneBy: deltaPixels [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
 }
-SWANavPanel >> growSourceRowBy: deltaPixels [
+SWAPane >> growSourceRowBy: deltaPixels [
 	"Grow (deltaPixels > 0) or shrink the Show row's height by the given amount,
 	driven by the splitter handle. Clamped to [120 .. panelHeight - 140] so the row
 	stays usable and never swallows the treemap view above it."
@@ -792,7 +792,7 @@ SWANavPanel >> growSourceRowBy: deltaPixels [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:45'
 }
-SWANavPanel >> headerNaturalWidth [
+SWAPane >> headerNaturalWidth [
 	"The width the button bar needs to fit ALL its buttons on a SINGLE row: the sum
 	of every button's width plus the inter-cell inset, with a little margin. Used to
 	set the enclosing window's minimum width so buttons can never be clipped off the
@@ -809,7 +809,7 @@ SWANavPanel >> headerNaturalWidth [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:11'
 }
-SWANavPanel >> iconButtonGraphic: aForm action: aSelector [
+SWAPane >> iconButtonGraphic: aForm action: aSelector [
 	"A header button showing aForm as its icon that sends aSelector to THIS panel."
 	^ IconicButton new
 		labelGraphic: aForm;
@@ -825,7 +825,7 @@ SWANavPanel >> iconButtonGraphic: aForm action: aSelector [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:19'
 }
-SWANavPanel >> importCoverage [
+SWAPane >> importCoverage [
 	"Button action (code map only): load a smalltalkCI Coveralls JSON file
 	(coveralls_results.json) and overlay it as boolean coverage. Lets you view
 	coverage produced by CI -- or a separate smalltalkCI run -- without re-running
@@ -849,7 +849,7 @@ SWANavPanel >> importCoverage [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:08'
 }
-SWANavPanel >> importData [
+SWAPane >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
 	whatever kind of analysis data it holds, switching the view's color mode to
 	match. Dispatch is by the JSON marker, so one button handles all kinds:
@@ -883,7 +883,7 @@ SWANavPanel >> importData [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
-SWANavPanel >> loadCoverageJson: json [
+SWAPane >> loadCoverageJson: json [
 	"Legacy entry: overlay coverage without a dataset name (keeps old callers working)."
 	^ self loadCoverageJson: json name: 'coverage'
 ]
@@ -892,7 +892,7 @@ SWANavPanel >> loadCoverageJson: json [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
 }
-SWANavPanel >> loadCoverageJson: json name: aName [
+SWAPane >> loadCoverageJson: json name: aName [
 	"Overlay an already-parsed SWACoverageData JSON object (see #importData) as a
 	retained, named SWADataset and make it the ACTIVE data source, applying its fitting
 	defaults across the axes (color + size by coverage). Its metrics ('By coverage',
@@ -916,7 +916,7 @@ SWANavPanel >> loadCoverageJson: json name: aName [
 	#category : #duplication,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:07'
 }
-SWANavPanel >> loadDuplicationJson: json [
+SWAPane >> loadDuplicationJson: json [
 	"Legacy entry: overlay duplication without a dataset name."
 	^ self loadDuplicationJson: json name: 'duplication'
 ]
@@ -925,7 +925,7 @@ SWANavPanel >> loadDuplicationJson: json [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
 }
-SWANavPanel >> loadDuplicationJson: json name: aName [
+SWAPane >> loadDuplicationJson: json name: aName [
 	"Overlay an already-parsed SWADuplicationData JSON object as a retained, named
 	SWADataset and make it the ACTIVE data source, applying its fitting defaults across
 	the axes: color by clone heat + decoration = clone links (size left intrinsic).
@@ -945,7 +945,7 @@ SWANavPanel >> loadDuplicationJson: json name: aName [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:21'
 }
-SWANavPanel >> loadSpaceTallyJson: json name: aName [
+SWAPane >> loadSpaceTallyJson: json name: aName [
 	"Overlay an already-parsed space-tally JSON object (see #importData) as a
 	retained, named #spaceTally SWADataset and make it the ACTIVE data source,
 	applying its fitting defaults (color by instance bytes; size left intrinsic).
@@ -969,7 +969,7 @@ SWANavPanel >> loadSpaceTallyJson: json name: aName [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> metaInfoContents [
+SWAPane >> metaInfoContents [
 	"Meta-info string from the view, or nil if unsupported."
 	^ (view respondsTo: #metaInfoString)
 		ifTrue: [view metaInfoString]
@@ -980,7 +980,7 @@ SWANavPanel >> metaInfoContents [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> morphViewInto: aViewMorph [
+SWAPane >> morphViewInto: aViewMorph [
 	"Replace the panel's inner view with aViewMorph and rebuild the chrome around it,
 	in place, keeping this panel (and its enclosing window) put. The previously
 	displayed view is only REMOVED from the panel, not destroyed -- it lives on in
@@ -1006,7 +1006,7 @@ SWANavPanel >> morphViewInto: aViewMorph [
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:36'
 }
-SWANavPanel >> newCoveringTestsPane [
+SWAPane >> newCoveringTestsPane [
 	"A titled list pane (right of the source pane) showing, for the selected method,
 	the tests/TestCases that cover it -- or, for a selected test, the methods it
 	covers -- or, for a container under a duplication dataset, the aggregated
@@ -1048,7 +1048,7 @@ SWANavPanel >> newCoveringTestsPane [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:59'
 }
-SWANavPanel >> newDetailsPane [
+SWAPane >> newDetailsPane [
 	"A titled, fixed-width box (left of the source pane in Show mode) showing the
 	selected node's details -- the same info as the second header line, but laid out
 	multi-line and WITHOUT the covered-methods/tests provenance (that has its own
@@ -1083,7 +1083,7 @@ SWANavPanel >> newDetailsPane [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
 }
-SWANavPanel >> newSearchField [
+SWAPane >> newSearchField [
 	"A fixed-size single-line text field for the header bar, WHITE so it reads as an
 	editable field, sized to the same height as the header buttons, with a little
 	top-left padding so the text isn't jammed against the corner. Typing filters the
@@ -1116,7 +1116,7 @@ SWANavPanel >> newSearchField [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
-SWANavPanel >> newSourceMorph [
+SWAPane >> newSourceMorph [
 	"A read-only, syntax-highlighted code pane. Its MODEL is the view morph, so the
 	view's #aboutToStyle: drives Shout highlighting in the right class context."
 	| tm |
@@ -1134,7 +1134,7 @@ SWANavPanel >> newSourceMorph [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
 }
-SWANavPanel >> newSourceRow [
+SWAPane >> newSourceRow [
 	"The bottom (Show-mode) area: a left-to-right row. For the Code Map (which has
 	the extra vertical room and a #detailInfoString) it is
 	[details box | source pane (spaceFill) | SPLITTER | covering-tests pane]; other
@@ -1163,11 +1163,11 @@ SWANavPanel >> newSourceRow [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:37'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWANavPanel >> peerPanels [
+SWAPane >> peerPanels [
 	"Other open nav panels whose view is a cross-referenceable treemap."
-	^ (SWANavPanel openPanels)
+	^ (SWAPane openPanels)
 		select: [:p | p ~~ self and: [p treemap notNil]]
 ]
 
@@ -1175,7 +1175,7 @@ SWANavPanel >> peerPanels [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:38'
 }
-SWANavPanel >> popUpColorMenu [
+SWAPane >> popUpColorMenu [
 	"Header 'Color' button: pop up the same Color menu the right-click context menu
 	uses (shared #colorMenuMorph on the overlay)."
 	self treemapOverlay ifNotNil: [:o | o popUpColorMenu]
@@ -1185,7 +1185,7 @@ SWANavPanel >> popUpColorMenu [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
-SWANavPanel >> popUpDataMenu [
+SWAPane >> popUpDataMenu [
 	"Header 'Data' button: pop up the top-level Data menu (loaded datasets + open
 	peers). Built by the PANEL so every tool -- not just the Code Map -- can pick a
 	data source and cross-reference peers."
@@ -1199,7 +1199,7 @@ SWANavPanel >> popUpDataMenu [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:17'
 }
-SWANavPanel >> popUpDecorationMenu [
+SWAPane >> popUpDecorationMenu [
 	"Header 'Links' button: pop up the same Links (decoration) menu the right-click
 	context menu uses (shared #decorationMenuMorph on the overlay)."
 	self treemapOverlay ifNotNil: [:o |
@@ -1210,7 +1210,7 @@ SWANavPanel >> popUpDecorationMenu [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
 }
-SWANavPanel >> popUpSizeMenu [
+SWAPane >> popUpSizeMenu [
 	"Header 'Size' button: pop up the same Size menu the right-click context menu
 	uses (shared #sizeMenuMorph on the overlay). Always reachable, even on a
 	collapsed/black canvas."
@@ -1221,7 +1221,7 @@ SWANavPanel >> popUpSizeMenu [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> popUpTreeMenu [
+SWAPane >> popUpTreeMenu [
 	"Header 'Tree' button: pop up the base-structure selector. If nothing else can
 	be a structure yet, tell the user via the status line rather than nothing."
 	| menu |
@@ -1236,21 +1236,18 @@ SWANavPanel >> popUpTreeMenu [
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
 }
-SWANavPanel >> provenanceIndex [
+SWAPane >> provenanceIndex [
 	"List-model selection index for the covering-tests pane."
 	^ provenanceIndex ifNil: [0]
 ]
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:03'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
 }
-SWANavPanel >> provenanceIndex: anInteger [
+SWAPane >> provenanceIndex: anInteger [
 	"List-model click handler for the side pane. The entry VALUE decides the action:
 	 - nil (a '... N more' note) -> no-op;
-	 - a  {#highlightTopic. topicId}  Array (a topic row in #topic mode) ->
-	   HIGHLIGHT that topic over the whole map (saturation by involvement) WITHOUT
-	   navigating, so the list stays and the clicked row toggles the emphasis;
 	 - a  fromKey -> partnerKey  Association (a CONTAINER's aggregated duplicate pair) ->
 	   PREVIEW that pair's diff WITHOUT navigating, so the list stays and the clicked row
 	   just highlights (keep #provenanceIndex);
@@ -1262,11 +1259,6 @@ SWANavPanel >> provenanceIndex: anInteger [
 	assoc := provenanceEntries at: anInteger ifAbsent: [^ self].
 	value := assoc value.
 	value ifNil: [^ self].   "non-navigating note"
-	"Topic row: toggle the topic highlight over the map, keep the list + selection."
-	((value isKindOf: Array) and: [value size = 2 and: [value first == #highlightTopic]]) ifTrue: [
-		(view respondsTo: #highlightedTopic:) ifTrue: [
-			view highlightedTopic: value second].
-		^ self].
 	"Container aggregated pair: preview the diff, keep the list + highlight."
 	(value isKindOf: Association) ifTrue: [
 		(view respondsTo: #previewDuplicatePairFrom:to:) ifTrue: [
@@ -1289,7 +1281,7 @@ SWANavPanel >> provenanceIndex: anInteger [
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:57'
 }
-SWANavPanel >> provenanceList [
+SWAPane >> provenanceList [
 	"List-model contents for the covering-tests pane: the display labels of the
 	current selection's provenance entries."
 	^ (provenanceEntries ifNil: [#()]) collect: [:assoc | assoc key]
@@ -1299,7 +1291,7 @@ SWANavPanel >> provenanceList [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
 }
-SWANavPanel >> refresh [
+SWAPane >> refresh [
 	"Re-pull all label strings from the view and reload the source + details +
 	covering-tests panes (if shown). The view calls this after any selection/zoom
 	change. The info area is TWO lines: line 1 = generic whole-run info
@@ -1317,7 +1309,7 @@ SWANavPanel >> refresh [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
 }
-SWANavPanel >> runInfoContents [
+SWAPane >> runInfoContents [
 	"Line 1 of the info area: GENERIC, whole-run info (e.g. coverage status + the
 	focused-subtree summary), independent of the current selection. Views opt in by
 	implementing #runInfoString; otherwise we fall back to the legacy single
@@ -1331,7 +1323,7 @@ SWANavPanel >> runInfoContents [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:05'
 }
-SWANavPanel >> runSearch: aString [
+SWAPane >> runSearch: aString [
 	"Live name-filter driven by the header search field: dim every tile whose entity
 	name doesn't contain aString (case-insensitive), keeping matches and their
 	ancestors bright. Empty string clears the filter. Delegates to the view, which owns
@@ -1344,7 +1336,7 @@ SWANavPanel >> runSearch: aString [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> selectedSourceContents [
+SWAPane >> selectedSourceContents [
 	"Source text for the Show pane from the view, or nil if unsupported/none."
 	^ (view respondsTo: #selectedSourceString)
 		ifTrue: [view selectedSourceString]
@@ -1355,7 +1347,7 @@ SWANavPanel >> selectedSourceContents [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
 }
-SWANavPanel >> selectionInfoContents [
+SWAPane >> selectionInfoContents [
 	"Line 2 of the info area: info about the CURRENT SELECTION only (empty when
 	nothing is selected). Views opt in by implementing #selectionInfoString; views
 	that only support the legacy single-line #metaInfoString leave this line blank
@@ -1368,7 +1360,7 @@ SWANavPanel >> selectionInfoContents [
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> selectionPathContents [
+SWAPane >> selectionPathContents [
 	"Selection-path string from the view, or nil if unsupported."
 	^ (view respondsTo: #selectionPathString)
 		ifTrue: [view selectionPathString]
@@ -1379,7 +1371,7 @@ SWANavPanel >> selectionPathContents [
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
-SWANavPanel >> setDataMode: aSymbol [
+SWAPane >> setDataMode: aSymbol [
 	"Data-menu action: make aSymbol the active data source on the wrapped view."
 	| tm |
 	tm := self treemap.
@@ -1392,7 +1384,7 @@ SWANavPanel >> setDataMode: aSymbol [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> setStructureMode: aKey [
+SWAPane >> setStructureMode: aKey [
 	"Tree menu action: MORPH the panel's base view into the tree identified by aKey
 	(#intrinsic = the Code Map; a dataset modeSymbol = that space tally's tree),
 	reusing the SAME window/chrome. The other view is kept alive in structureViews
@@ -1414,7 +1406,7 @@ SWANavPanel >> setStructureMode: aKey [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:38'
 }
-SWANavPanel >> setView: aViewMorph [
+SWAPane >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
 	Deselect/Show + optional Data/Tree/Size/Color/Links + optional coverage controls +
 	optional Depth + a name-SEARCH field), then a breadcrumb line carrying the
@@ -1554,7 +1546,7 @@ SWANavPanel >> setView: aViewMorph [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
 }
-SWANavPanel >> showSelectionPath: aStringOrNil [
+SWAPane >> showSelectionPath: aStringOrNil [
 	"Directly set the selection-path line (used for live hover feedback, which is
 	not driven by the persistent selection)."
 	selectionPathMorph ifNotNil: [selectionPathMorph contents: (aStringOrNil ifNil: [''])]
@@ -1564,7 +1556,7 @@ SWANavPanel >> showSelectionPath: aStringOrNil [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:24'
 }
-SWANavPanel >> showsTreeButton [
+SWAPane >> showsTreeButton [
 	"Show the Tree (base-structure) button when structure switching is meaningful:
 	on a Code Map (it can host loaded structure datasets, and the menu covers the
 	'none loaded yet' case), or whenever we have already morphed away from intrinsic
@@ -1577,7 +1569,7 @@ SWANavPanel >> showsTreeButton [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> sourceMorph [
+SWAPane >> sourceMorph [
 	"The embedded source pane, or nil if never shown. Owner is nil while hidden."
 	^ sourceMorph
 ]
@@ -1586,7 +1578,7 @@ SWANavPanel >> sourceMorph [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
 }
-SWANavPanel >> startInvocationTally: aCodeRoot [
+SWAPane >> startInvocationTally: aCodeRoot [
 	"Install live invocation-counting wrappers on the shown packages (Ingalls-style,
 	self-evicting on hot methods). They stay installed while you exercise the system.
 	Press Tally again -> #collectInvocationTally to read counts and uninstall.
@@ -1605,7 +1597,7 @@ SWANavPanel >> startInvocationTally: aCodeRoot [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
-SWANavPanel >> structureDatasets [
+SWAPane >> structureDatasets [
 	"The retained datasets that can BE a base structure (have their own tree).
 	Sourced from the intrinsic Code Map view, which owns the datasets regardless of
 	which structure is currently displayed."
@@ -1619,7 +1611,7 @@ SWANavPanel >> structureDatasets [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> structureOptions [
+SWAPane >> structureOptions [
 	"{ key. label } pairs for the Tree selector: the intrinsic Code Map, plus one
 	entry per retained structure-capable dataset (a space tally loaded from a node
 	tree). Picking one MORPHS the view into that tree's tool in place."
@@ -1635,7 +1627,7 @@ SWANavPanel >> structureOptions [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
-SWANavPanel >> structureViews [
+SWAPane >> structureViews [
 	"Cache of fully-wired view morphs keyed by a structure symbol (#intrinsic for
 	the map first opened here, or a dataset's modeSymbol for a structure dataset).
 	Keeping the morphs alive is what lets Tree switch back and forth WITHOUT losing
@@ -1647,7 +1639,7 @@ SWANavPanel >> structureViews [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:21'
 }
-SWANavPanel >> toggleFullScreen [
+SWAPane >> toggleFullScreen [
 	"Fullscreen toggle: cover the ENTIRE Display edge-to-edge, including the top
 	docking/menu bar, or restore the previous frame. To hide the window's own title
 	bar without touching its layout, we just push the window UP by its label height
@@ -1678,7 +1670,7 @@ SWANavPanel >> toggleFullScreen [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
 }
-SWANavPanel >> toggleSource [
+SWAPane >> toggleSource [
 	"Show button: show/hide the bottom area at the bottom of the panel. The bottom
 	area is a horizontal row holding -- for the Code Map -- a details box (left), the
 	source pane (center), and a covering-tests list pane (right); other views get
@@ -1705,7 +1697,7 @@ SWANavPanel >> toggleSource [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> treeMenuMorph [
+SWAPane >> treeMenuMorph [
 	"Build the Tree menu: pick which node tree is the base structure. 'Code map'
 	plus one entry per structure-capable dataset; the active one is ticked. Answers
 	nil when there is nothing to switch to (no structure datasets loaded)."
@@ -1725,7 +1717,7 @@ SWANavPanel >> treeMenuMorph [
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:28'
 }
-SWANavPanel >> treemap [
+SWAPane >> treemap [
 	"The wrapped view, if it supports cross-referencing (treemap or flamegraph)."
 	^ (view respondsTo: #keyIndex) ifTrue: [view] ifFalse: [nil]
 ]
@@ -1734,7 +1726,7 @@ SWANavPanel >> treemap [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
 }
-SWANavPanel >> treemapCoverageStatus: aString [
+SWAPane >> treemapCoverageStatus: aString [
 	"Set the coverage status line on the code map (no-op if not a code map)."
 	| tm |
 	tm := self treemap.
@@ -1745,7 +1737,7 @@ SWANavPanel >> treemapCoverageStatus: aString [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
 }
-SWANavPanel >> treemapOverlay [
+SWAPane >> treemapOverlay [
 	"The wrapped view's event/menu overlay, or nil if it has none."
 	^ (view respondsTo: #overlayMorph) ifTrue: [view overlayMorph] ifFalse: [nil]
 ]
@@ -1754,7 +1746,7 @@ SWANavPanel >> treemapOverlay [
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
 }
-SWANavPanel >> updateCoveringTests [
+SWAPane >> updateCoveringTests [
 	"If the covering-tests pane is showing, refill it from the view's current selection
 	(tests covering the selected method, methods a test covers, or a container's
 	aggregated duplicates) and update its title. PRESERVES the selected row when the
@@ -1783,7 +1775,7 @@ SWANavPanel >> updateCoveringTests [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:25'
 }
-SWANavPanel >> updateDepthLabel [
+SWAPane >> updateDepthLabel [
 	"Relabel the depth button to reflect the view's current render depth (leafKind).
 	A view may supply its own friendlier text via #depthLabelString (e.g. the class
 	diagram maps #class/#state/#method to Classes / +State / +Methods)."
@@ -1802,7 +1794,7 @@ SWANavPanel >> updateDepthLabel [
 	#category : #updating,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
 }
-SWANavPanel >> updateDetails [
+SWAPane >> updateDetails [
 	"If the Show-mode details box is showing, refill it from the current selection."
 	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
 	detailsPane ifNotNil: [
@@ -1813,7 +1805,7 @@ SWANavPanel >> updateDetails [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 13:58'
 }
-SWANavPanel >> updateSource [
+SWAPane >> updateSource [
 	"If the bottom area is showing, reload the source pane from the current selection."
 	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
 	sourceMorph ifNotNil: [
@@ -1824,7 +1816,7 @@ SWANavPanel >> updateSource [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> updateStructureWindowLabel [
+SWAPane >> updateStructureWindowLabel [
 	"Reflect the active structure in the enclosing window title, if any."
 	| win label |
 	win := self enclosingWindow.
@@ -1840,7 +1832,7 @@ SWANavPanel >> updateStructureWindowLabel [
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:14'
 }
-SWANavPanel >> updateTallyButton [
+SWAPane >> updateTallyButton [
 	"Tint the Tally button red while a tally is live (next press collects), normal
 	grey when idle."
 	tallyButton ifNil: [^ self].
@@ -1853,7 +1845,7 @@ SWANavPanel >> updateTallyButton [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
-SWANavPanel >> view [
+SWAPane >> view [
 	"The wrapped view morph (treemap or flamegraph)."
 	^ view
 ]
@@ -1862,7 +1854,7 @@ SWANavPanel >> view [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
 }
-SWANavPanel >> viewForStructureKey: aKey [
+SWAPane >> viewForStructureKey: aKey [
 	"The (cached, fully-wired) view morph for a structure key. #intrinsic is the
 	Code Map; a dataset modeSymbol builds -- once -- a Space Tally treemap on that
 	dataset's retained structureRoot. Answers nil if the key can't be resolved."
@@ -1881,7 +1873,7 @@ SWANavPanel >> viewForStructureKey: aKey [
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
-SWANavPanel >> wireOverlayFor: aTreemapMorph [
+SWAPane >> wireOverlayFor: aTreemapMorph [
 	"Attach the matching event/menu overlay to aTreemapMorph if it doesn't have one
 	yet, mirroring the opener wiring (SWACodeNode>>openTreemapLeafKind: /
 	SWASpaceTally>>openTreemap). The overlay class is the treemap's #overlayClass."
@@ -1900,7 +1892,7 @@ SWANavPanel >> wireOverlayFor: aTreemapMorph [
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
 }
-SWANavPanel >> zoomOut [
+SWAPane >> zoomOut [
 	"Back button: ask the view to zoom out, then refresh the chrome."
 	(view respondsTo: #zoomOut) ifTrue: [view zoomOut].
 	self refresh

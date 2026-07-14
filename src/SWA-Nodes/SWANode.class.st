@@ -18,7 +18,7 @@ Class {
 		'parent',
 		'children'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
 

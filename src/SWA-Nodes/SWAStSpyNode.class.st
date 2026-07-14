@@ -17,7 +17,7 @@ Class {
 		'category',
 		'filename'
 	],
-	#category : #'SWA-StSpy',
+	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
 

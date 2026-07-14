@@ -6,67 +6,45 @@ Clicking a graph node selects the matching SWACodeNode: the panel's breadcrumb, 
 Open with: SWACodeGraphMorph openOnPackageNamed: 'SWAGame'
 "
 Class {
-	#name : #SWACodeGraphMorph,
+	#name : #SWAClassDiagram,
 	#superclass : #SWAView,
 	#instVars : [
 		'graphMorph',
 		'graphPane',
-		'mode',
 		'nodesByDotId',
 		'fieldNodesByDotId',
 		'rectKeyByNode',
 		'colorMode',
 		'leafKind'
 	],
-	#category : #'SWA-CodeMap',
+	#category : #'SWA-View',
 	#'squeak_changestamp' : '<historical>'
 }
 
 {
-	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:58'
 }
-SWACodeGraphMorph class >> on: aCodeNode mode: aSymbol [
-	"A graph view of aCodeNode's subtree in the given mode (#classDiagram / #containment)."
+SWAClassDiagram class >> on: aCodeNode [
+	"A class-diagram view of aCodeNode's subtree."
 	^ self new
-		mode: aSymbol;
 		rootNode: aCodeNode;
 		yourself
 ]
 
 {
-	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:34'
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
-SWACodeGraphMorph class >> openContainmentOnPackageNamed: aPackageGlob [
-	"Open a containment tree (package -> class -> category -> method) of the matching
-	packages in a SWANavPanel.
-
-	SWACodeGraphMorph openContainmentOnPackageNamed: 'SWAGame'"
-	| root |
-	root := (SWACodeRootNode new)
-		name: aPackageGlob;
-		addPackages: aPackageGlob;
-		yourself.
-	^ self
-		openOn: root
-		mode: #containment
-		label: 'Containment: ', aPackageGlob
-]
-
-{
-	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
-}
-SWACodeGraphMorph class >> openOn: aCodeNode mode: aSymbol label: aLabel [
-	"Wrap a graph view of aCodeNode in a SWANavPanel window (shared chrome:
+SWAClassDiagram class >> openOn: aCodeNode label: aLabel [
+	"Wrap a class-diagram view of aCodeNode in a SWAPane window (shared chrome:
 	Back/Browse/Show/Deselect + breadcrumb + selection path + source pane)."
 	| view panel window bounds |
-	view := self on: aCodeNode mode: aSymbol.
-	panel := SWANavPanel on: view.
+	view := self on: aCodeNode.
+	panel := SWAPane on: view.
 	window := panel openInWindow.
 	window setLabel: aLabel.
-	bounds := SWANavPanel defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
+	bounds := SWAPane defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
 	window bounds: bounds.
 	panel enforceMinimumWindowWidth.
 	^ window
@@ -74,12 +52,12 @@ SWACodeGraphMorph class >> openOn: aCodeNode mode: aSymbol label: aLabel [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:33'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:00'
 }
-SWACodeGraphMorph class >> openOnPackageNamed: aPackageGlob [
-	"Open a UML class diagram of the matching packages in a SWANavPanel.
+SWAClassDiagram class >> openOnPackageNamed: aPackageGlob [
+	"Open a UML class diagram of the matching packages in a SWAPane.
 
-	SWACodeGraphMorph openOnPackageNamed: 'SWAGame'"
+	SWAClassDiagram openOnPackageNamed: 'SWAGame'"
 	| root |
 	root := (SWACodeRootNode new)
 		name: aPackageGlob;
@@ -87,27 +65,24 @@ SWACodeGraphMorph class >> openOnPackageNamed: aPackageGlob [
 		yourself.
 	^ self
 		openOn: root
-		mode: #classDiagram
 		label: 'Class Diagram: ', aPackageGlob
 ]
 
 {
 	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:57'
 }
-SWACodeGraphMorph >> breadcrumbString [
-	"Top breadcrumb line: the graph's root plus current mode."
-	| kind |
+SWAClassDiagram >> breadcrumbString [
+	"Top breadcrumb line: the graph's root."
 	rootNode ifNil: [^ ''].
-	kind := mode = #containment ifTrue: ['containment'] ifFalse: ['class diagram'].
-	^ rootNode name, '  (', kind, ')'
+	^ rootNode name, '  (class diagram)'
 ]
 
 {
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> browseSelected [
+SWAClassDiagram >> browseSelected [
 	"Browse button: open a browser on the selected node."
 	selectedNode
 		ifNil: [Beeper beep]
@@ -118,7 +93,7 @@ SWACodeGraphMorph >> browseSelected [
 	#category : #coloring,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:39'
 }
-SWACodeGraphMorph >> colorMode [
+SWAClassDiagram >> colorMode [
 	"Active fill mode: #kind (pastel per node kind, the default) or #loc
 	(green->yellow->red heat by method LOC)."
 	^ colorMode ifNil: [#kind]
@@ -128,7 +103,7 @@ SWACodeGraphMorph >> colorMode [
 	#category : #coloring,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:56'
 }
-SWACodeGraphMorph >> colorMode: aSymbol [
+SWAClassDiagram >> colorMode: aSymbol [
 	"Set the fill mode and re-render the graph (Graphviz lays out fast; per-row
 	fills are baked into the DOT). Keeps the current selection highlight AND the
 	current zoom + pan, since only the colors change, not the layout."
@@ -141,7 +116,7 @@ SWACodeGraphMorph >> colorMode: aSymbol [
 	#category : #coloring,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:39'
 }
-SWACodeGraphMorph >> colorModeOptions [
+SWAClassDiagram >> colorModeOptions [
 	"{ symbol. label } pairs for the shared Color menu/button. The graph recolors by
 	re-rendering with per-row fill from the chosen mode."
 	^ {
@@ -153,7 +128,7 @@ SWACodeGraphMorph >> colorModeOptions [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:25'
 }
-SWACodeGraphMorph >> depthLabelString [
+SWAClassDiagram >> depthLabelString [
 	"Friendly Depth-button text for this view's three granularities."
 	^ 'Depth: ', (leafKind caseOf: {
 		[#class]  -> ['Classes'].
@@ -166,7 +141,7 @@ SWACodeGraphMorph >> depthLabelString [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> deselect [
+SWAClassDiagram >> deselect [
 	"Clear the current selection."
 	self selectedNode: nil
 ]
@@ -175,7 +150,7 @@ SWACodeGraphMorph >> deselect [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:44'
 }
-SWACodeGraphMorph >> graphFieldClicked: anAssoc [
+SWAClassDiagram >> graphFieldClicked: anAssoc [
 	"A record sub-field was clicked: anAssoc is dotId -> fieldIndex (0-based, where
 	field 0 is the class-name compartment and 1..N are methods). Resolve to the
 	matching SWACodeNode and select it. Falls back to the whole-node selection if
@@ -191,14 +166,14 @@ SWACodeGraphMorph >> graphFieldClicked: anAssoc [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:57'
 }
-SWACodeGraphMorph >> graphMenuRequest: evt [
+SWAClassDiagram >> graphMenuRequest: evt [
 	"Right-click on the graph: pop up a context menu with the shared Color submenu
 	(same #colorMenuMorph the header Color button uses)."
 	| menu colorMenu |
 	menu := MenuMorph new defaultTarget: self.
-	menu addTitle: (mode = #containment ifTrue: ['Containment'] ifFalse: ['Class Diagram']).
+	menu addTitle: 'Class Diagram'.
 	colorMenu := self colorMenuMorph.
 	colorMenu ifNotNil: [menu add: 'Color' subMenu: colorMenu].
 	menu popUpEvent: evt in: self world
@@ -208,18 +183,17 @@ SWACodeGraphMorph >> graphMenuRequest: evt [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:31'
 }
-SWACodeGraphMorph >> graphNodeClicked: aDotId [
+SWAClassDiagram >> graphNodeClicked: aDotId [
 	"A node in the embedded graph was clicked: select the matching SWACodeNode."
 	self selectedNode: (nodesByDotId at: aDotId ifAbsent: [nil])
 ]
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:29'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:59'
 }
-SWACodeGraphMorph >> initialize [
+SWAClassDiagram >> initialize [
 	super initialize.
-	mode := #classDiagram.
 	leafKind := #class.
 	nodesByDotId := Dictionary new.
 	self
@@ -242,7 +216,7 @@ SWACodeGraphMorph >> initialize [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:15'
 }
-SWACodeGraphMorph >> leafKind [
+SWAClassDiagram >> leafKind [
 	"The render granularity: #class (boxes show name + state only) or #method (full
 	boxes including one row per method). Drives the shared nav-panel Depth button."
 	^ leafKind
@@ -252,7 +226,7 @@ SWACodeGraphMorph >> leafKind [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
 }
-SWACodeGraphMorph >> leafKind: aSymbol [
+SWAClassDiagram >> leafKind: aSymbol [
 	"Set the render granularity and rebuild. Three depths are meaningful for a UML
 	class diagram: #class (name box only), #state (name + instance variables), and
 	#method (name + state + methods). Anything else (the treemap's #package/#category)
@@ -274,7 +248,7 @@ SWACodeGraphMorph >> leafKind: aSymbol [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
 }
-SWACodeGraphMorph >> leafKindOrder [
+SWAClassDiagram >> leafKindOrder [
 	"The granularities the Depth button cycles through for THIS view (as opposed to
 	the treemap's package->class->category->method). A class diagram has three
 	meaningful depths: classes only, classes + state, and classes + state + methods."
@@ -283,29 +257,9 @@ SWACodeGraphMorph >> leafKindOrder [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:31'
-}
-SWACodeGraphMorph >> mode [
-	"#classDiagram (UML record boxes + inheritance) or #containment
-	(package -> class -> category -> method tree)."
-	^ mode
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:31'
-}
-SWACodeGraphMorph >> mode: aSymbol [
-	"Switch between #classDiagram and #containment, then rebuild if a root is set."
-	mode := aSymbol.
-	rootNode ifNotNil: [self rebuildGraph]
-]
-
-{
-	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:39'
 }
-SWACodeGraphMorph >> overlayMorph [
+SWAClassDiagram >> overlayMorph [
 	"The graph view draws its own selection frame and hosts its own menus (there is
 	no separate transparent overlay morph as on the treemap), so it acts as its own
 	overlay for the nav-panel chrome. Answering self lets the shared Color button
@@ -318,7 +272,7 @@ SWACodeGraphMorph >> overlayMorph [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:56'
 }
-SWACodeGraphMorph >> rebuildGraph [
+SWAClassDiagram >> rebuildGraph [
 	"Rebuild resetting the view to top-left/100% (initial build or a structural
 	change such as a mode switch)."
 	self rebuildGraphKeepView: false
@@ -326,26 +280,23 @@ SWACodeGraphMorph >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:57'
 }
-SWACodeGraphMorph >> rebuildGraphKeepView: keepView [
-	"(Re)generate the DOT for the current mode and hand it to the embedded
+SWAClassDiagram >> rebuildGraphKeepView: keepView [
+	"(Re)generate the DOT for the class diagram and hand it to the embedded
 	GraphvizMorph. Build nodesByDotId (dot-id -> SWACodeNode) for whole-node clicks;
-	for the class diagram, fieldNodesByDotId (dot-id -> field node array) for
-	per-row sub-field clicks; and rectKeyByNode (node -> dot-id -> fieldIndexOrNil)
-	so a selection can be located as a highlight rectangle. The class diagram honors
-	the active #colorMode (#kind / #loc) AND the active #leafKind granularity
-	(#class = classes only, #state = classes + state, #method = classes + state +
-	methods). Re-seat the morph in the pane, preserving the current zoom + pan when
-	keepView is true (e.g. a color-mode recolor, which keeps the same layout) and
-	resetting to top-left/100% otherwise."
+	fieldNodesByDotId (dot-id -> field node array) for per-row sub-field clicks; and
+	rectKeyByNode (node -> dot-id -> fieldIndexOrNil) so a selection can be located
+	as a highlight rectangle. The class diagram honors the active #colorMode (#kind /
+	#loc) AND the active #leafKind granularity (#class = classes only, #state =
+	classes + state, #method = classes + state + methods). Re-seat the morph in the
+	pane, preserving the current zoom + pan when keepView is true (e.g. a color-mode
+	recolor, which keeps the same layout) and resetting to top-left/100% otherwise."
 	| tuple ids showState showMethods |
 	rootNode ifNil: [^ self].
 	showState := self showsState.
 	showMethods := self showsMethods.
-	tuple := mode = #containment
-		ifTrue: [rootNode containmentGraph]
-		ifFalse: [rootNode classDiagramGraphColorMode: self colorMode showState: showState showMethods: showMethods].
+	tuple := rootNode classDiagramGraphColorMode: self colorMode showState: showState showMethods: showMethods.
 	nodesByDotId := Dictionary new.
 	fieldNodesByDotId := Dictionary new.
 	rectKeyByNode := IdentityDictionary new.
@@ -376,7 +327,7 @@ SWACodeGraphMorph >> rebuildGraphKeepView: keepView [
 	#category : #updating,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> refreshChrome [
+SWAClassDiagram >> refreshChrome [
 	"Refresh all chrome labels + source pane via the nav panel, if attached."
 	navPanel ifNotNil: [:p | p refresh]
 ]
@@ -385,7 +336,7 @@ SWACodeGraphMorph >> refreshChrome [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:31'
 }
-SWACodeGraphMorph >> rootNode: aCodeNode [
+SWAClassDiagram >> rootNode: aCodeNode [
 	"Set the SWACodeNode subtree to visualize and build the graph."
 	rootNode := aCodeNode.
 	self rebuildKeyIndex.
@@ -396,7 +347,7 @@ SWACodeGraphMorph >> rootNode: aCodeNode [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> selectTileNode: aNodeOrNil [
+SWAClassDiagram >> selectTileNode: aNodeOrNil [
 	"Nav-panel Deselect button hook (parallels the treemap protocol)."
 	self selectedNode: aNodeOrNil
 ]
@@ -405,7 +356,7 @@ SWACodeGraphMorph >> selectTileNode: aNodeOrNil [
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
 }
-SWACodeGraphMorph >> selectedNode: aNodeOrNil [
+SWAClassDiagram >> selectedNode: aNodeOrNil [
 	"Record the selection, move the blue highlight frame to it, and refresh the
 	nav-panel chrome (breadcrumb, selection path, Show source pane)."
 	selectedNode := aNodeOrNil.
@@ -417,7 +368,7 @@ SWACodeGraphMorph >> selectedNode: aNodeOrNil [
 	#category : #chrome,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> selectedSourceString [
+SWAClassDiagram >> selectedSourceString [
 	"Source text for the Show pane: the selected node's source, or empty."
 	(selectedNode notNil and: [selectedNode respondsTo: #sourceString])
 		ifTrue: [^ selectedNode sourceString].
@@ -428,7 +379,7 @@ SWACodeGraphMorph >> selectedSourceString [
 	#category : #chrome,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> selectionInfoString [
+SWAClassDiagram >> selectionInfoString [
 	"Second info line: metrics about the current selection."
 	selectedNode ifNil: [^ ''].
 	^ selectedNode kind asString, ': ', selectedNode name,
@@ -439,7 +390,7 @@ SWACodeGraphMorph >> selectionInfoString [
 	#category : #chrome,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> selectionPathString [
+SWAClassDiagram >> selectionPathString [
 	"Full path to the selected node, or empty."
 	^ selectedNode
 		ifNil: ['']
@@ -450,7 +401,7 @@ SWACodeGraphMorph >> selectionPathString [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
 }
-SWACodeGraphMorph >> showsMethods [
+SWAClassDiagram >> showsMethods [
 	"Whether the current granularity renders method rows inside class boxes."
 	^ leafKind = #method
 ]
@@ -459,7 +410,7 @@ SWACodeGraphMorph >> showsMethods [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
 }
-SWACodeGraphMorph >> showsState [
+SWAClassDiagram >> showsState [
 	"Whether the current granularity renders the state (instance-variable) compartment
 	inside class boxes. Off only at the coarsest #class granularity."
 	^ leafKind ~= #class
@@ -469,7 +420,7 @@ SWACodeGraphMorph >> showsState [
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
 }
-SWACodeGraphMorph >> updateSelectionHighlight [
+SWAClassDiagram >> updateSelectionHighlight [
 	"Set the embedded GraphvizMorph's selection rectangle to frame the currently
 	selected node: a method uses its record field rect, a class/other node uses its
 	whole-node rect. Clears the frame when nothing is selected or not laid out."
@@ -490,7 +441,7 @@ SWACodeGraphMorph >> updateSelectionHighlight [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
-SWACodeGraphMorph >> zoomOut [
+SWAClassDiagram >> zoomOut [
 	"Back button: no hierarchical zoom in the graph view, so just deselect."
 	self deselect
 ]

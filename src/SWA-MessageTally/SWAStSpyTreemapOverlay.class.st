@@ -4,6 +4,6 @@ Hover/selection overlay for SWAStSpyTreemapMorph. Uses the inherited behaviour (
 Class {
 	#name : #SWAStSpyTreemapOverlay,
 	#superclass : #SWATreemapOverlay,
-	#category : #'SWA-StSpy',
+	#category : #'SWA-MessageTally',
 	#'squeak_changestamp' : '<historical>'
 }

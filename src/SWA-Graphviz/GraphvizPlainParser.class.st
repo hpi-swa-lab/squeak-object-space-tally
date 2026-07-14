@@ -31,7 +31,7 @@ Class {
 		'nodeRects',
 		'pixelExtent'
 	],
-	#category : #'SWA-Tools',
+	#category : #'SWA-Graphviz',
 	#'squeak_changestamp' : '<historical>'
 }
 

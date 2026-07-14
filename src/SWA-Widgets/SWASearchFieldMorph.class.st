@@ -7,7 +7,7 @@ Class {
 	#instVars : [
 		'panel'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-Widgets',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -29,10 +29,10 @@ SWASearchFieldMorph >> keyStroke: evt [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:04'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWASearchFieldMorph >> panel: aNavPanel [
-	"The SWANavPanel whose view I filter."
+	"The SWAPane whose view I filter."
 	panel := aNavPanel
 ]
 

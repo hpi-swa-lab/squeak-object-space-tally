@@ -18,7 +18,7 @@ Class {
 		'crossRefKey',
 		'loc'
 	],
-	#category : #'SWA-CodeMap-Duplication',
+	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }
 

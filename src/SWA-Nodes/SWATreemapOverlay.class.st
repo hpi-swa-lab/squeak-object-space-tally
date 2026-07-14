@@ -19,7 +19,7 @@ Class {
 		'hoveredTile',
 		'hoverPoint'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
 

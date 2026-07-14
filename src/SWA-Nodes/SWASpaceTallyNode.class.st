@@ -37,7 +37,7 @@ Class {
 		'isNew',
 		'restoredName'
 	],
-	#category : #'SWA-SpaceTally',
+	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
 

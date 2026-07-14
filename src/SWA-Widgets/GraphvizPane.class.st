@@ -25,7 +25,7 @@ Class {
 		'panLast',
 		'buttons'
 	],
-	#category : #'SWA-Tools',
+	#category : #'SWA-Widgets',
 	#'squeak_changestamp' : '<historical>'
 }
 

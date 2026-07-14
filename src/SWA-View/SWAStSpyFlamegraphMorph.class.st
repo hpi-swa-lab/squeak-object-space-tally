@@ -23,7 +23,7 @@ Class {
 		'framesBounds',
 		'metaInfo'
 	],
-	#category : #'SWA-StSpy',
+	#category : #'SWA-View',
 	#'squeak_changestamp' : '<historical>'
 }
 
@@ -378,10 +378,10 @@ SWAStSpyFlamegraphMorph >> metaInfo: aString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAStSpyFlamegraphMorph >> metaInfoString [
-	"Run-level meta line for the panel. (SWANavPanel content protocol.)"
+	"Run-level meta line for the panel. (SWAPane content protocol.)"
 	^ metaInfo ifNil: ['']
 ]
 
@@ -469,22 +469,22 @@ SWAStSpyFlamegraphMorph >> rowHeight [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAStSpyFlamegraphMorph >> selectedSourceString [
 	"Source text for the Show pane: the selected frame's method source, or a
-	placeholder for native/VM frames. (SWANavPanel content protocol.)"
+	placeholder for native/VM frames. (SWAPane content protocol.)"
 	selectedNode ifNil: [^ ''].
 	^ selectedNode sourceString
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAStSpyFlamegraphMorph >> selectionPathString [
 	"Detail line for the SELECTED frame: name, time, percent of the whole tree, and
-	self time. Empty when nothing is selected. (SWANavPanel content protocol.)"
+	self time. Empty when nothing is selected. (SWAPane content protocol.)"
 	| rootTotal pct |
 	selectedNode ifNil: [^ ''].
 	rootTotal := rootNode totalSize max: 1.

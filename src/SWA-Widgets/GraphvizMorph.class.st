@@ -31,7 +31,7 @@ Class {
 		'selectionColor',
 		'menuAction'
 	],
-	#category : #'SWA-Tools',
+	#category : #'SWA-Widgets',
 	#'squeak_changestamp' : '<historical>'
 }
 

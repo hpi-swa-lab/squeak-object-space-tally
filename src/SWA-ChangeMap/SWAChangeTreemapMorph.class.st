@@ -156,14 +156,14 @@ SWAChangeTreemapMorph >> detailContainerInfo: n on: s [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/9/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAChangeTreemapMorph >> detailInfoString [
 	"Multi-line details for the Show-mode Details box (bottom-left), one
 	'label: value' per line, like the Code Map. Describes the selected node:
 	change leaves get type/status/author/when/diff-size/baseline; containers get
 	change count, rolled-up diff size, and top author. '' when nothing is selected.
-	(SWANavPanel content protocol.)"
+	(SWAPane content protocol.)"
 	| n |
 	n := selectedNode ifNil: [^ ''].
 	^ String streamContents: [:s |
@@ -257,11 +257,11 @@ SWAChangeTreemapMorph >> selectedSourceString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/9/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAChangeTreemapMorph >> selectionInfoString [
 	"Line 2 of the panel info area: a one-line summary of the current selection,
-	or '' when nothing is selected. (SWANavPanel content protocol.)"
+	or '' when nothing is selected. (SWAPane content protocol.)"
 	| n |
 	n := selectedNode ifNil: [^ ''].
 	^ String streamContents: [:s |

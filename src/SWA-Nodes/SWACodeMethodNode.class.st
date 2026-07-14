@@ -14,7 +14,7 @@ Class {
 	#classVars : [
 		'ByteAnalysisCache'
 	],
-	#category : #'SWA-Treemap',
+	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
 

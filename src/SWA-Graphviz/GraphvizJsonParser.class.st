@@ -21,7 +21,7 @@ Class {
 		'nodeRects',
 		'fieldRects'
 	],
-	#category : #'SWA-Tools',
+	#category : #'SWA-Graphviz',
 	#'squeak_changestamp' : '<historical>'
 }
 
