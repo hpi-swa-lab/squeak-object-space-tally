@@ -1243,11 +1243,14 @@ SWANavPanel >> provenanceIndex [
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:03'
 }
 SWANavPanel >> provenanceIndex: anInteger [
 	"List-model click handler for the side pane. The entry VALUE decides the action:
 	 - nil (a '... N more' note) -> no-op;
+	 - a  {#highlightTopic. topicId}  Array (a topic row in #topic mode) ->
+	   HIGHLIGHT that topic over the whole map (saturation by involvement) WITHOUT
+	   navigating, so the list stays and the clicked row toggles the emphasis;
 	 - a  fromKey -> partnerKey  Association (a CONTAINER's aggregated duplicate pair) ->
 	   PREVIEW that pair's diff WITHOUT navigating, so the list stays and the clicked row
 	   just highlights (keep #provenanceIndex);
@@ -1259,6 +1262,11 @@ SWANavPanel >> provenanceIndex: anInteger [
 	assoc := provenanceEntries at: anInteger ifAbsent: [^ self].
 	value := assoc value.
 	value ifNil: [^ self].   "non-navigating note"
+	"Topic row: toggle the topic highlight over the map, keep the list + selection."
+	((value isKindOf: Array) and: [value size = 2 and: [value first == #highlightTopic]]) ifTrue: [
+		(view respondsTo: #highlightedTopic:) ifTrue: [
+			view highlightedTopic: value second].
+		^ self].
 	"Container aggregated pair: preview the diff, keep the list + highlight."
 	(value isKindOf: Association) ifTrue: [
 		(view respondsTo: #previewDuplicatePairFrom:to:) ifTrue: [

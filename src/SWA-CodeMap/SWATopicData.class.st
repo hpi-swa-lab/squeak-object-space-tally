@@ -36,19 +36,39 @@ Class {
 		'methodNames',
 		'methodTopics',
 		'topicHue',
-		'hueFamilyCount'
+		'hueFamilyCount',
+		'topicLabels'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }
 
 {
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
+}
+SWATopicData class >> defaultLlmEndpoint [
+	"Ollama-compatible /api/generate endpoint used by the topic-labeling stage."
+	^ 'http://172.16.64.127:11434/api/generate'
+]
+
+{
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
+}
+SWATopicData class >> defaultLlmModel [
+	"Local model name (Ollama tag) used by the topic-labeling stage."
+	^ 'qwen3.6:latest'
+]
+
+{
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
 }
 SWATopicData >> asJsonString [
 	"Serialise to the reusable, image-independent JSON form (see class comment).
-	Method ids are 1-based positions into #methods; JSON object keys are strings."
+	Method ids are 1-based positions into #methods; JSON object keys are strings.
+	'topicLabels' (optional) carries the LLM-produced short labels, one per topic."
 	| dict topicsJson |
 	topicsJson := Dictionary new.
 	methodNames doWithIndex: [:nm :i |
@@ -67,6 +87,8 @@ SWATopicData >> asJsonString [
 		at: 'methods' put: methodNames asArray;
 		at: 'topics' put: topicsJson;
 		yourself.
+	(topicLabels notNil and: [topicLabels notEmpty])
+		ifTrue: [dict at: 'topicLabels' put: topicLabels asArray].
 	^ String streamContents: [:s | dict jsonWriteOn: s]
 ]
 
@@ -125,7 +147,7 @@ SWATopicData >> hueFamilyForTopic: topicId [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
 }
 SWATopicData >> initialize [
 	k := 0.
@@ -133,7 +155,8 @@ SWATopicData >> initialize [
 	methodNames := OrderedCollection new.
 	methodTopics := Dictionary new.
 	topicHue := Array new: 0.
-	hueFamilyCount := 0
+	hueFamilyCount := 0.
+	topicLabels := Array new: 0
 ]
 
 {
@@ -146,16 +169,105 @@ SWATopicData >> k [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
 }
 SWATopicData >> labelForTopic: topicId [
-	"Human-readable label for a topic: its top words joined. topicId is 0-based."
-	| words |
-	(topicId isNil or: [topicId < 0 or: [topicId >= topWords size]])
-		ifTrue: [^ '?'].
-	words := topWords at: topicId + 1.
-	words isEmpty ifTrue: [^ 'topic ', topicId printString].
-	^ words fold: [:a :b | a, ' ', b]
+	"Human-readable label for a topic. Prefer the short LLM-produced label (see the
+	labeling stage) when present; otherwise fall back to the joined top words.
+	topicId is 0-based."
+	| lbl |
+	(topicId isNil or: [topicId < 0]) ifTrue: [^ '?'].
+	(topicLabels notNil and: [topicId < topicLabels size]) ifTrue: [
+		lbl := (topicLabels at: topicId + 1) ifNil: [''].
+		lbl := lbl asString withBlanksTrimmed.
+		lbl notEmpty ifTrue: [^ lbl]].
+	^ self topWordsLabelForTopic: topicId
+]
+
+{
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:49'
+}
+SWATopicData >> labelTopicsWithLlm [
+	"Convenience: label every topic with the default local LLM, no UI, no stop.
+	Answers the number of topics labeled."
+	^ self
+		labelTopicsWithLlmEndpoint: self class defaultLlmEndpoint
+		model: self class defaultLlmModel
+		progress: nil
+		untilStopped: nil
+]
+
+{
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:49'
+}
+SWATopicData >> labelTopicsWithLlmEndpoint: anEndpoint model: aModel progress: aBlock untilStopped: aStopBlock [
+	"Fill #topicLabels by asking the local LLM to name each topic from its top words.
+	aBlock is evaluated with (fractionDone, topicId0Based, label) after each topic so
+	callers can show progress (mirrors the sweep progressBlock in stage 1). aStopBlock
+	answers true to abort early, keeping whatever labels were produced so far.
+	Topics that fail to get an LLM label keep nil (so #labelForTopic: falls back to the
+	top words). Answers the number of topics actually labeled by the LLM."
+	| labels done |
+	labels := (topicLabels notNil and: [topicLabels size = k])
+		ifTrue: [topicLabels asArray copy]
+		ifFalse: [Array new: k withAll: nil].
+	done := 0.
+	0 to: k - 1 do: [:t |
+		| lbl |
+		(aStopBlock notNil and: [aStopBlock value])
+			ifTrue: [topicLabels := labels. ^ done].
+		lbl := self llmLabelForTopic: t endpoint: anEndpoint model: aModel.
+		lbl notNil ifTrue: [labels at: t + 1 put: lbl. done := done + 1].
+		aBlock notNil ifTrue: [
+			aBlock value: (k = 0 ifTrue: [1.0] ifFalse: [(t + 1) / k]) asFloat
+				value: t
+				value: (lbl ifNil: [self topWordsLabelForTopic: t])]].
+	topicLabels := labels.
+	^ done
+]
+
+{
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:49'
+}
+SWATopicData >> llmLabelForTopic: topicId endpoint: anEndpoint model: aModel [
+	"Ask the local LLM for a short label for one topic (0-based). POST directly from
+	the image via WebClient (Ollama /api/generate). Answer the sanitized label, or
+	nil on any failure so the caller can fall back to the top-words label."
+	| payload resp json raw |
+	payload := String streamContents: [:s |
+		(Dictionary new
+			at: 'model' put: aModel;
+			at: 'prompt' put: (self llmLabelPromptForTopic: topicId);
+			at: 'stream' put: false;
+			at: 'think' put: false;
+			yourself) jsonWriteOn: s].
+	[resp := WebClient httpPost: anEndpoint content: payload type: 'application/json'.
+	resp isSuccess ifFalse: [^ nil].
+	json := Json readFrom: resp content readStream.
+	raw := json at: 'response' ifAbsent: [^ nil].
+	raw := self sanitizeLabel: raw.
+	^ raw isEmpty ifTrue: [nil] ifFalse: [raw]]
+		on: Error do: [:e | ^ nil]
+]
+
+{
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:49'
+}
+SWATopicData >> llmLabelPromptForTopic: topicId [
+	"The instruction we send the local LLM to name a topic from its top words.
+	topicId is 0-based."
+	^ 'You are labeling clusters of Smalltalk source-code identifiers.
+Given the most representative words for one topic, reply with a SINGLE short label
+of one or two words (Title Case), naming the concept. No punctuation, no quotes,
+no explanation -- just the label.
+
+Top words: ', (self topWordsLabelForTopic: topicId), '
+
+Label:'
 ]
 
 {
@@ -173,7 +285,7 @@ SWATopicData >> loadFromFile: aFilePath [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
 }
 SWATopicData >> loadFromJson: json [
 	"Populate from a parsed JSON object (see #asJsonString for the shape)."
@@ -183,6 +295,7 @@ SWATopicData >> loadFromJson: json [
 	topWords := (json at: 'topWords' ifAbsent: [#()])
 		collect: [:ws | ws asArray].
 	topicHue := (json at: 'topicHue' ifAbsent: [#()]) asArray.
+	topicLabels := (json at: 'topicLabels' ifAbsent: [#()]) asArray.
 	methodNames := (json at: 'methods' ifAbsent: [#()]) asOrderedCollection.
 	methodTopics := Dictionary new.
 	topicsJson := json at: 'topics' ifAbsent: [Dictionary new].
@@ -201,6 +314,38 @@ SWATopicData >> loadFromJson: json [
 }
 SWATopicData >> methodNames [
 	^ methodNames
+]
+
+{
+	#category : #'llm labeling',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:52'
+}
+SWATopicData >> sanitizeLabel: aString [
+	"Reduce a raw LLM reply to a clean one-or-two-word label: strip whitespace,
+	surrounding quotes and trailing punctuation, drop any <think> block, and keep
+	at most the first two words."
+	| s think ws words |
+	s := aString ifNil: [^ ''].
+	s := s asString.
+	"Drop a leading <think>...</think> block some models emit."
+	think := s asLowercase indexOfSubCollection: '</think>'.
+	think > 0 ifTrue: [s := s copyFrom: think + 8 to: s size].
+	s := s withBlanksTrimmed.
+	"Take only the first non-empty line."
+	(s indexOf: Character cr) > 0 ifTrue: [s := s copyUpTo: Character cr].
+	(s indexOf: Character lf) > 0 ifTrue: [s := s copyUpTo: Character lf].
+	"Strip wrapping quotes/backticks."
+	s := s copyWithoutAll: (String with: $" with: $` with: $').
+	s := s withBlanksTrimmed.
+	"Keep at most the first two whitespace-separated words."
+	ws := String with: Character space with: Character tab.
+	words := s findTokens: ws.
+	words := words first: (words size min: 2).
+	s := words isEmpty ifTrue: [''] ifFalse: [words fold: [:a :b | a, ' ', b]].
+	"Trim trailing punctuation."
+	[s notEmpty and: [(#($. $, $: $; $! $?) includes: s last)]]
+		whileTrue: [s := s allButLast].
+	^ s withBlanksTrimmed
 ]
 
 {
@@ -223,6 +368,41 @@ SWATopicData >> setK: anInt topWords: wordsArray methodNames: names methodTopics
 }
 SWATopicData >> topWords [
 	^ topWords
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
+}
+SWATopicData >> topWordsLabelForTopic: topicId [
+	"The raw top-words label for a topic (its top words joined). topicId is 0-based.
+	This is what #labelForTopic: falls back to when there is no LLM label, and what
+	the labeling stage feeds to the LLM."
+	| words |
+	(topicId isNil or: [topicId < 0 or: [topicId >= topWords size]])
+		ifTrue: [^ '?'].
+	words := topWords at: topicId + 1.
+	words isEmpty ifTrue: [^ 'topic ', topicId printString].
+	^ words fold: [:a :b | a, ' ', b]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
+}
+SWATopicData >> topicLabels [
+	"An Array of short human-readable labels (one per topic, 1-based) produced by
+	the LLM labeling stage, or nil/empty if unlabeled. See #labelForTopic:."
+	^ topicLabels
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:48'
+}
+SWATopicData >> topicLabels: anArray [
+	"Set the LLM-produced short labels (one per topic, 1-based)."
+	topicLabels := anArray
 ]
 
 {
