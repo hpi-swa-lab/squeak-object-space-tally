@@ -147,7 +147,7 @@ SWACodeTreemapMorph >> colorByAuthor: aNode [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:37'
+	#'squeak_changestamp' : 'jl 7/14/2026 16:04'
 }
 SWACodeTreemapMorph >> colorByAvgLoc: aNode [
 	"Average-LOC-per-method heat (most meaningful for class/category nodes): small
