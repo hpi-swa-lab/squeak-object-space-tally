@@ -161,6 +161,24 @@ SWABitermTopicModel class >> generatePackage: aPackageName k: kTopics sweeps: nS
 
 {
 	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps label: labelBoolean [
+	"Like #generatePackageInBackground:k:sweeps:toFile:thenLabel:, but derive a
+	self-describing file name from the parameters (see #topicFileNameFor:k:sweeps:labels:)
+	instead of taking one. Answers the generated file path.
+
+	(SWABitermTopicModel generatePackageInBackground: 'SWA' k: 40 sweeps: 200 label: true)
+	   -->  writes 'swa-k40-s200-labels-topics.json'"
+	| path |
+	path := self topicFileNameFor: aPackageName k: kTopics sweeps: nSweeps labels: labelBoolean.
+	self generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps
+		toFile: path thenLabel: labelBoolean.
+	^ path
+]
+
+{
+	#category : #generation,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
 }
 SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps toFile: aFilePath [
@@ -194,6 +212,28 @@ SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopic
 		label: aPackageName
 		k: kTopics sweeps: nSweeps toFile: aFilePath
 		thenDo: [self labelTopicsInBackground: aFilePath]
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> generateWholeImageInBackgroundK: kTopics sweeps: nSweeps label: labelBoolean [
+	"Whole-image counterpart of #generatePackageInBackground:k:sweeps:label: -- derive
+	a self-describing file name ('image-kNN-sNN[-labels]-topics.json') and, when
+	labelBoolean, chain the LLM labeling stage after the fit. Answers the file path.
+
+	(SWABitermTopicModel generateWholeImageInBackgroundK: 40 sweeps: 250 label: true)
+	   -->  writes 'image-k40-s250-labels-topics.json'"
+	| path |
+	path := self topicFileNameFor: 'image' k: kTopics sweeps: nSweeps labels: labelBoolean.
+	labelBoolean
+		ifTrue: [self generateInBackground: [self onAllMethods]
+			label: 'Whole image'
+			k: kTopics sweeps: nSweeps toFile: path
+			thenDo: [self labelTopicsInBackground: path]]
+		ifFalse: [self generateWholeImageInBackgroundK: kTopics sweeps: nSweeps toFile: path].
+	^ path
 ]
 
 {
@@ -354,6 +394,43 @@ SWABitermTopicModel class >> onMethodNodes: aCollectionOfMethodNodes [
 SWABitermTopicModel class >> onPackageNamed: aPackageName [
 	"Model over all method leaves in one package (via the CodeMap node model)."
 	^ self onMethodNodes: (SWACodeSimilarity new methodNodesInPackage: aPackageName)
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> slugFor: aString [
+	"A lower-case, filesystem-safe slug for a package name / glob: keep letters and
+	digits, collapse every other run into a single '-', trim leading/trailing '-'.
+	  'SqueakXR*' -> 'squeakxr' ,  'SWA-CodeMap' -> 'swa-codemap'.
+	Answers 'topics' when nothing usable remains."
+	| out lastDash slug |
+	out := WriteStream on: String new.
+	lastDash := true.  "suppress a leading dash"
+	aString asString do: [:ch |
+		(ch isLetter or: [ch isDigit])
+			ifTrue: [out nextPut: ch asLowercase. lastDash := false]
+			ifFalse: [lastDash ifFalse: [out nextPut: $-. lastDash := true]]].
+	slug := out contents.
+	[slug notEmpty and: [slug last = $-]] whileTrue: [slug := slug allButLast].
+	^ slug isEmpty ifTrue: ['topics'] ifFalse: [slug]
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> topicFileNameFor: aPackageName k: kTopics sweeps: nSweeps labels: labelBoolean [
+	"Build a self-describing JSON file name from the run parameters, e.g.
+	  aPackageName='SWA' k=40 sweeps=200 labels=true  ->  'swa-k40-s200-labels-topics.json'
+	  aPackageName='SqueakXR*' k=20 sweeps=100 labels=false -> 'squeakxr-k20-s100-topics.json'"
+	^ String streamContents: [:s |
+		s nextPutAll: (self slugFor: aPackageName);
+			nextPutAll: '-k'; print: kTopics;
+			nextPutAll: '-s'; print: nSweeps.
+		labelBoolean ifTrue: [s nextPutAll: '-labels'].
+		s nextPutAll: '-topics.json']
 ]
 
 {
