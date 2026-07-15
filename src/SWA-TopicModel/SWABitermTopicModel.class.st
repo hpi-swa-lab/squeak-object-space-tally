@@ -63,13 +63,13 @@ Class {
 		'methodKeys',
 		'docBiterms'
 	],
-	#category : #'SWA-TopicModel',
+	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }
 
 {
 	#category : #generation,
-	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:51'
 }
 SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps toFile: aFilePath [
 	"Shared background runner for the BTM generators (whole-image and per-package),
@@ -80,12 +80,30 @@ SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: 
 	Opens a SWACoverageRunPanel Stop window, forks the corpus build + Gibbs fit +
 	JSON write at userBackgroundPriority, updates the status line per phase, honours
 	STOP between sweeps (writing the partially-converged model), and auto-closes.
-	Headless: runs inline. Returns the file path immediately."
+	Headless: runs inline. Returns the file path immediately.
+
+	See #generateInBackground:label:k:sweeps:toFile:thenDo: to chain the LLM
+	labeling stage afterwards."
+	^ self generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps
+		toFile: aFilePath thenDo: nil
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
+}
+SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: kTopics sweeps: nSweeps toFile: aFilePath thenDo: aContinuationBlock [
+	"As #generateInBackground:label:k:sweeps:toFile:, but when the fit finishes
+	normally (not stopped, non-empty corpus) evaluate aContinuationBlock afterwards
+	-- used to chain the LLM labeling stage. aContinuationBlock runs in the same
+	background process, right after the JSON is written and this panel closes, so it
+	may open its own progress panel. Pass nil for no continuation."
 	| panel work |
 	panel := SWACoverageRunPanel new
 		openInWindowTitled: 'BTM topics (', aLabel, ') -> ', aFilePath;
 		yourself.
-	work := [ | model td nDocs nBiterms ran |
+	work := [ | model td nDocs nBiterms ran completed |
+		completed := false.
 		panel status: 'Harvesting methods for ', aLabel, '...'.
 		model := aModelBlock value.
 		model k: kTopics.
@@ -103,12 +121,14 @@ SWABitermTopicModel class >> generateInBackground: aModelBlock label: aLabel k: 
 				panel status: 'Inferring distributions + writing JSON...'.
 				td := model asTopicData.
 				td writeToFile: aFilePath.
+				completed := panel stopRequested not.
 				panel finishAndClose: (panel stopRequested
 					ifTrue: ['STOPPED after ', ran printString, ' sweeps; wrote ',
 						td methodNames size printString, ' methods -> ', aFilePath]
 					ifFalse: ['Done. ', ran printString, ' sweeps, ',
 						td methodNames size printString, ' methods, k=', kTopics printString,
-						' -> ', aFilePath])]].
+						' -> ', aFilePath])].
+		(completed and: [aContinuationBlock notNil]) ifTrue: [aContinuationBlock value]].
 	(Smalltalk at: #World ifAbsent: [nil]) isNil
 		ifTrue: [work value. ^ aFilePath].
 	work forkAt: Processor userBackgroundPriority.
@@ -141,6 +161,24 @@ SWABitermTopicModel class >> generatePackage: aPackageName k: kTopics sweeps: nS
 
 {
 	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps label: labelBoolean [
+	"Like #generatePackageInBackground:k:sweeps:toFile:thenLabel:, but derive a
+	self-describing file name from the parameters (see #topicFileNameFor:k:sweeps:labels:)
+	instead of taking one. Answers the generated file path.
+
+	(SWABitermTopicModel generatePackageInBackground: 'SWA' k: 40 sweeps: 200 label: true)
+	   -->  writes 'swa-k40-s200-labels-topics.json'"
+	| path |
+	path := self topicFileNameFor: aPackageName k: kTopics sweeps: nSweeps labels: labelBoolean.
+	self generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps
+		toFile: path thenLabel: labelBoolean.
+	^ path
+]
+
+{
+	#category : #generation,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 12:00'
 }
 SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps toFile: aFilePath [
@@ -152,6 +190,50 @@ SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopic
 	^ self generateInBackground: [self onPackageNamed: aPackageName]
 		label: aPackageName
 		k: kTopics sweeps: nSweeps toFile: aFilePath
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
+}
+SWABitermTopicModel class >> generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps toFile: aFilePath thenLabel: labelBoolean [
+	"Run the full pipeline for a package: STAGE 1 fits the BTM (own Stop panel), then
+	-- if labelBoolean -- STAGE 2 labels the topics with the default local LLM in its
+	own Stop panel. Stage 2 is chained AFTER stage 1's background work finishes (so
+	the file exists first). Returns the file path immediately.
+
+	(SWABitermTopicModel generatePackageInBackground: 'SqueakXR' k: 20 sweeps: 100
+		toFile: 'squeakxr-topics.json' thenLabel: true)"
+	labelBoolean ifFalse: [
+		^ self generatePackageInBackground: aPackageName k: kTopics sweeps: nSweeps
+			toFile: aFilePath].
+	^ self
+		generateInBackground: [self onPackageNamed: aPackageName]
+		label: aPackageName
+		k: kTopics sweeps: nSweeps toFile: aFilePath
+		thenDo: [self labelTopicsInBackground: aFilePath]
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> generateWholeImageInBackgroundK: kTopics sweeps: nSweeps label: labelBoolean [
+	"Whole-image counterpart of #generatePackageInBackground:k:sweeps:label: -- derive
+	a self-describing file name ('image-kNN-sNN[-labels]-topics.json') and, when
+	labelBoolean, chain the LLM labeling stage after the fit. Answers the file path.
+
+	(SWABitermTopicModel generateWholeImageInBackgroundK: 40 sweeps: 250 label: true)
+	   -->  writes 'image-k40-s250-labels-topics.json'"
+	| path |
+	path := self topicFileNameFor: 'image' k: kTopics sweeps: nSweeps labels: labelBoolean.
+	labelBoolean
+		ifTrue: [self generateInBackground: [self onAllMethods]
+			label: 'Whole image'
+			k: kTopics sweeps: nSweeps toFile: path
+			thenDo: [self labelTopicsInBackground: path]]
+		ifFalse: [self generateWholeImageInBackgroundK: kTopics sweeps: nSweeps toFile: path].
+	^ path
 ]
 
 {
@@ -209,6 +291,60 @@ SWABitermTopicModel class >> generateWholeImageK: kTopics sweeps: nSweeps toFile
 ]
 
 {
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
+}
+SWABitermTopicModel class >> labelTopicsInBackground: aFilePath [
+	"STAGE 2 with the default local LLM endpoint/model. See
+	#labelTopicsInBackground:endpoint:model:.
+
+	(SWABitermTopicModel labelTopicsInBackground: 'squeakxr-topics.json')"
+	^ self labelTopicsInBackground: aFilePath
+		endpoint: SWATopicData defaultLlmEndpoint
+		model: SWATopicData defaultLlmModel
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:50'
+}
+SWABitermTopicModel class >> labelTopicsInBackground: aFilePath endpoint: anEndpoint model: aModel [
+	"STAGE 2 of the topic pipeline: load the topics JSON produced by
+	#generatePackageInBackground:... , ask a local LLM to give each topic a one/two
+	word label, and rewrite the file (now carrying 'topicLabels'). Progress is shown
+	in a SWACoverageRunPanel Stop window just like stage 1, one line per topic, and
+	STOP keeps whatever labels were produced so far. Headless: runs inline. Returns
+	the file path immediately.
+
+	(SWABitermTopicModel labelTopicsInBackground: 'squeakxr-topics.json'
+		endpoint: SWATopicData defaultLlmEndpoint model: SWATopicData defaultLlmModel)"
+	| panel work |
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'BTM label (', aModel, ') -> ', aFilePath;
+		yourself.
+	work := [ | data n |
+		panel status: 'Loading topics from ', aFilePath, '...'.
+		data := SWATopicData new loadFromFile: aFilePath.
+		n := data k.
+		panel status: 'Labeling ', n printString, ' topics with ', aModel, '...'.
+		data
+			labelTopicsWithLlmEndpoint: anEndpoint
+			model: aModel
+			progress: [:frac :tid :lbl |
+				panel status: aModel, ': topic ', (tid + 1) printString, '/', n printString,
+					'  "', lbl, '"']
+			untilStopped: [panel stopRequested].
+		data writeToFile: aFilePath.
+		panel finishAndClose: (panel stopRequested
+			ifTrue: ['STOPPED; wrote partial labels -> ', aFilePath]
+			ifFalse: ['Done. Labeled ', n printString, ' topics -> ', aFilePath])].
+	(Smalltalk at: #World ifAbsent: [nil]) isNil
+		ifTrue: [work value. ^ aFilePath].
+	work forkAt: Processor userBackgroundPriority.
+	^ aFilePath
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:40'
 }
@@ -258,6 +394,43 @@ SWABitermTopicModel class >> onMethodNodes: aCollectionOfMethodNodes [
 SWABitermTopicModel class >> onPackageNamed: aPackageName [
 	"Model over all method leaves in one package (via the CodeMap node model)."
 	^ self onMethodNodes: (SWACodeSimilarity new methodNodesInPackage: aPackageName)
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> slugFor: aString [
+	"A lower-case, filesystem-safe slug for a package name / glob: keep letters and
+	digits, collapse every other run into a single '-', trim leading/trailing '-'.
+	  'SqueakXR*' -> 'squeakxr' ,  'SWA-CodeMap' -> 'swa-codemap'.
+	Answers 'topics' when nothing usable remains."
+	| out lastDash slug |
+	out := WriteStream on: String new.
+	lastDash := true.  "suppress a leading dash"
+	aString asString do: [:ch |
+		(ch isLetter or: [ch isDigit])
+			ifTrue: [out nextPut: ch asLowercase. lastDash := false]
+			ifFalse: [lastDash ifFalse: [out nextPut: $-. lastDash := true]]].
+	slug := out contents.
+	[slug notEmpty and: [slug last = $-]] whileTrue: [slug := slug allButLast].
+	^ slug isEmpty ifTrue: ['topics'] ifFalse: [slug]
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 12:16'
+}
+SWABitermTopicModel class >> topicFileNameFor: aPackageName k: kTopics sweeps: nSweeps labels: labelBoolean [
+	"Build a self-describing JSON file name from the run parameters, e.g.
+	  aPackageName='SWA' k=40 sweeps=200 labels=true  ->  'swa-k40-s200-labels-topics.json'
+	  aPackageName='SqueakXR*' k=20 sweeps=100 labels=false -> 'squeakxr-k20-s100-topics.json'"
+	^ String streamContents: [:s |
+		s nextPutAll: (self slugFor: aPackageName);
+			nextPutAll: '-k'; print: kTopics;
+			nextPutAll: '-s'; print: nSweeps.
+		labelBoolean ifTrue: [s nextPutAll: '-labels'].
+		s nextPutAll: '-topics.json']
 ]
 
 {
