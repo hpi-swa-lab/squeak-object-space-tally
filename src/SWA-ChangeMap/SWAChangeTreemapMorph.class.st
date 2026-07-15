@@ -12,7 +12,7 @@ tile zooms in. Leaves' source is their change text; containers show a summary.
 "
 Class {
 	#name : #SWAChangeTreemapMorph,
-	#superclass : #SWATreemapMorph,
+	#superclass : #AnObsoleteSWATreemapMorph,
 	#category : #'SWA-ChangeMap',
 	#'squeak_changestamp' : '<historical>'
 }

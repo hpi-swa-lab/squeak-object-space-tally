@@ -1,13 +1,11 @@
 # SWA Tools -- Documentation Index
 
-> See the **[gallery](gallery.md)** for a one-look, screenshot-per-tool overview.
-
 A suite of structural-analysis tools for Squeak, sharing one tree/view/navigation
-layer (`SWANode` / `SWAView` / `SWAPane`) and a common **dataset** mechanism.
-Each tool visualises a tree of nodes as a navigable squarified treemap (or
-flamegraph), and any tool can be coloured by another's data -- loaded from a file
-or read live from another open panel -- because they all speak the same
-`crossRefKey` vocabulary (class names are unique; methods are `'Class>>selector'`).
+layer (`SWANode` / `SWAView` / `SWANavPanel`) and a common
+**cross-referencing** mechanism. Each tool visualises a tree of nodes as a
+navigable squarified treemap (or flamegraph), and any open panel can be
+cross-referenced against another because they all speak the same `crossRefKey`
+vocabulary (class names are unique; methods are `'Class>>selector'`).
 
 ## Tools
 
@@ -15,11 +13,7 @@ or read live from another open panel -- because they all speak the same
 |---|---|---|---|
 | **[SWACodeMap](SWACodeMap.md)** | What is the *shape* of this code -- size, documentation, coverage, churn? | package -> class -> category -> method | LOC / bytes / methods / execution counts |
 | **[SWASpaceTally](SWASpaceTally.md)** | Where does the *memory* go, and who keeps it alive? | live object graph (BFS) | bytes |
-| **[SWAMessageTally](SWAMessageTally.md)** *(stub)* -- St-Spy | Where does the *time* go at runtime? | sampled call tree | sample count |
-| **Change Map** ([journal](../../journal/2026-07-09-swachangeparser-change-treemap-and-recovery.md)) | *When* did the code change, and how much? | `.changes` time buckets | diff lines |
-| **Class Diagram** ([journal](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md)) | What is the *inheritance shape* of a package? | class graph | -- (diagram) |
-
-See the **[gallery](gallery.md)** for a screenshot of each.
+| **[SWAMessageTally](SWAMessageTally.md)** *(stub)* | Where does the *time* go at runtime? | sampled call tree | sample count |
 
 ## The Shared View Layer
 
@@ -33,57 +27,27 @@ cross-reference key.
 ### `SWAView` -- the common morph
 
 The treemaps and the flamegraph subclass `SWAView`, a `Morph` holding the shared
-state (`rootNode`, selection, render cache, the `keyIndex`) **and the dataset
-layer**: every SWA view can host named `SWADataset`s, mint their metrics onto its
-Color/Size menus, and pick an active one (`datasets`, `addDataset:`,
-`selectDataset:`, `setDataMode:`, `metricForMode:`). Colour is the axis every view
-shares; the intrinsic default is an overridable hook (`intrinsicColorMode`).
-Subclasses supply layout, palette, and any richer axes (the Code Map adds size and
-link axes and coverage provenance).
+state (`rootNode`, selection, render cache, cross-reference machinery) and the
+chrome link to the nav panel. Subclasses supply layout and palette.
 
-### `SWAPane` -- the chrome
+### `SWANavPanel` -- the chrome
 
 Wraps any `SWAView` with the shared header: **Back / Browse / Show**, plus
-view-driven controls -- **Data** (pick a data source), **Tree** (pick the base
-structure), **Size / Color / Links**, and Code-Map-only **Tally / Export / Load /
-Depth** -- a breadcrumb, and a fullscreen toggle. The header is rebuilt per view
-(capability-gated), so it changes as you morph one tool into another.
+view-specific controls (the Code Map adds **Size / Color / Cover / Tally / Export /
+Load / Clear Cov / Depth**), a breadcrumb, a fullscreen toggle, and -- when the view
+is cross-referenceable -- **X-ref / Clear**.
 
-## Datasets: the unified data path
+## Cross-Referencing
 
-A **`SWADataset`** is a named, retained data source bound to a view. Each carries
-one or more **metrics** (e.g. *By coverage*, *By instance bytes*), each bindable to
-the colour (and where supported size/links) axis. Loading the same kind twice gives
-two coexisting, switchable entries.
+Pressing **X-ref** on a panel links it to another open panel and tints matching
+tiles on a log-scaled cold->hot ramp, rolled up so an ancestor tile is as hot as its
+hottest matching descendant. The mechanism is symmetric -- either view can be source
+or target -- and lets you answer questions that span two views, e.g.:
 
-Sources:
-
-- **Loaded from a file** via the Code Map's **Load** button, dispatched by content:
-  - coverage (`SWACoverageData`) and duplication (`SWADuplicationData`) JSON,
-  - space-tally JSON -- either a full node tree or a flat per-class census
-    (see [SWASpaceTally](SWASpaceTally.md#decorating-the-code-map-with-per-class-bytes)).
-- **Read live from another open panel** (`#peer`): every open treemap/flamegraph
-  appears in the **Data** menu as "X-ref: `<window>`". Picking it colours this map
-  by that peer's per-key weight (`SWAPeerViewSource` reads the peer's live
-  `keyIndex`). This replaces the former dedicated **X-ref / Clear** buttons --
-  cross-referencing is now just another dataset you can mix and match, and picking
-  **None** clears it.
-
-So one **Data** menu answers questions that span views, e.g.:
-
-- *Colour the Code Map by how much memory each class measured in a Space Tally.*
-- *Highlight in the Code Map which methods a live profiler sampled, and how hot* --
-  container tiles (class, package) roll up the weight of their sampled methods, so
-  a class lights up even when only its methods carry data.
-
-## Structure: morph one tool into another
-
-Beyond colouring, the **Tree** button picks which node tree IS the base structure.
-A space tally loaded from a node-tree JSON retains its tree, so the Code Map can
-**morph in place into that Space Tally** (same window/chrome) and back -- both views
-are cached, so the switch is instant and lossless (the Code Map keeps its datasets,
-the tally keeps its layout). See
-[SWASpaceTally](SWASpaceTally.md#the-tree-button-morph-one-tool-into-another).
+- *Colour the static Code Map by how much memory each class measured in the Space
+  Tally.*
+- *Highlight in the Code Map exactly which methods the profiler sampled, and how
+  hot they were.*
 
 ## Related Notes (workspace)
 

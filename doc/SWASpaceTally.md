@@ -94,30 +94,27 @@ state (`rootNode`, selection, render cache, the chrome link to the nav panel) an
 the cross-reference machinery. Subclasses only supply layout-specific state and a
 `baseColorForNode:` palette.
 
-### `SWAPane` -- the chrome
+### `SWANavPanel` -- the chrome
 
-A `SWAPane` wraps any `SWAView` and adds the header chrome shared by all three
-tools: **Back / Browse / Show** (source), **Data** (pick a data source, including
-open peers), **Tree** (pick the base structure), **Size / Color / Links** where the
-view supports them, an optional **Depth** cutoff, a breadcrumb, and a fullscreen
-toggle.
+A `SWANavPanel` wraps any `SWAView` and adds the header chrome shared by all three
+tools: **Back / Browse / Show** (source), an optional **Depth** cutoff, a
+breadcrumb, a fullscreen toggle, and -- when the view is cross-referenceable --
+**X-ref / Clear** buttons.
 
 The whole-image code map has its own Apps-menu entry:
 
 > **open... -> Code Map**
 
 ```smalltalk
-SWAPane openOnPackageNamed: '*' leafKind: #class.
+SWANavPanel openOnPackageNamed: '*' leafKind: #class.
 ```
 
 
-## Cross-Referencing the Views (via the Data menu)
+## Cross-Referencing the Views
 
 Because all three tools speak the same `crossRefKey` vocabulary -- class names are
-unique, methods are `'Class>>selector'` -- an open panel can be coloured by another
-open panel's data. This is no longer a dedicated **X-ref** button; it is an entry in
-the **Data** menu, so cross-referencing a live peer works exactly like loading a
-dataset from a file. It answers questions that span two views, e.g.:
+unique, methods are `'Class>>selector'` -- an open panel can be **cross-referenced**
+against another open panel. This answers questions that span two views, e.g.:
 
 - *"Colour the static Code Map by how much memory each class measured in the
   Space Tally."*
@@ -128,21 +125,20 @@ dataset from a file. It answers questions that span two views, e.g.:
 
 1. Each `SWAView` builds a `keyIndex` (a `crossRefKey -> node` dictionary) eagerly
    in `setRoot:`, so peers can look its nodes up in O(1).
-2. The **Data** menu lists every other open panel (`SWAPane openPanels`) as an
-   "X-ref: `<window>`" entry. Picking one wraps it as a `#peer` `SWADataset` whose
-   source (`SWAPeerViewSource`) reads the peer's live `keyIndex`, weighting each key
-   by that node's `totalSize` (bytes / samples / loc).
-3. It becomes the active dataset like any loaded file: its *By shared weight* metric
-   drives colour on a log-normalized ramp. Picking another source -- or **None** --
-   replaces or clears it. Loading it once retains it, so you can switch back.
-4. Container tiles **roll up**: `SWADatasetMetric>>valueForNode:` aggregates a
-   node's descendants when its own key has no value, so a *class* or *package* tile
-   is coloured by the summed weight of its matching methods -- a class lights up even
-   though the peer is keyed at method granularity.
+2. Pressing **X-ref** on a panel finds the other open panels
+   (`SWANavPanel openPanels`); with one peer it links directly, with several it
+   asks which.
+3. The peer's `keyIndex` is pushed across as a `key -> weight` map (weight = the
+   peer node's `totalSize`: bytes / samples / loc).
+4. That map is **rolled up the tree** so an ancestor tile lights up when any
+   descendant matches. The rolled-up weight is the **max** of a node's own match
+   and its descendants' -- so a *class* tile is exactly as hot as its hottest
+   matching *method*, never averaged down.
+5. `colorForNode:` then tints matching tiles on a log-scaled cold->hot ramp and
+   dims everything that matched nothing, so the shared structure pops out.
 
-The mechanism is symmetric (either view can be source or target) and uniform: a peer
-is just one more `SWADataset`, mixing and matching with coverage, duplication, and
-space-tally data.
+**Clear** removes the highlight. The mechanism is symmetric: either view can be
+the source or the target.
 
 
 ## Quick Start
@@ -155,164 +151,6 @@ Or just:
 SWASpaceTally explore.           
 SWASpaceTally walk openTreemap.  
 ```
-
-## Saving a Tally to JSON
-
-A walked (and optionally compacted) tally can be streamed to a JSON file so the
-dataset can be archived, diffed offline, or re-opened later without re-walking.
-
-```smalltalk
-"Class-side convenience: walk default roots, compact at 1 KB, write."
-SWASpaceTally generateToFile: 'tally.json'.
-
-"Tune or disable the compact step (positive = prune under N bytes,
- 0 = compact marker only, nil = raw walked tree):"
-SWASpaceTally generateToFile: 'tally.json' compact: 4096.
-
-"Instance-side, when you already have a tally in hand:"
-(SWASpaceTally walk compact: 1024) writeToFile: 'tally.json'.
-```
-
-Serialization is a **single streaming pass** (`SWASpaceTallyJsonWriter`): no giant
-second copy of a possibly ~1M-node tree, and it writes straight to the file
-stream. Each node emits a stable integer **`id`** (minted on first sight via an
-`IdentityDictionary`), plus `className` (for cross-referencing) and its
-**`otherParents` as a list of ids**. Because the other-parent refs resolve through
-the *same* id map as the tree walk, the shared-reference graph -- what powers the
-"By shared references" color mode and the other-parent relation lines -- survives
-the tree->JSON flattening. String escaping is delegated to the image's `Json`.
-
-The compact step is enabled by default (1 KB byte cutoff) but tunable: it only
-prunes a node's tiny *children* (rolling them into `prunedChildCount` /
-`prunedChildBytes`); it never touches a surviving node's own `otherParents`, so no
-shared-ref information is lost for the nodes that remain.
-
-## Loading a Tally from JSON
-
-`SWASpaceTallyJsonReader` is the inverse of the writer: it rebuilds a live
-`SWASpaceTallyNode` tree from the file, resolving the `id` / `otherParents`
-references back into node links.
-
-```smalltalk
-"Load into a SWASpaceTally and open it (static -- no live objects, only the
- serialized structure + sizes):"
-(SWASpaceTally loadFromFile: 'tally.json') openTreemap.
-
-"Or just the node tree:"
-SWASpaceTallyJsonReader readFrom: 'tally.json'.
-SWASpaceTallyJsonReader readFromString: aJsonString.
-```
-
-Reconstruction is a single recursive descent with the same **mint-on-first-sight**
-id map as the writer (`nodeForId:` mirrors `idFor:`), so an `otherParents` id
-referenced *before* its own tree node is visited still resolves to the same live
-node. `otherParents` are wired in a **second pass** once every id is known.
-`restoreFromJson:` sets each node's flat fields; since a loaded node has no live
-`obj`, the serialized display name is kept in `restoredName` (honored first by
-`#name`).
-
-One fidelity note: an `otherParents` id can point at a node that was **pruned by
-compaction** (its own tree node was never emitted). The reader tracks which ids
-were actually emitted (`realIds`) and **drops** such dangling refs rather than
-resolving them to an empty stub -- so every reconstructed other-parent is a real
-node present in the tree.
-
-**Binding a loaded dataset.** Once loaded, the same tally dataset can be bound
-three ways: (a) its own Space Tally panel (`loadFromFile:` + `openTreemap`, done),
-(b) a *decorate* metric on the Code Map -- tint each class by its measured bytes,
-via the existing `crossRefKey` (class name), no tree swap -- **done, see below**
--- or (c) the *structure* of the Code Map, replacing its root so the code map
-morphs into a space tally in place. The role is the **binding**, not the dataset
-kind: "decorate" (color/size/link an existing tree) and "structure" (`setRoot:`
-the dataset's own tree) are orthogonal axes any dataset can use.
-
-## Decorating the Code Map with per-class bytes
-
-A space tally can color the Code Map's classes -- and, by `#sum` rollup, its
-packages -- by how much memory they measured. Two flavors, both funnelled through
-one `#spaceTally` `SWADataset` and the same `crossRefKey` (class name) the Code
-Map already uses.
-
-**The easiest way is the Code Map's own `Load` button.** It opens a `*.json`
-chooser and dispatches by content: a space-tally JSON (a node tree, or a flat
-`kind: classSummary` census) is recognized (it has no coverage/duplication
-`format` marker) and bound as a `#spaceTally` dataset automatically -- exactly like
-loading a coverage or duplication file. So the workflow is just: generate the JSON,
-then `Load` it.
-
-```smalltalk
-"Generate the file(s) to Load:"
-"1) Object-space view (per-class self + total/retained bytes from the walk):"
-SWASpaceTally generateToFile: 'tally.json'.
-"2) System-wide view (pure per-class instance usage, image-wide, ONE heap pass):"
-SWASpaceTallyClassSummary systemWide writeToFile: 'system-tally.json'.
-```
-
-Programmatically (what the Load button does under the hood):
-
-```smalltalk
-| ds map |
-ds := SWADataset spaceTallyFromJsonFile: 'tally.json'.       "or system-tally.json"
-map addDataset: ds; selectDataset: ds.
-```
-
-`SWASpaceTallyClassSummary` is the intermediate structure both flavors produce: a
-`className -> { self. total. count }` map, keyed exactly like a Code Map class
-node.
-
-- **From a tree** (`fromTree:` / `fromJsonFile:`): fold every `SWASpaceTallyNode`
-  into per-class buckets. `self` = summed `selfSize` (bytes the instances occupy
-  themselves), `total` = summed `totalSize` (contents included). This is the
-  reachability view -- what the tally walked from its roots.
-- **System-wide** (`systemWide`): one `SystemNavigation allObjectsOrNil` sweep,
-  bucketing every live object by class -- O(heap), **not** per-class
-  `allInstancesDo:` (which is O(classes x heap) and takes minutes). `self` ==
-  `total` here (a flat census has no retained dimension). This is the pure
-  per-class usage view.
-
-The `#spaceTally` dataset exposes two metrics -- **By instance bytes** (`self`) and
-**By retained bytes** (`total`) -- each on the color and size axes. Default binding
-is color = instance bytes, **size left intrinsic (LOC)** (same rationale as
-coverage: sizing by the metric collapses unmeasured code to zero width). The color
-ramp is **log-normalized** against the dataset's own max (byte totals span orders
-of magnitude): blue (small) -> green -> yellow -> red (largest). A class the tally
-never measured yields `nil` and keeps its neutral base tint.
-
-The system-wide census is written as a compact **flat** JSON
-(`{"kind":"classSummary","classes":[{"name","self","total","count"},...]}`);
-`SWASpaceTallyClassSummary fromAnyJsonFile:` dispatches on the top-level `kind` so
-`spaceTallyFromJsonFile:` transparently accepts either a flat census or a full
-node tree.
-
-## The Tree button: morph one tool into another
-
-Decorate (color/size) reuses the Code Map's tree. The **Tree** button in the
-`SWAPane` header goes further: it picks which node tree IS the base structure,
-so the whole view **morphs from the Code Map into the loaded Space Tally in
-place** -- same window, same chrome -- and back. This is the "structure" binding:
-a fourth axis alongside color/size/links that swaps the root itself.
-
-Only a space tally loaded from a **node-tree** JSON can be a structure: that
-dataset retains its reconstructed `SWASpaceTallyNode` tree (`structureRoot`) in
-addition to the per-class decorate summary -- the serialized tree carries *both*.
-A flat class-summary census has no tree, so it stays decorate-only and does not
-appear in the Tree menu.
-
-How the morph works (`SWAPane`):
-
-- The Tree menu lists **Code map** (`#intrinsic`) plus one **Space tally: <name>**
-  per structure-capable dataset (`structureOptions`).
-- Picking one calls `setStructureMode:`, which builds -- **once, then cached** --
-  a `SWASpaceTallyTreemapMorph` on the dataset's `structureRoot`, wires its
-  overlay (`overlayClass` is a per-view hook), and swaps it into the panel via
-  `morphViewInto:` (detach old view, rebuild the header/chrome, keep the window).
-- Both views are kept alive in `structureViews`, so switching is **instant and
-  lossless**: the Code Map keeps its loaded datasets (you can morph back and still
-  have the decorate metrics), and the tally keeps its layout. The window title
-  tracks the active structure.
-
-So the same loaded tally is usable three ways from one Load: decorate the Code Map
-by bytes (color/size), or BE the map (Tree), and switch freely between them.
 
 ## The Diff Tool
 

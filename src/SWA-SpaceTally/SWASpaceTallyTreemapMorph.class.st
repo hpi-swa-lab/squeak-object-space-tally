@@ -43,7 +43,7 @@ Interaction:
 "
 Class {
 	#name : #SWASpaceTallyTreemapMorph,
-	#superclass : #SWATreemapMorph,
+	#superclass : #AnObsoleteSWATreemapMorph,
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }

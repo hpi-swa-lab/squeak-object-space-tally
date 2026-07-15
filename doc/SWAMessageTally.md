@@ -29,21 +29,18 @@ running Squeak image, presented as a call tree you can explore three ways.
 
 Like the Code Map and Space Tally, the Message Tally's nodes subclass `SWANode`
 (supplying `name`, `totalSize` = sample count, and a `'Class>>selector'`
-`crossRefKey`) and its views subclass `SWAView`, so the same `SWAPane` chrome
-and the same **dataset** layer apply. A live profiler panel is therefore selectable
-as a `#peer` dataset from any other tool's **Data** menu -- e.g. *"colour the Code
-Map by which methods the profiler sampled, and how hot they were"* (container tiles
-roll up their sampled methods) -- since both speak the same `crossRefKey`
-vocabulary. The flamegraph colours intrinsically per frame, so it is a good
-cross-reference *source* but not a colour *target*.
+`crossRefKey`) and its views subclass `SWAView`, so the same `SWANavPanel` chrome
+and the same **cross-referencing** mechanism apply. This means a profiler run can be
+cross-referenced against an open Code Map -- e.g. *"highlight in the Code Map
+exactly which methods the profiler sampled, and how hot they were"* -- since both
+speak the same `crossRefKey` vocabulary.
 
 ## To be documented
 
 - Recording workflow and the non-blocking launch/poll machinery.
 - Flamechart parsing and the self-vs-total time model.
 - The three views and their navigation (zoom, back, browse, show source).
-- Cross-referencing the profiler against the Code Map and Space Tally (as a `#peer`
-  dataset in the Data menu).
+- Cross-referencing the profiler against the Code Map and Space Tally.
 - Relationship to the `SQUEAKSPY_ROADMAP` external-profiler effort.
 
 ## See Also
