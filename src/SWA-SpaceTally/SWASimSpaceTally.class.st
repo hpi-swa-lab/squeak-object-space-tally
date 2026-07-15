@@ -31,7 +31,7 @@ Class {
 	#instVars : [
 		'sim'
 	],
-	#category : #'SWA-SpaceTally-Sim',
+	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }
 

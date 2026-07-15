@@ -19,23 +19,32 @@ All examples below use the **SqueakXR** package (74 classes, ~980 methods) and a
 coverage data set generated from its own SUnit tests.
 
 ```smalltalk
-SWANavPanel openOnPackageNamed: 'SqueakXR' leafKind: #class.
+SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 ```
 
 ![Code Map of SqueakXR, sized by LOC, coloured by kind](codemap-default-loc-kind.png)
 
 <!-- SCREENSHOT codemap-default-loc-kind.png
 | w |
-w := SWANavPanel openOnPackageNamed: 'SqueakXR' leafKind: #class.
+w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-default-loc-kind.png'.
 w delete.
 -->
 
-The header chrome -- **Back / Browse / Show / Size / Color / X-ref / Cover / Tally
-/ Export / Load / Clear Cov / Depth** -- is shared with the other SWA treemaps via
-`SWANavPanel`. The two-line info area below shows whole-run info and the current
+The header chrome -- **Back / Browse / Show / Data / Tree / Size / Color / Links /
+Tally / Export / Load / Depth** -- is shared with the other SWA treemaps via
+`SWAPane`. The two-line info area below shows whole-run info and the current
 selection.
+
+There is no longer a dedicated **X-ref / Clear** button pair. Cross-referencing
+another open view is now just an entry in the **Data** menu: every open peer
+treemap/flamegraph appears there as "X-ref: `<window>`", and picking it colours
+this map by that peer's per-key weight (a `#peer` `SWADataset`) -- so a
+cross-reference mixes and matches like any loaded dataset, and picking **None**
+clears it. The dataset mechanism itself moved down to the shared `SWAView`, so
+*every* SWA tool (Code Map, Space Tally, and any peer) can host datasets and be a
+cross-reference source or colour target uniformly.
 
 
 ## One Tool, Many Modes
@@ -68,8 +77,8 @@ aggregate tile is the sum of its descendants.
 
 <!-- SCREENSHOT codemap-size-menu.png (captures a Display REGION so the popped-up menu is included)
 | w panel overlay menu rect form |
-w := SWANavPanel openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
-panel := w allMorphs detect: [:m | m isKindOf: SWANavPanel].
+w := SWAPane openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
+panel := w allMorphs detect: [:m | m isKindOf: SWAPane].
 overlay := panel treemapOverlay.
 World displayWorld. (Delay forMilliseconds: 300) wait.
 menu := overlay sizeMenuMorph.
@@ -120,7 +129,7 @@ modes on a fixed layout.
 
 <!-- SCREENSHOT codemap-color-loc-heat.png / codemap-color-author.png / codemap-color-recency.png
 | w tm cap |
-w := SWANavPanel openOnPackageNamed: 'SqueakXR' leafKind: #class.
+w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
 cap := [:name | World displayWorld. (Delay forMilliseconds: 400) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 	PNGReadWriter putForm: w imageForm onFileNamed: name].
@@ -143,14 +152,14 @@ method's source bytes into three lexical buckets:
 - **green-gray** -- the rest (code).
 
 ```smalltalk
-SWANavPanel openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
+SWAPane openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
 ```
 
 ![Byte composition: doc (teal) / string (amber) / code (green-gray)](codemap-byte-composition.png)
 
 <!-- SCREENSHOT codemap-byte-composition.png
 | w |
-w := SWANavPanel openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
+w := SWAPane openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-byte-composition.png'.
 w delete.
@@ -205,10 +214,10 @@ overlay works on *any* size metric -- here on a LOC-sized structural layout:
 
 <!-- SCREENSHOT codemap-coverage-overlay-on-loc.png (overlay tint on a LOC-sized layout)
 | w tm |
-w := SWANavPanel openOnPackageNamed: 'SqueakXR' leafKind: nil.
+w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: nil.
 tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
 tm showCoverageData: (SWACoverageData fromFile: 'squeakxr-coverage.json') weightMode: #tests.
-(w allMorphs detect: [:m | m isKindOf: SWANavPanel]) treemapCoverageStatus: 'Coverage overlay on LOC-sized map'.
+(w allMorphs detect: [:m | m isKindOf: SWAPane]) treemapCoverageStatus: 'Coverage overlay on LOC-sized map'.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-coverage-overlay-on-loc.png'.
 w delete.
@@ -221,7 +230,7 @@ untested code collapses and the map shows, proportionally, what the tests
 exercised:
 
 ```smalltalk
-SWANavPanel openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
+SWAPane openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
 ```
 
 ![Sized by covering-test count](codemap-coverage-tests-weighted.png)
@@ -233,7 +242,7 @@ use `openInvocations:onPackageNamed:`):
 
 <!-- SCREENSHOT codemap-coverage-tests-weighted.png + codemap-coverage-invocations-weighted.png
 | w tm cap |
-w := SWANavPanel openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR' leafKind: nil.
+w := SWAPane openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR' leafKind: nil.
 tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
 cap := [:name | World displayWorld. (Delay forMilliseconds: 400) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 	PNGReadWriter putForm: w imageForm onFileNamed: name].
@@ -255,9 +264,9 @@ map to it; selecting a test blue-filters to the methods it covered.
 <!-- SCREENSHOT codemap-show-source-details.png (selects a covered method, then opens the Show row)
 | w tm panel data leaf |
 data := SWACoverageData fromFile: 'squeakxr-coverage.json'.
-w := SWANavPanel openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR' leafKind: nil.
+w := SWAPane openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR' leafKind: nil.
 tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
-panel := w allMorphs detect: [:m | m isKindOf: SWANavPanel].
+panel := w allMorphs detect: [:m | m isKindOf: SWAPane].
 leaf := nil.
 tm rootNode withAllChildrenDo: [:n |
 	(leaf isNil and: [(n isKindOf: SWACodeMethodNode) and: [(data coveringTestCountFor: n crossRefKey) >= 2]])
@@ -313,9 +322,9 @@ the cached Form (instant redraw); changing the size metric invalidates the layou
 and re-lays-out, keeping the current zoom and selection. This is why "recolouring is
 instant" while "resizing reflows".
 
-### The chrome (`SWANavPanel`) and the menus
+### The chrome (`SWAPane`) and the menus
 
-`SWANavPanel` wraps the morph with the shared header. The **Size** and **Color**
+`SWAPane` wraps the morph with the shared header. The **Size** and **Color**
 buttons and the right-click context menu are driven by a *single* menu source
 (`SWATreemapOverlay>>sizeMenuMorph` / `colorMenuMorph`), so the header buttons and
 the context menu can never drift apart. The header buttons exist because a size
@@ -325,14 +334,22 @@ unreachable, but the buttons never are. **Clear Cov** also reverts a dynamic siz
 metric back to LOC so clearing coverage can't strand you on an empty map.
 
 
-## Cross-Referencing the Views
+## Cross-Referencing via the Data menu
 
 Like the Space Tally and st-spy, the Code Map speaks the shared `crossRefKey`
-vocabulary (class names are unique; methods are `'Class>>selector'`). Pressing
-**X-ref** links an open Code Map against another open SWA panel and tints matching
-tiles on a cold->hot ramp, rolled up so a class tile is as hot as its hottest
-matching method. This lets you, for example, colour the static Code Map by how much
-memory each class measured in the Space Tally.
+vocabulary (class names are unique; methods are `'Class>>selector'`). Cross-
+referencing another open view is no longer a dedicated button: every open peer
+treemap/flamegraph appears in the **Data** menu as "X-ref: `<window>`". Picking one
+wraps that peer as a `#peer` `SWADataset` (`SWAPeerViewSource` reads the peer's live
+`keyIndex`, weighting by each node's `totalSize`) and colours this map by it -- so
+it mixes and matches with loaded datasets like any other, and **None** clears it.
+
+Container tiles aggregate: a class (or package) tile is coloured by the summed
+weight of its matching descendants (`SWADatasetMetric>>valueForNode:` rolls up when
+a node's own key has no value). So highlighting *which methods a live profiler
+sampled* also lights up the classes and packages that own them, even though the
+peer is keyed at method granularity. And a Space Tally can equally colour a Code
+Map (per-class bytes) -- the same path, no special case.
 
 
 ## Quick Start
@@ -341,16 +358,16 @@ From the world menu: **open... -> Code Map**, or:
 
 ```smalltalk
 "Static structure, sized by LOC, to the class level."
-SWANavPanel openOnPackageNamed: 'SqueakXR' leafKind: #class.
+SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 
 "Down to methods, sized + coloured by source byte composition."
-SWANavPanel openByteCompositionOnPackageNamed: 'SqueakXR'.
+SWAPane openByteCompositionOnPackageNamed: 'SqueakXR'.
 
 "Test coverage, sized by covering-test count."
-SWANavPanel openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
+SWAPane openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
 
 "Test coverage, sized by raw invocation count."
-SWANavPanel openInvocations: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
+SWAPane openInvocations: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
 ```
 
 `leafKind:` stops *rendering* at a given level (`#package` / `#class` / `#category`
@@ -373,7 +390,7 @@ SWACoverage generatePackages: #('SqueakXR')
     toFile: 'squeak-object-space-tally/doc/squeakxr-coverage.json'.
 ```
 
-The captures use a fixed window size (`SWANavPanel class>>defaultWindowBounds`,
+The captures use a fixed window size (`SWAPane class>>defaultWindowBounds`,
 `568@205 corner: 1935@1264`) so the full button bar fits on one row and the map does
 not overflow; on a smaller display the window is clipped to the screen and the button
 bar wraps onto extra rows.

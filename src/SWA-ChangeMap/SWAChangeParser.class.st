@@ -534,10 +534,10 @@ SWAChangeParser >> leafFor: aRecord at: aTimeStamp [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 7/9/2026 14:56'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAChangeParser >> openTreemapForRoot: aRootNode [
-	"Open a SWANavPanel-wrapped treemap of a change tree, with the shared
+	"Open a SWAPane-wrapped treemap of a change tree, with the shared
 	Back/Browse/Show/Depth/Full chrome and a progress bar over build+layout."
 	| treemap overlay panel window total done |
 	total := (aRootNode estimatedNodeCount max: 1) * 2.
@@ -562,7 +562,7 @@ SWAChangeParser >> openTreemapForRoot: aRootNode [
 	overlay extent: treemap extent.
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
-	panel := SWANavPanel on: treemap.
+	panel := SWAPane on: treemap.
 	window := panel openInWindow.
 	window setLabel: 'Change Treemap: ', aRootNode name.
 	panel enforceMinimumWindowWidth.

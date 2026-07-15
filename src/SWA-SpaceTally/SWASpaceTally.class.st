@@ -1450,10 +1450,10 @@ SWASpaceTally >> openExplorerWindow [
 
 {
 	#category : #treemap,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:57'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWASpaceTally >> openTreemap [
-	"Open a treemap morph on the node tree, using the shared SWANavPanel window
+	"Open a treemap morph on the node tree, using the shared SWAPane window
 	chrome (Back/Browse/Show + breadcrumb + selection-path + meta-info line +
 	hover overlay)."
 	| treemap overlay panel window desiredExtent |
@@ -1465,7 +1465,7 @@ SWASpaceTally >> openTreemap [
 	treemap overlayMorph: overlay.
 	treemap addMorph: overlay.
 
-	panel := SWANavPanel on: treemap.
+	panel := SWAPane on: treemap.
 
 	window := panel openInWindow.
 	window setLabel: (self isDiff ifTrue: ['Space Treemap  DIFF'] ifFalse: ['Space Treemap']).

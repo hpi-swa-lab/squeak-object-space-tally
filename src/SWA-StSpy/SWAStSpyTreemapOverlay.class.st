@@ -1,9 +1,0 @@
-"
-Hover/selection overlay for SWAStSpyTreemapMorph. Uses the inherited behaviour (explore node on click); exists as a distinct class so the st-spy treemap can evolve its own menu/decorations independently.
-"
-Class {
-	#name : #SWAStSpyTreemapOverlay,
-	#superclass : #SWATreemapOverlay,
-	#category : #'SWA-StSpy',
-	#'squeak_changestamp' : '<historical>'
-}

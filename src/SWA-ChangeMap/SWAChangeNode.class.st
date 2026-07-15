@@ -521,10 +521,10 @@ SWAChangeNode >> resolvedClassOrNil [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/9/2026 14:49'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWAChangeNode >> sourceString [
-	"Text for the SWANavPanel Show pane. Leaves show their change source; a
+	"Text for the SWAPane Show pane. Leaves show their change source; a
 	container shows a short summary of what it holds."
 	self isLeaf ifTrue: [^ sourceText ifNil: ['']].
 	^ String streamContents: [:s |
