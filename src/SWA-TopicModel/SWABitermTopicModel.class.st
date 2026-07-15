@@ -63,7 +63,7 @@ Class {
 		'methodKeys',
 		'docBiterms'
 	],
-	#category : #'SWA-CodeMap',
+	#category : #'SWA-TopicModel',
 	#'squeak_changestamp' : '<historical>'
 }
 
