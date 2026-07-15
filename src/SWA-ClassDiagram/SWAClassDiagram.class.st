@@ -1,9 +1,8 @@
 "
-A SWAView that renders a SWACodeNode subtree as a Graphviz diagram (UML class diagram or containment tree) instead of a treemap/flamegraph, so it plugs into a SWANavPanel with the shared Back/Browse/Show/Deselect chrome, selection-path line, and source pane.
-
-Clicking a graph node selects the matching SWACodeNode: the panel's breadcrumb, selection-path, and Show source pane update, and Browse opens it. Use #mode: to switch between #classDiagram (record boxes + inheritance) and #containment (package->class->category->method tree).
+A SWAView rendering a SWACodeNode subtree as a Graphviz diagram (UML class diagram or containment tree) instead of a treemap/flamegraph, plugging into a SWAPane with the shared chrome. Clicking a node selects the matching SWACodeNode. #mode: switches between #classDiagram and #containment.
 
 Open with: SWACodeGraphMorph openOnPackageNamed: 'SWAGame'
+See squeak-object-space-tally/doc/ for details.
 "
 Class {
 	#name : #SWAClassDiagram,

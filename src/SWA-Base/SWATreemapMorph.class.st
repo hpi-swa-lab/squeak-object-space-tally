@@ -13,7 +13,7 @@ Concrete subclasses supply the domain-specific bits by overriding these hooks:
   - exploreNode:         action on tile activation
   - breadcrumbString     header text
 
-Nodes are duck-typed: a node must answer #children, #totalSize, #selfSize,
+Nodes follow the node protocol: a node must answer #children, #totalSize, #selfSize,
 #name, #depth (and optionally #pathString / #edgeLabel / #className for the
 default hooks). Subclasses: SWASpaceTallyTreemapMorph (sized by bytes),
 SWACodeTreemapMorph (sized by LOC).

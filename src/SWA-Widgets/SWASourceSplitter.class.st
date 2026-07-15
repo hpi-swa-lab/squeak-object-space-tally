@@ -1,10 +1,5 @@
 "
-A thin horizontal drag handle placed between the treemap view and the Show
-(source/details) row in a SWANavPanel. Dragging it up/down grows/shrinks the
-Show row's height, so the user can make the inline-diff / source pane bigger.
-
-The handle simply calls panel>>growSourceRowBy: with the vertical drag delta;
-the panel clamps the new height and re-lays out. Stateless otherwise.
+Horizontal drag handle between the view and the Show (source/details) row in a SWAPane. Dragging up/down calls panel>>growSourceRowBy: to resize the Show row. Stateless.
 "
 Class {
 	#name : #SWASourceSplitter,

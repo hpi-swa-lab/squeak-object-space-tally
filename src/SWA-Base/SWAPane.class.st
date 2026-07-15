@@ -1,31 +1,9 @@
 "
-Shared window chrome for the SWA navigable visualizations (treemap, flamegraph).
+Shared window chrome for SWA navigable visualizations (treemap, flamegraph, class diagram).
 
-A SWANavPanel is a top-to-bottom panel that wraps a ""view"" morph (e.g. a
-SWATreemapMorph or SWAStSpyFlamegraphMorph) and supplies the common UI:
+A SWAPane wraps a ""view"" morph and supplies the common UI: header buttons (Back/Browse/Show), breadcrumb, selection-path and meta-info lines, and an optional Shout-highlighted source pane. Views implement the view protocol (breadcrumbString, selectionPathString, metaInfoString, selectedSourceString, zoomOut, browseSelected, navPanel:) and call #refresh after selection/zoom changes.
 
-  - a header row with Back / Browse / Show buttons + a breadcrumb label
-  - a selection-path line (the currently selected/zoomed item)
-  - a meta-info line (per-view summary: pid/duration, package/LOC, etc.)
-  - an optional, toggleable, Shout-highlighted read-only source pane at the bottom
-
-It exists so this chrome is defined once instead of being copy-pasted into
-each open* method.
-
-View protocol (duck-typed; the view must understand):
-  breadcrumbString            -> String for the breadcrumb
-  selectionPathString         -> String for the selection-path line (or nil)
-  metaInfoString              -> String for the meta-info line (or nil)
-  selectedSourceString        -> source text for the Show pane (or nil)
-  zoomOut                      -> Back button action
-  browseSelected               -> Browse button action
-  navPanel: aSWANavPanel       -> back-reference so the view can ask us to refresh
-
-The view also drives Shout styling for the source pane: the pane's model is the
-VIEW morph, so the view must implement aboutToStyle:(requestor:).
-
-The view calls #refresh on its panel after selection/zoom changes to update all
-labels (and the source pane if shown).
+See squeak-object-space-tally/doc/ for full details.
 "
 Class {
 	#name : #SWAPane,

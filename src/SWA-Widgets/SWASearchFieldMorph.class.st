@@ -1,5 +1,5 @@
 "
-A single-line text input living in a SWANavPanel button bar. On EVERY keystroke it forwards its current text to the panel's #runSearch: so the view's name-filter updates live (matching entity tiles stay bright, the rest dim). Enter/Escape are handled too. Set the owning panel with #panel:.
+Single-line text input in a SWAPane button bar. Forwards its text to the panel's #runSearch: on every keystroke for live name-filtering (matching tiles stay bright, rest dim). Set the owning panel with #panel:.
 "
 Class {
 	#name : #SWASearchFieldMorph,

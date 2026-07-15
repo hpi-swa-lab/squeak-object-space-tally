@@ -1,5 +1,5 @@
 "
-A thin VERTICAL drag handle sitting between the source pane and the covering-tests / duplicates list in the SWANavPanel Show row. Dragging LEFT widens the list (so you can read long entries like 'NN%  from <-> partner'); dragging RIGHT shrinks it. The counterpart to SWASourceSplitter (which is horizontal, resizing the Show row's height). Applies an incremental delta to #growCoveringTestsPaneBy: on the panel so the column tracks the cursor.
+Vertical drag handle between the source pane and the covering-tests/duplicates list in a SWAPane Show row. Dragging calls panel>>growCoveringTestsPaneBy: to resize the list column. Counterpart to SWASourceSplitter.
 "
 Class {
 	#name : #SWAListSplitter,

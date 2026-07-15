@@ -1,7 +1,7 @@
 "
 A node in a sampled call tree built from an st-spy chrome-trace recording.
 
-Duck-typed to work in BOTH the SWA Explorer (PluggableTreeMorph via #explorerContents / #explorerItemName / #hasContentsInExplorer) and the SWA TreeMap (SWATreemapMorph, which reads #children / #totalSize / #name / #depth / #pathString / #selfSize / #otherParents).
+Implements the tree protocol for BOTH the SWA Explorer (PluggableTreeMorph via #explorerContents / #explorerItemName / #hasContentsInExplorer) and the SWA TreeMap (SWATreemapMorph, which reads #children / #totalSize / #name / #depth / #pathString / #selfSize / #otherParents).
 
 Tree semantics: each node is a method frame (or the synthetic 'root'). #selfCount is the number of samples in which this frame was the innermost (leaf) frame; #totalCount is the rolled-up sample count over the whole subtree (this frame appeared on the stack). The treemap squarifies tiles by #totalSize (= totalCount), so hot call paths get larger tiles.
 

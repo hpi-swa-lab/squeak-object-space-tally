@@ -1,5 +1,5 @@
 "
-A flamegraph view of an st-spy sampled call tree. Consumes exactly the same duck-typed SWAStSpyNode tree as SWAStSpyTreemapMorph -- no separate data structure.
+A flamegraph view of an st-spy sampled call tree. Consumes exactly the same SWAStSpyNode tree (same node protocol) as SWAStSpyTreemapMorph -- no separate data structure.
 
 Layout: one horizontal row per stack depth (root at the top). Each frame is a rectangle whose WIDTH is proportional to the node's #totalSize (wall-clock microseconds) and whose X packs left-to-right under its parent, so a frame is exactly as wide as the sum of its children. Taller stacks = deeper call chains; wide plateaus = where time is spent.
 
