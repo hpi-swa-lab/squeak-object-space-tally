@@ -1,31 +1,42 @@
-# Squeak ObjectSpaceTally
+# SWA Code Maps
 
-[docs](doc/SWASpaceTally.md) 
+*(repository still named `squeak-object-space-tally` -- it grew from that one tool
+into a suite.)*
 
-Structural memory analysis for Squeak. Instead of a flat per-class table
-like the built-in `SpaceTally`, this walks the live object graph from the
-roots and builds a tree of space usage you can explore three ways:
+**[Gallery](doc/gallery.md)** &middot; **[Docs index](doc/index.md)** &middot;
+**[Package overview](doc/packages.md)**
 
-- **Explorer**, a multi-column tree browser with Tally / Treemap / Diff actions
-- **Treemap**, a squarified treemap where area = byte size, with zoom and tooltips
-- **Diff**, compares two tallies to isolate exactly what your app allocated
+A suite of structural-analysis tools for Squeak. Each visualises a tree of
+`SWANode`s through one shared view/chrome/dataset layer (`SWAView` / `SWAPane` /
+`SWADataset`) as a navigable squarified treemap, flamegraph, or diagram -- and any
+tool can colour itself by another's data, because they all speak the same
+`crossRefKey` vocabulary (class names are unique; methods are `'Class>>selector'`).
 
-The treemap shares a common view (`SWAView`) and nav panel (`SWANavPanel`) with
-its sibling tools -- the **st-spy** message-tally profiler and the static **Code
-Map** -- and a common **dataset** layer. Any analysis (coverage, duplication, a
-space tally) can be loaded onto the Code Map to colour/size it, and any open panel
+| Tool | Question it answers |
+|---|---|
+| **[Code Map](doc/SWACodeMap.md)** | What is the *shape* of this code -- size, docs, coverage, churn? |
+| **[Space Tally](doc/SWASpaceTally.md)** | Where does the *memory* go, and who keeps it alive? |
+| **[Sampling Tally](doc/SWAMessageTally.md)** | Where does the *time* go at runtime (statistical sampling, via st-spy)? |
+| **Change Map** | *When* did the code change, and how much? |
+| **Class Diagram** | What is the *inheritance shape* of a package? |
+
+The suite ships as 14 `SWA-*` packages layered on a shared **Base** substrate --
+see **[doc/packages.md](doc/packages.md)** for the package map, dependency graph,
+and class hierarchy.
+
+![Code Map of SqueakXR, sized by LOC, coloured by kind](doc/gallery-codemap.png)
+
+## The unified data path
+
+Any analysis (coverage, duplication, a space tally, a live profiler sample) can be
+loaded onto the Code Map as a **dataset** to colour or size it, and any open panel
 can be picked as a live data source from the **Data** menu -- e.g. colour the Code
 Map by measured memory, or by which methods the profiler sampled. A space tally
-loaded from a node tree can even *become* the Code Map's structure via the **Tree**
-button (morph one tool into another). See the
-[docs](doc/SWASpaceTally.md#decorating-the-code-map-with-per-class-bytes).
-
-
-![](squeak-object-space-tally.png)
+loaded from a node tree can even *become* the Code Map's structure via the
+**Tree** button (morph one tool into another). See
+[doc/index.md](doc/index.md#datasets-the-unified-data-path).
 
 ## Installation
-
-To load this package:
 
 ```smalltalk
 Metacello new
@@ -34,23 +45,25 @@ Metacello new
     load.
 ```
 
-To develop this package, use GitS. 
+To develop this package, use GitS.
 
 ## Quick Start
 
-```smalltalk
-spaceTally := SWASpaceTally new
-		trackOtherParents: true;
-		walk;
-		compact:100000.
+From the world menu: **open... -> Code Map** (static package/class/method
+treemap), or **Space Tally** (live object-memory treemap).
 
+```smalltalk
+"Static Code Map of a package"
+SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
+
+"Object-memory treemap of the live image"
+spaceTally := SWASpaceTally new
+    trackOtherParents: true;
+    walk;
+    compact: 100000.
 spaceTally openExplorer.
 spaceTally openTreemap.
 ```
-
-Or from the world menu: **open... -> Space Tally** (or **Code Map** for the
-static package/class/method treemap).
-
 
 ## Authors
 

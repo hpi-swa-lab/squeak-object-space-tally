@@ -69,10 +69,11 @@ One can also directly start the space tally on a collections of instances. In th
 ## Shared View Architecture
 
 SWASpaceTally is one of three sibling tools that all visualise a tree of nodes as
-a navigable treemap (or flamegraph): the **Space Tally** (memory), **st-spy** (a
-sampling message-tally profiler), and the **Code Map** (the static
-package/class/method structure). Rather than duplicate the tree, layout, and
-navigation code three times, they share two small abstractions.
+a navigable treemap (or flamegraph): the **Space Tally** (memory), the **Sampling
+Tally** (a statistical message-tally profiler, driven by the external st-spy
+sampler), and the **Code Map** (the static package/class/method structure). Rather
+than duplicate the tree, layout, and navigation code three times, they share two
+small abstractions.
 
 ### `SWANode` -- the common tree contract
 
@@ -83,13 +84,13 @@ structure and the shared tree protocol (`depth`, `pathString`, `isLeaf`,
 | Subclass | `name` | `totalSize` (treemap weight) | `crossRefKey` |
 |---|---|---|---|
 | `SWASpaceTallyNode` | class / slot label | bytes | class name (class-granular) |
-| `SWAStSpyNode` | frame name | sample count | `'Class>>selector'` or nil |
+| `SWASamplingTallyNode` | frame name | wall time (us) | `'Class>>selector'` or nil |
 | `SWACodeNode` (and `SWACodeClassNode`/`SWACodeMethodNode`) | class / selector | lines of code | class name, or `'Class>>selector'` |
 
 ### `SWAView` -- the common morph
 
-Both the treemap (`SWATreemapMorph`) and the st-spy flamegraph
-(`SWAStSpyFlamegraphMorph`) subclass `SWAView`, a `Morph` that holds the shared
+Both the treemap (`SWATreemapMorph`) and the Sampling Tally flamegraph
+(`SWASamplingTallyFlamegraphMorph`) subclass `SWAView`, a `Morph` that holds the shared
 state (`rootNode`, selection, render cache, the chrome link to the nav panel) and
 the cross-reference machinery. Subclasses only supply layout-specific state and a
 `baseColorForNode:` palette.
@@ -121,8 +122,8 @@ dataset from a file. It answers questions that span two views, e.g.:
 
 - *"Colour the static Code Map by how much memory each class measured in the
   Space Tally."*
-- *"Highlight in the Code Map exactly which methods the st-spy profiler sampled,
-  and how hot they were."*
+- *"Highlight in the Code Map exactly which methods the Sampling Tally profiler
+  sampled, and how hot they were."*
 
 ### How it works
 

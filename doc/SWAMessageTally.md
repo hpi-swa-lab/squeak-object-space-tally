@@ -1,33 +1,47 @@
-# SWAMessageTally -- Sampling Profiler, Flamegraph & Treemap for Squeak
+# SWAMessageTally -- Sampling (Statistical) Message Tally for Squeak
 
 > **STATUS: STUB.** This document is a placeholder. The tool exists
-> (`SWA-StSpy` package: `SWAStSpy`, `SWAStSpyNode`, `SWAStSpyFlamegraphMorph`,
-> `SWAStSpyTreemapMorph`) but the full write-up is pending. See the journal entry
-> [2026-06-19 (SWAStSpy flamegraph)](../../journal/2026-06-19-swastspy-flamegraph.md)
-> and the note [st-spy](../../notes/st-spy.md) for current details.
+> (`SWA-MessageTally` package: `SWASamplingTally`, `SWASamplingTallyNode`,
+> `SWASamplingTallyFlamegraphMorph`, `SWASamplingTallyTreemapMorph`) but the full
+> write-up is pending. See the journal entry
+> [2026-06-19 (flamegraph)](../../journal/2026-06-19-swastspy-flamegraph.md) and the
+> note [st-spy](../../notes/st-spy.md) for current details.
+
+## Three flavours of message tally
+
+"Message tally" is ambiguous, so keep the three flavours distinct:
+
+| Flavour | What it measures | How | In this suite |
+|---|---|---|---|
+| **Full / deterministic** | *exact* call counts (every send) | instrumentation / wrappers | -- (future) |
+| **Statistical, in-image** | approximate hot spots | Squeak's own `MessageTally` (`spyOn:`), sampling from *inside* the VM | -- (built into Squeak) |
+| **Statistical, external** | approximate hot spots, wall time | the **st-spy** sampler ptraces the VM from *outside* | **`SWASamplingTally`** (this tool) |
+
+This tool is the **external statistical (sampling)** flavour. `st-spy` is the
+internal sampler binary it drives -- an implementation detail, not the tool's name.
 
 ## Motivation
 
 Where the **[Code Map](SWACodeMap.md)** shows *static* structure and **test
-coverage**, and **[SWASpaceTally](SWASpaceTally.md)** shows *memory*, the Message
-Tally shows **where time actually goes at runtime**: a sampling profiler over a
-running Squeak image, presented as a call tree you can explore three ways.
+coverage**, and **[SWASpaceTally](SWASpaceTally.md)** shows *memory*, the Sampling
+Tally shows **where time actually goes at runtime**: a statistical sampling profiler
+over a running Squeak image, presented as a call tree you can explore three ways.
 
 ## What it does (overview)
 
-- Drives the external **st-spy** sampling profiler (non-blocking: detached launch +
+- Drives the external **st-spy** sampler (non-blocking: detached launch +
   forked poller + deferred UI update).
 - Parses a chrome-trace **flamechart** into a wall-clock-time-weighted call tree
-  (`SWAStSpyNode`): each frame's self time = its span minus its children.
+  (`SWASamplingTallyNode`): each frame's self time = its span minus its children.
 - Presents that one tree through the shared SWA view layer:
   - an **Explorer** (multi-column tree browser),
-  - a **TreeMap** (`SWAStSpyTreemapMorph`, tiles sized by sample count),
-  - a **Flamegraph** (`SWAStSpyFlamegraphMorph`, cached-Form blit, select-then-zoom,
-    embedded Shout-highlighted source pane).
+  - a **TreeMap** (`SWASamplingTallyTreemapMorph`, tiles sized by wall time),
+  - a **Flamegraph** (`SWASamplingTallyFlamegraphMorph`, cached-Form blit,
+    select-then-zoom, embedded Shout-highlighted source pane).
 
 ## Shared architecture
 
-Like the Code Map and Space Tally, the Message Tally's nodes subclass `SWANode`
+Like the Code Map and Space Tally, the Sampling Tally's nodes subclass `SWANode`
 (supplying `name`, `totalSize` = sample count, and a `'Class>>selector'`
 `crossRefKey`) and its views subclass `SWAView`, so the same `SWAPane` chrome
 and the same **dataset** layer apply. A live profiler panel is therefore selectable
