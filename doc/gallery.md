@@ -4,8 +4,9 @@ A one-look overview of the SWA tool suite. Each tool visualises a tree of
 `SWANode`s through the shared view layer (`SWAView` + `SWAPane`) as a
 navigable squarified treemap, flamegraph, or diagram, and any tool can colour
 itself by another's data because they all speak the same `crossRefKey`
-vocabulary. See [index.md](index.md) for the shared-layer and dataset details, and
-the per-tool docs linked below.
+vocabulary. See [index.md](index.md) for the shared-layer and dataset details,
+[packages.md](packages.md) for the package/dependency map, and the per-tool docs
+linked below.
 
 ## The shared view layer
 
@@ -40,12 +41,13 @@ w delete.
 
 ## Tools
 
-### Code Map -- static code-structure treemap
+### Code Map -- the generic code-structure treemap
 
-The `package -> class -> category -> method` tree, tile area = a size metric (LOC /
-bytes / method count / execution counts), tile colour = an orthogonal property
-(kind / author / recency / churn / byte-composition). Full doc:
-**[SWACodeMap.md](SWACodeMap.md)**.
+The **Code Map is the generic tool** of the suite: the
+`package -> class -> category -> method` tree rendered as a squarified treemap,
+where tile **area** is a size metric (LOC / bytes / method count / execution
+counts) and tile **colour** is an orthogonal property, both switched live from the
+**Size** / **Color** buttons. Full doc: **[SWACodeMap.md](SWACodeMap.md)**.
 
 ![Code Map of SqueakXR, sized by LOC, coloured by kind](gallery-codemap.png)
 
@@ -57,18 +59,41 @@ PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/g
 w delete.
 -->
 
-The Code Map is one tool with several **modes**, reachable live from the Size /
-Color / Load buttons (the `open...` methods are just presets):
+**Intrinsic colour modes** (no external data; `Color` menu): `kind`, `author`,
+`recency`, `churn` (method-version count), average-LOC, and the
+documentation/string/code **byte-composition**.
 
-- **Coverage** -- load a `SWACoverageData` JSON to tint covered methods green,
-  tests blue, evicted red; optionally *size* by covering-test count so untested
-  code collapses. (`openCoverage:onPackageNamed:` /
-  `openInvocations:onPackageNamed:`)
-- **Duplication** -- load a `SWADuplicationData` JSON to surface copy-paste
-  clusters (`SWA-CodeMap-Duplication`).
+Beyond the intrinsic modes, the Code Map is coloured/sized by **datasets** --
+named data sources loaded from a file or read live from another open panel. Three
+dedicated analysis models (each its own `SWA-*` package) plug in this way; the
+`open...` methods below are just presets that load the dataset and pick its mode:
+
+- **Coverage** (`SWA-Coverage`, `SWACoverageData`) -- load a coverage JSON to tint
+  covered methods green, tests blue, evicted red; optionally *size* by
+  covering-test count so untested code collapses. Container tiles roll up their
+  covered methods. Presets: `openCoverage:onPackageNamed:` /
+  `openInvocations:onPackageNamed:`.
+
+  ![Coverage overlay: covered green, tests blue, on the LOC map](codemap-coverage-overlay-on-loc.png)
+
+- **Duplication** (`SWA-Duplication`, `SWADuplicationData`) -- load a duplication
+  JSON to surface copy-paste / similarity clusters, tinting members of the same
+  clone group together (`colorByDuplication:`).
+
+- **Topic model** (`SWA-TopicModel`, `SWATopicData` from a Biterm Topic Model) --
+  load a topic JSON so each method-leaf is tinted by its **dominant topic's hue
+  family** (brightness = confidence), while aggregate tiles get a proportional
+  **topic-mixture bar**. Image-independent (`Class>>selector` keyed). Preset:
+  `openTopics:onPackageNamed:`; generate the file with
+  `(SWABitermTopicModel onPackageNamed: 'Morphic') buildAndRun: 200`.
+
 - **Call Tally** -- colour/size by a live profiler's per-method sample weight,
   picked as a `#peer` dataset from the **Data** menu (container tiles roll up
   their sampled methods).
+
+Because area and colour are independent and datasets stack onto the same
+`crossRefKey` vocabulary, one map answers many questions at once -- *which classes
+are large, comment-heavy, recently churned, poorly covered, or duplicated?*
 
 ### Space Tally -- object-memory treemap
 
@@ -86,17 +111,19 @@ PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/g
 w delete.
 -->
 
-### St-Spy -- sampling profiler flamegraph
+### Sampling Tally -- statistical profiler flamegraph
 
-Drives the external **st-spy** sampler over a running image and presents the
+The **Sampling Tally** (`SWASamplingTally`) is the *statistical* message tally:
+it drives the external **st-spy** sampler over a running image and presents the
 wall-clock call tree as a flamegraph (also treemap / explorer). Shows *where time
-goes*. Stub doc: **[SWAMessageTally.md](SWAMessageTally.md)**.
+goes*. (st-spy is the internal sampler binary, not the user-facing name.) Stub doc:
+**[SWAMessageTally.md](SWAMessageTally.md)**.
 
-![St-Spy flamegraph of a profiled run](gallery-stspy.png)
+![Sampling Tally flamegraph of a profiled run](gallery-stspy.png)
 
 <!-- SCREENSHOT gallery-stspy.png (reuses an existing chrome-trace file rather than live recording)
 | spy w |
-spy := SWAStSpy new.
+spy := SWASamplingTally new.
 spy pid: 18463.
 spy parseTraceFile: '18463-2026-06-19T13:45:32+02:00.json'.
 w := spy openFlamegraph.
@@ -105,7 +132,7 @@ PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/g
 w delete.
 -->
 
-`SWAStSpy open` records THIS image for 10 s and opens the flamegraph. Live
+`SWASamplingTally open` records THIS image for 10 s and opens the flamegraph. Live
 recording needs the `./st-spy` binary in the VM's working directory.
 
 ### Change Map -- `.changes`-file time treemap
@@ -145,10 +172,17 @@ w delete.
 
 ## Not tools
 
-- **Graphviz viewer** (`SWA-Tools`: `GraphvizMorph` / `GraphvizPane` /
+- **Graphviz viewer** (`SWA-Graphviz`: `GraphvizMorph` / `GraphvizPane` /
   `GraphvizJsonParser` / `GraphvizPlainParser`) -- an implementation detail behind
   the Class Diagram, not a user-facing tool.
-- **`SWA-SpaceTally-Sim`** -- a simulation/parity harness for the Space Tally.
+- **The Sim harness** (`SWASimSpaceTally` / `SWASimSpaceTallyNode` /
+  `SimObjectMirror`, in `SWA-SpaceTally`) -- a simulation/parity harness for the
+  Space Tally.
+- **Analysis data models** (`SWA-Coverage`, `SWA-Duplication`, `SWA-TopicModel`) --
+  produced and consumed as Code Map *datasets* (see below), not tools in their own
+  right.
+
+See **[packages.md](packages.md)** for the full package map.
 
 ## Housekeeping done while writing this
 

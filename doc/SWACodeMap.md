@@ -285,7 +285,7 @@ w delete.
 
 The data model is a tree of `SWACodeNode`s, sharing the `SWANode` contract
 (`parent`/`children`, `depth`, `pathString`, `crossRefKey`) with the Space Tally and
-st-spy node types.
+Sampling Tally node types.
 
 ```
 SWANode
@@ -336,7 +336,7 @@ metric back to LOC so clearing coverage can't strand you on an empty map.
 
 ## Cross-Referencing via the Data menu
 
-Like the Space Tally and st-spy, the Code Map speaks the shared `crossRefKey`
+Like the Space Tally and Sampling Tally, the Code Map speaks the shared `crossRefKey`
 vocabulary (class names are unique; methods are `'Class>>selector'`). Cross-
 referencing another open view is no longer a dedicated button: every open peer
 treemap/flamegraph appears in the **Data** menu as "X-ref: `<window>`". Picking one
@@ -400,6 +400,6 @@ bar wraps onto extra rows.
 
 - **[SWASpaceTally](SWASpaceTally.md)** -- structural memory analysis (the sibling
   treemap over the live object graph).
-- **SWAMessageTally** -- the sampling message-tally profiler and flamegraph
-  (st-spy), documented separately.
+- **SWAMessageTally** -- the Sampling Tally: a statistical message-tally profiler
+  and flamegraph (driven by the external st-spy sampler), documented separately.
 - **[index](index.md)** -- the shared SWA tools index.

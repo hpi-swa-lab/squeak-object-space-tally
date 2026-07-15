@@ -1,9 +1,12 @@
-# SWA Tools -- Documentation Index
+# SWA Code Maps -- Documentation Index
 
-> See the **[gallery](gallery.md)** for a one-look, screenshot-per-tool overview.
+> See the **[gallery](gallery.md)** for a one-look, screenshot-per-tool overview,
+> and **[packages.md](packages.md)** for the package map, dependency graph, and
+> class hierarchy.
 
 A suite of structural-analysis tools for Squeak, sharing one tree/view/navigation
-layer (`SWANode` / `SWAView` / `SWAPane`) and a common **dataset** mechanism.
+layer (`SWANode` / `SWAView` / `SWAPane`, in the `SWA-Base` package) and a common
+**dataset** mechanism.
 Each tool visualises a tree of nodes as a navigable squarified treemap (or
 flamegraph), and any tool can be coloured by another's data -- loaded from a file
 or read live from another open panel -- because they all speak the same
@@ -15,7 +18,7 @@ or read live from another open panel -- because they all speak the same
 |---|---|---|---|
 | **[SWACodeMap](SWACodeMap.md)** | What is the *shape* of this code -- size, documentation, coverage, churn? | package -> class -> category -> method | LOC / bytes / methods / execution counts |
 | **[SWASpaceTally](SWASpaceTally.md)** | Where does the *memory* go, and who keeps it alive? | live object graph (BFS) | bytes |
-| **[SWAMessageTally](SWAMessageTally.md)** *(stub)* -- St-Spy | Where does the *time* go at runtime? | sampled call tree | sample count |
+| **[SWAMessageTally](SWAMessageTally.md)** *(stub)* -- Sampling Tally | Where does the *time* go at runtime (statistical sampling)? | sampled call tree | wall time (us) |
 | **Change Map** ([journal](../../journal/2026-07-09-swachangeparser-change-treemap-and-recovery.md)) | *When* did the code change, and how much? | `.changes` time buckets | diff lines |
 | **Class Diagram** ([journal](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md)) | What is the *inheritance shape* of a package? | class graph | -- (diagram) |
 
@@ -25,10 +28,12 @@ See the **[gallery](gallery.md)** for a screenshot of each.
 
 ### `SWANode` -- the common tree contract
 
-All data models subclass `SWANode`, which owns the `parent`/`children` structure and
-the shared protocol (`depth`, `pathString`, `isLeaf`, `withAllChildrenDo:`,
-`crossRefKey`). Subclasses supply `name`, the treemap weight (`totalSize`), and the
-cross-reference key.
+All data models subclass `SWANode` (in `SWA-Base`), which owns the `parent`/`children`
+structure and the shared protocol (`depth`, `pathString`, `isLeaf`,
+`withAllChildrenDo:`, `crossRefKey`). The concrete per-tool node classes live in
+the `SWA-Nodes` package (`SWACode*Node`, `SWASpaceTallyNode`, `SWASamplingTallyNode`,
+`SWAChangeNode`). Subclasses supply `name`, the treemap weight (`totalSize`), and
+the cross-reference key.
 
 ### `SWAView` -- the common morph
 
