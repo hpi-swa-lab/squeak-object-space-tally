@@ -72,22 +72,6 @@ SWADataset class >> peerFrom: aSWAPeerViewSource named: aString [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:31'
-}
-SWADataset class >> sampleTallyFrom: aSWASampleTallyData named: aString [
-	"Wrap per-method self-sample counts (from the st-spy sampling profiler) as a
-	retained, named #sampleTally dataset. Its single metric tints methods -- and, by
-	#sum rollup, their classes/packages -- by CPU self-time heat. The mode symbol is
-	minted later by the treemap on #addDataset:."
-	^ self new
-		kind: #sampleTally;
-		source: aSWASampleTallyData;
-		name: aString;
-		yourself
-]
-
-{
-	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 10:39'
 }
 SWADataset class >> spaceTallyFrom: aSWASpaceTallyClassSummary named: aString [
@@ -147,23 +131,8 @@ SWADataset class >> spaceTallyFromJsonObject: aJsonObject named: aName [
 ]
 
 {
-	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:47'
-}
-SWADataset class >> topicFrom: aSWATopicData named: aString [
-	"Wrap a Biterm Topic Model (SWATopicData) as a retained, named #topic dataset. Its
-	single CATEGORICAL metric tints each method by its dominant topic's hue family (no
-	scalar heat). The mode symbol is minted later by the treemap on #addDataset:."
-	^ self new
-		kind: #topic;
-		source: aSWATopicData;
-		name: aString;
-		yourself
-]
-
-{
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:48'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -191,20 +160,6 @@ SWADataset >> buildMetrics [
 			dataset: self; id: #spaceTallyTotal; label: 'By retained bytes';
 			axes: #(#color #size); rollup: #sum;
 			scale: (self spaceTallyScaleForMax: source maxTotal); yourself)].
-	kind == #sampleTally ifTrue: [
-		ms add: (SWADatasetMetric new
-			dataset: self; id: #sampleTallySelf; label: 'By self samples (CPU heat)';
-			axes: #(#color #size); rollup: #sum;
-			scale: (self spaceTallyScaleForMax: source maxSelf); yourself)].
-	kind == #topic ifTrue: [
-		ms add: ((SWADatasetMetric new
-			dataset: self; id: #topic; label: 'By topic (hue families)';
-			axes: #(#color); rollup: #max; yourself)
-			colorBlock: [:node |
-				(node isKindOf: SWACodeMethodNode)
-					ifTrue: [source colorForKey: node crossRefKey]
-					ifFalse: [nil]];
-			yourself)].
 	kind == #peer ifTrue: [
 		ms add: (SWADatasetMetric new
 			dataset: self; id: #peerWeight; label: 'By shared weight';
@@ -229,7 +184,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:48'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -245,8 +200,6 @@ SWADataset >> defaultBindings [
 	coverage: color by covering-test count (or call count if that's first).
 	duplication: color by clone heat + decoration = clone links.
 	spaceTally: color by instance (self) bytes.
-	sampleTally: color by self-sample CPU heat.
-	topic: color by dominant-topic hue family (categorical).
 	peer: color by the peer's shared per-key weight (cross-reference)."
 	| d |
 	d := Dictionary new.
@@ -256,10 +209,6 @@ SWADataset >> defaultBindings [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m].
 		(self metrics detect: [:x | x supportsLinks] ifNone: [nil]) ifNotNil: [:m | d at: #decoration put: m]].
 	kind == #spaceTally ifTrue: [
-		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
-	kind == #sampleTally ifTrue: [
-		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
-	kind == #topic ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	kind == #peer ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].

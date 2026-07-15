@@ -24,8 +24,7 @@ Class {
 		'axes',
 		'rollup',
 		'scale',
-		'modeSymbol',
-		'colorBlock'
+		'modeSymbol'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -49,29 +48,13 @@ SWADatasetMetric >> axes: anArray [
 ]
 
 {
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:47'
-}
-SWADatasetMetric >> colorBlock: aBlock [
-	"Install a CATEGORICAL color function: a one-arg block taking a treemap node and
-	answering its Color directly (or nil for a neutral tile), bypassing the scalar
-	value->scale path. Used by metrics whose color is not a heat ramp over a scalar
-	-- e.g. #topic, which tints by dominant-topic HUE FAMILY. When nil (the default)
-	the metric uses the ordinary #valueForNode: through #scale."
-	colorBlock := aBlock
-]
-
-{
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:47'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:49'
 }
 SWADatasetMetric >> colorForNode: aNode [
-	"Tile tint for aNode. A CATEGORICAL metric (#colorBlock: set) answers the block's
-	color directly (e.g. topic hue family); otherwise the metric value through #scale,
-	or nil when the metric says nothing about aNode (caller falls back to a neutral
-	base)."
+	"Tile tint for aNode: the metric value through #scale, or nil when the metric
+	says nothing about aNode (caller falls back to a neutral base)."
 	| v |
-	colorBlock ifNotNil: [^ colorBlock value: aNode].
 	v := self valueForNode: aNode.
 	v ifNil: [^ nil].
 	^ self scale value: v
@@ -118,18 +101,6 @@ SWADatasetMetric >> id [
 }
 SWADatasetMetric >> id: aSymbol [
 	id := aSymbol
-]
-
-{
-	#category : #testing,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:47'
-}
-SWADatasetMetric >> isCategorical [
-	"True when this metric colors by a CATEGORICAL function (#colorBlock:) rather than
-	a scalar heat ramp -- e.g. #topic (dominant-topic hue families). Categorical
-	metrics have no meaningful #valueForNode: heat and are unavailable on the #size
-	axis."
-	^ colorBlock notNil
 ]
 
 {
@@ -227,7 +198,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:31'
+	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -241,7 +212,6 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 		^ (ms isNil or: [ms isEmpty]) ifTrue: [0.0] ifFalse: [ms first key]].
 	id == #spaceTallySelf ifTrue: [^ dataset source bytesForKey: aCrossRefKey].
 	id == #spaceTallyTotal ifTrue: [^ dataset source totalBytesForKey: aCrossRefKey].
-	id == #sampleTallySelf ifTrue: [^ dataset source selfCountForKey: aCrossRefKey].
 	id == #peerWeight ifTrue: [^ dataset source weightForKey: aCrossRefKey].
 	^ nil
 ]

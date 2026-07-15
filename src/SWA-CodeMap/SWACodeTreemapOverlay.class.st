@@ -73,20 +73,18 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:38'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:43'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
-	"Color (base-tint) modes for the Code Map: the CHEAP intrinsics only. The
-	DATA-DRIVEN modes -- duplication, topic, coverage, call/sample tally -- are no
-	longer offered here as legacy intrinsic modes; they are produced ON DEMAND as
-	retained SWADatasets (via the italic 'Generate' entries in the Data menu, the
-	async twins of the 'Load' button) and then appear below as dataset metrics.
+	"Color (base-tint) modes for the Code Map. Most are intrinsic (kind, LOC,
+	duplication, topic, ...). The two DATA-DRIVEN legacy entries -- test coverage and
+	invocation tally -- acquire their data lazily when picked.
 
 	APPENDED after the intrinsics: one entry per COLOR-capable METRIC of every
-	retained dataset (SWADatasetMetric). A single coverage dataset thus contributes
-	BOTH 'By coverage' and 'By call' (the latter only when it carries invocation
-	data). Each carries its own minted symbol, so two coverage datasets give two
-	switchable entries, no reload."
+	retained dataset (SWADatasetMetric). A single coverage file thus contributes
+	BOTH 'By coverage [file]' and 'By call [file]' (the latter only when the file
+	carries invocation data). Each carries its own minted symbol, so you can load
+	coverage twice and switch between all their metrics instantly, no reload."
 	| base tm |
 	base := #(
 		(#codeKind         'By kind (package/class/category/method)')
@@ -96,6 +94,10 @@ SWACodeTreemapOverlay >> colorModeOptions [
 		(#versions         'By avg versions / method')
 		(#recency          'By recency (last changed)')
 		(#author           'By author (last changed)')
+		(#duplication      'By duplication (Jaccard clone heat)')
+		(#topic            'By topic (BTM hue families)')
+		(#coverage         'By test coverage (green covered + blue tests)')
+		(#tally            'By invocation tally (call-count heat)')
 	) asOrderedCollection.
 	tm := self treemapMorph.
 	(tm respondsTo: #datasets) ifTrue: [

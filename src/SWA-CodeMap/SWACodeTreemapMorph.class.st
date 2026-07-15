@@ -10,8 +10,7 @@ Class {
 		'dupSimilarity',
 		'dupMinLoc',
 		'dupLoaded',
-		'dupDiffFrom',
-		'focusedTopic'
+		'dupDiffFrom'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -41,21 +40,6 @@ SWACodeTreemapMorph >> activeDataset [
 ]
 
 {
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:06'
-}
-SWACodeTreemapMorph >> activeTopicData [
-	"The SWATopicData behind the currently active COLOR metric when a #topic dataset
-	is selected, else nil. Bridges the dataset model to the topic side-pane/details
-	machinery, which reads topic data set on the node tree."
-	| metric |
-	metric := self metricForMode: colorMode.
-	(metric notNil and: [metric dataset kind == #topic])
-		ifTrue: [^ metric dataset source].
-	^ nil
-]
-
-{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
 }
@@ -75,35 +59,6 @@ SWACodeTreemapMorph >> addDataset: aSWADataset [
 		metric modeSymbol: sym.
 		self metricsByMode at: sym put: metric].
 	^ aSWADataset
-]
-
-{
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:07'
-}
-SWACodeTreemapMorph >> allTopicsList [
-	"The OVERALL topic list shown when nothing is selected: every topic present in the
-	whole map, sorted by PREVALENCE (summed weight across all method leaves), best-
-	first, as  '* NN%  topWords' -> topicId. The '* ' marks the currently focused
-	topic. Clicking a row focuses that single topic (weight-heat highlight)."
-	| td totals grand sorted |
-	td := self activeTopicData.
-	td ifNil: [^ #()].
-	totals := Dictionary new.
-	rootNode withAllChildrenDo: [:n |
-		(n isKindOf: SWACodeMethodNode) ifTrue: [
-			n topicDistribution keysAndValuesDo: [:topic :wgt |
-				totals at: topic put: (totals at: topic ifAbsent: [0.0]) + wgt]]].
-	totals isEmpty ifTrue: [^ #()].
-	grand := totals values inject: 0.0 into: [:s :v | s + v].
-	grand <= 0 ifTrue: [^ #()].
-	sorted := totals associations asSortedCollection: [:a :b | a value >= b value].
-	^ (sorted collect: [:assoc |
-		| pct label |
-		pct := (assoc value / grand * 100) rounded.
-		label := (focusedTopic = assoc key ifTrue: ['* '] ifFalse: ['   ']),
-			pct printString, '%  ', (td labelForTopic: assoc key).
-		label -> assoc key]) asArray
 ]
 
 {
@@ -132,20 +87,14 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:06'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
 }
 SWACodeTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch on the active color mode. A minted dataset-metric symbol
 	(#coverage_1_coverage, #coverage_1_call, ...) defers to its SWADatasetMetric (the
 	layered-datasets layer); when the metric has no value for a node, fall back to a
-	neutral base. All the intrinsic modes below are the untouched legacy path.
-
-	When a single topic is FOCUSED (clicked in the topic side pane), a topic-metric
-	map recolors by that ONE topic's WEIGHT HEAT across every node, overriding the
-	categorical hue."
+	neutral base. All the intrinsic modes below are the untouched legacy path."
 	(self metricForMode: colorMode) ifNotNil: [:metric |
-		(focusedTopic notNil and: [metric dataset kind == #topic])
-			ifTrue: [^ self colorByFocusedTopic: aNode].
 		^ (metric colorForNode: aNode) ifNil: [Color gray: 0.22]].
 	colorMode == #loc ifTrue: [^ self colorByLoc: aNode].
 	colorMode == #avgloc ifTrue: [^ self colorByAvgLoc: aNode].
@@ -229,31 +178,6 @@ SWACodeTreemapMorph >> colorByDuplication: aNode [
 	(aNode isKindOf: SWACodeMethodNode)
 		ifFalse: [^ Color h: 220 s: 0.18 v: 0.22].
 	^ self dupHeatColorForScore: (self dupScoreForNode: aNode)
-]
-
-{
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:30'
-}
-SWACodeTreemapMorph >> colorByFocusedTopic: aNode [
-	"Tile color when a single topic is FOCUSED: the focused topic's OWN hue-family
-	color, faded by TRANSPARENCY according to the node's weight on that topic. A node's
-	weight is its (rolled-up) distribution mass on the topic as a fraction of its total
-	mass; weight 0 -> (almost) fully transparent over the dark base, weight 1 -> the
-	full topic color. Keeping one hue (not a green->red ramp) means the highlight reads
-	as 'more/less of THIS topic'. Nodes with no topic data go neutral dark."
-	| td dist total w hueColor |
-	td := self activeTopicData.
-	td ifNil: [^ Color gray: 0.2].
-	dist := aNode topicDistribution.
-	(dist isNil or: [dist isEmpty]) ifTrue: [^ Color gray: 0.2].
-	total := dist values inject: 0.0 into: [:s :v | s + v].
-	total <= 0 ifTrue: [^ Color gray: 0.2].
-	w := ((dist at: focusedTopic ifAbsent: [0.0]) / total max: 0.0) min: 1.0.
-	hueColor := td colorForTopic: focusedTopic.
-	hueColor ifNil: [^ Color gray: 0.2].
-	"Fade the topic color over the dark tile base by weight (alpha = w)."
-	^ (Color gray: 0.14) mixed: (1.0 - w) with: hueColor
 ]
 
 {
@@ -364,7 +288,7 @@ SWACodeTreemapMorph >> colorByVersions: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:06'
+	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:27'
 }
 SWACodeTreemapMorph >> colorMode: aSymbol [
 	"Code Map color-mode entry point. Most modes just set the base tint (handled by
@@ -374,12 +298,8 @@ SWACodeTreemapMorph >> colorMode: aSymbol [
 	When the new mode is a coverage-provenance dataset metric, ACTIVATE the test<->method
 	provenance relation (blue tests + click filters) from that metric's source; when it
 	is anything else, deactivate it. This keeps the special coverage behavior even
-	though base color now comes from the metric.
-
-	When the new mode is a TOPIC dataset metric, mirror its SWATopicData onto the root
-	node so the topic side-pane/details machinery (which reads tree-set topicData)
-	lights up; leaving topic mode clears any single-topic focus."
-	| metric topicData |
+	though base color now comes from the metric."
+	| metric |
 	aSymbol == #duplication ifTrue: [
 		dupLoaded == true ifFalse: [self computeDuplicationScores]].
 	aSymbol == #coverage ifTrue: [^ self enterCoverageColorMode].
@@ -389,12 +309,6 @@ SWACodeTreemapMorph >> colorMode: aSymbol [
 	(metric notNil and: [metric isCoverageProvenance])
 		ifTrue: [self activateCoverageProvenanceFrom: metric coverageSource]
 		ifFalse: [self deactivateCoverageProvenance].
-	"Topic dataset bridge: set/clear topicData on the tree + reset single-topic focus."
-	topicData := (metric notNil and: [metric dataset kind == #topic])
-		ifTrue: [metric dataset source] ifFalse: [nil].
-	(rootNode notNil and: [rootNode isKindOf: SWACodeNode]) ifTrue: [
-		rootNode topicData: topicData].
-	topicData ifNil: [focusedTopic := nil].
 	self refreshChrome
 ]
 
@@ -696,7 +610,7 @@ SWACodeTreemapMorph >> decorationMetricForMode: aSymbol [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:08'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
 SWACodeTreemapMorph >> detailInfoString [
 	"Multi-line details for the Show-mode details box BESIDE the source (one
@@ -705,14 +619,9 @@ SWACodeTreemapMorph >> detailInfoString [
 	METRIC (invocations / covering tests) and DROPS the LOC line. In
 	byte-composition mode, leads with the source byte size and its doc/string/code
 	split. In #duplication mode, leads with the Jaccard duplication score and the
-	best-matching method.
-
-	When a single TOPIC is FOCUSED (clicked in the topic side pane), the box shows
-	that topic's TOP RAW WORDS (the highest-probability terms of the topic) instead
-	of per-node facts -- topics aren't tied to one node. '' when nothing to show.
-	(SWAPane content protocol.)"
+	best-matching method. '' when nothing is selected. (SWAPane content
+	protocol.)"
 	| n when whenStr cov comp |
-	self focusedTopic ifNotNil: [:topic | ^ self focusedTopicDetailString: topic].
 	n := selectedNode ifNil: [^ ''].
 	when := n lastChanged.
 	whenStr := when
@@ -1180,51 +1089,6 @@ SWACodeTreemapMorph >> exploreNode: aNode [
 ]
 
 {
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:07'
-}
-SWACodeTreemapMorph >> focusTopic: aTopicIdOrNil [
-	"Focus a SINGLE topic (from a topic side-pane click): recolor the whole map by that
-	topic's weight heat (#colorByFocusedTopic:). Passing nil (or the already-focused
-	topic) clears the focus, restoring the categorical hue-family coloring. Only
-	meaningful while a topic dataset is the active color source."
-	self activeTopicData ifNil: [^ self].
-	focusedTopic := (aTopicIdOrNil = focusedTopic) ifTrue: [nil] ifFalse: [aTopicIdOrNil].
-	self flushCache.
-	self changed
-]
-
-{
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:07'
-}
-SWACodeTreemapMorph >> focusedTopic [
-	"The single topic id currently focused (weight-heat highlight), or nil."
-	^ focusedTopic
-]
-
-{
-	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:08'
-}
-SWACodeTreemapMorph >> focusedTopicDetailString: topicId [
-	"Details-box text for a FOCUSED topic: its top raw words, highest-probability
-	first, one per line (numbered). Header names the topic + its map-wide prevalence."
-	| td words |
-	td := self activeTopicData.
-	td ifNil: [^ ''].
-	words := (topicId >= 0 and: [topicId < td topWords size])
-		ifTrue: [td topWords at: topicId + 1]
-		ifFalse: [#()].
-	^ String streamContents: [:s |
-		s nextPutAll: 'Topic '; print: topicId; nextPutAll: ' -- top words'; cr; cr.
-		words isEmpty
-			ifTrue: [s nextPutAll: '(no words)']
-			ifFalse: [words doWithIndex: [:w :i |
-				s print: i; nextPutAll: '. '; nextPutAll: w asString; cr]]]
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:12'
 }
@@ -1287,21 +1151,6 @@ SWACodeTreemapMorph >> initialize [
 ]
 
 {
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:25'
-}
-SWACodeTreemapMorph >> intrinsicColorForNode: aNode [
-	"Inject the single-topic FOCUS override into the render path. When a topic is
-	focused and a #topic metric is the active color source, the metric's own
-	categorical colorForNode: (used by super's dataset-metric branch) would ignore the
-	focus -- so recolor here by the focused topic's WEIGHT HEAT instead. All other
-	cases defer to the standard layered-datasets coloring."
-	(focusedTopic notNil and: [self activeTopicData notNil])
-		ifTrue: [^ self colorByFocusedTopic: aNode].
-	^ super intrinsicColorForNode: aNode
-]
-
-{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
 }
@@ -1322,15 +1171,12 @@ SWACodeTreemapMorph >> isDuplicationProvenanceActive [
 
 {
 	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:06'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> isTopicProvenanceActive [
-	"True when a TOPIC dataset is the active color source (or the legacy #topic mode
-	is on) and topic data is available, so the side pane lists the selection's topic
-	mixture (or the overall topics) instead of coverage provenance."
-	^ self topicDataOrNil notNil
-		and: [self activeTopicData notNil
-			or: [colorMode == #topic]]
+	"True when the map is in #topic color mode and topic data is loaded, so the
+	side pane lists the selection's topic mixture instead of coverage provenance."
+	^ colorMode == #topic and: [self topicDataOrNil notNil]
 ]
 
 {
@@ -1569,7 +1415,7 @@ SWACodeTreemapMorph >> previewDuplicatePairFrom: fromKey to: toKey [
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:08'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> provenanceListForSelection [
 	"Mode-aware side pane. When a DUPLICATION decoration metric is active:
@@ -1581,13 +1427,13 @@ SWACodeTreemapMorph >> provenanceListForSelection [
 	-- classes DO have a crossRefKey but are still containers whose methods we aggregate.
 	Entries are  label -> navigateKey.
 
-	When a TOPIC dataset is active, list the selection's TOPIC MIXTURE ('NN% topWords',
-	best-first); with NOTHING selected, list the OVERALL topics by prevalence. Entry
-	values are topic ids -> clicking focuses a single topic. Otherwise fall back to
-	coverage provenance."
+	When #topic color mode is active, list the selection's TOPIC MIXTURE instead
+	('NN%  topWords', best-first). Otherwise fall back to coverage provenance."
 	| metric node |
 	self isTopicProvenanceActive ifTrue: [
-		^ self topicProvenanceListFor: self selectedNode].
+		node := self selectedNode.
+		node ifNil: [^ #()].
+		^ self topicProvenanceListFor: node].
 	metric := self decorationMetric.
 	(metric notNil and: [metric supportsLinks]) ifTrue: [
 		node := self selectedNode.
@@ -1807,30 +1653,28 @@ SWACodeTreemapMorph >> topicDataOrNil [
 
 {
 	#category : #topic,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:07'
+	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:53'
 }
 SWACodeTreemapMorph >> topicProvenanceListFor: aNode [
-	"The topic-mixture rows for a selection in topic mode: one entry per topic present
-	in the node's (rolled-up) distribution, best-first, as
-	  '* NN%  topWords'  ->  topicId.
-	The '* ' marks the currently focused topic. The entry VALUE is the topic id, so a
-	click FOCUSES that single topic (weight-heat highlight + top words in Details).
-	When aNode is nil (nothing selected) the OVERALL topic list is shown instead."
-	| td dist total sorted |
-	td := self activeTopicData.
+	"The topic-mixture rows for a selection in #topic mode: one entry per topic
+	present in the node's (rolled-up) distribution, best-first, as
+	  'NN%  w1 w2 w3 ...'  ->  navigateKey.
+	The navigate key is the node's own crossRefKey (clicking re-selects it; topics
+	aren't separately navigable), so container rows stay inert-but-harmless."
+	| td dist total sorted navKey |
+	td := self topicDataOrNil.
 	td ifNil: [^ #()].
-	aNode ifNil: [^ self allTopicsList].
 	dist := aNode topicDistribution.
 	dist isEmpty ifTrue: [^ #()].
 	total := dist values inject: 0.0 into: [:s :v | s + v].
 	total <= 0 ifTrue: [^ #()].
+	navKey := aNode crossRefKey ifNil: [''].
 	sorted := dist associations asSortedCollection: [:a :b | a value >= b value].
 	^ (sorted collect: [:assoc |
 		| pct label |
 		pct := (assoc value / total * 100) rounded.
-		label := (focusedTopic = assoc key ifTrue: ['* '] ifFalse: ['   ']),
-			pct printString, '%  ', (td labelForTopic: assoc key).
-		label -> assoc key]) asArray
+		label := pct printString, '%  ', (td labelForTopic: assoc key).
+		label -> navKey]) asArray
 ]
 
 {
