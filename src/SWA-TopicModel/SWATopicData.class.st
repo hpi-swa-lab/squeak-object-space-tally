@@ -71,6 +71,45 @@ SWATopicData >> asJsonString [
 ]
 
 {
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:47'
+}
+SWATopicData >> colorForKey: aCrossRefKey [
+	"Self-contained categorical tile color for a METHOD key, mirroring the leaf case of
+	SWACodeTreemapMorph>>colorByTopic: but reading straight from this data (no tree-set
+	topicData needed). Hue = dominant topic's hue family; brightness encodes the
+	dominant topic's weight (confidence). nil when the method has no topic (pruned or
+	unknown) so the caller can pick a neutral tile."
+	| topic fam dist conf n hue |
+	aCrossRefKey ifNil: [^ nil].
+	topic := self dominantTopicFor: aCrossRefKey.
+	topic ifNil: [^ nil].
+	fam := self hueFamilyForTopic: topic.
+	fam ifNil: [^ nil].
+	n := hueFamilyCount > 0 ifTrue: [hueFamilyCount] ifFalse: [12].
+	hue := (fam \\ n) * 360.0 / n.
+	dist := self distributionFor: aCrossRefKey.
+	conf := dist isEmpty ifTrue: [0.5] ifFalse: [(dist first last) min: 1.0].
+	^ Color h: hue s: 0.65 v: (0.55 + (conf * 0.4))
+]
+
+{
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:30'
+}
+SWATopicData >> colorForTopic: topicId [
+	"The full-strength hue-family color for a topic id (the same hue used to tint its
+	dominant methods in #colorForKey:), or nil if the topic has no hue family. Used by
+	the single-topic focus highlight, which fades THIS color by weight."
+	| fam n hue |
+	fam := self hueFamilyForTopic: topicId.
+	fam ifNil: [^ nil].
+	n := hueFamilyCount > 0 ifTrue: [hueFamilyCount] ifFalse: [12].
+	hue := (fam \\ n) * 360.0 / n.
+	^ Color h: hue s: 0.65 v: 0.95
+]
+
+{
 	#category : #querying,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:35'
 }

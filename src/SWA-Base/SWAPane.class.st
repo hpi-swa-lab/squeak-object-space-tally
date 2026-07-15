@@ -56,7 +56,13 @@ Class {
 		'coveringTestsWidth',
 		'structureViews',
 		'activeStructureKey',
-		'searchField'
+		'searchField',
+		'tallyAsDataset'
+	],
+	#classVars : [
+		'SampleTallyDuration',
+		'TopicK',
+		'TopicSweeps'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -367,6 +373,76 @@ SWAPane class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 ]
 
 {
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:29'
+}
+SWAPane class >> sampleTallyDuration [
+	"Seconds the external st-spy sampling profiler runs when 'Generate: sample tally'
+	is picked in the Data menu. Configurable via the Preferences browser."
+	<preference: 'Sample Tally duration (seconds)'
+		category: 'SWA'
+		description: 'How many seconds the external st-spy sampling profiler runs when generating a Sample Tally dataset from the Code Map Data menu.'
+		type: #Number>
+	^ SampleTallyDuration ifNil: [10]
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:29'
+}
+SWAPane class >> sampleTallyDuration: aNumber [
+	"Set the Sample Tally profiling duration (seconds). Backs the #sampleTallyDuration
+	preference."
+	SampleTallyDuration := aNumber
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane class >> topicK [
+	"Number of topics (k) the Biterm Topic Model fits when 'Generate: topic model' is
+	picked in the Data menu. Configurable via the Preferences browser."
+	<preference: 'Topic model: number of topics (k)'
+		category: 'SWA'
+		description: 'How many latent topics the Biterm Topic Model fits when generating a Topic dataset from the Code Map Data menu.'
+		type: #Number>
+	^ TopicK ifNil: [20]
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane class >> topicK: aNumber [
+	"Set the Topic model topic count (k). Backs the #topicK preference."
+	TopicK := aNumber
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane class >> topicSweeps [
+	"Number of Gibbs-sampling sweeps the Biterm Topic Model runs when generating a
+	Topic dataset. More sweeps = better convergence but slower. Preferences-configurable."
+	<preference: 'Topic model: Gibbs sweeps'
+		category: 'SWA'
+		description: 'How many Gibbs-sampling sweeps the Biterm Topic Model runs when generating a Topic dataset from the Code Map Data menu. More sweeps converge better but take longer.'
+		type: #Number>
+	^ TopicSweeps ifNil: [200]
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane class >> topicSweeps: aNumber [
+	"Set the Topic model Gibbs sweep count. Backs the #topicSweeps preference."
+	TopicSweeps := aNumber
+]
+
+{
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
 }
@@ -414,6 +490,106 @@ SWAPane >> acquireTestCoverageThenColor [
 SWAPane >> activeStructureKey [
 	"The structure symbol currently displayed (#intrinsic by default)."
 	^ activeStructureKey ifNil: [activeStructureKey := #intrinsic]
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
+}
+SWAPane >> addCallTallyDataset: aSWACoverage name: aName [
+	"Turn a collected live tally (a SWACoverage whose resultMap is 'Class>>selector'
+	-> invocation count) into a retained, named SWADataset carrying invocation data,
+	make it active, and select its #call metric so the map colors by call count.
+	The shared tail of the Call-Tally generator; peer of #addCoverageDataset:name:."
+	| data tm ds callMetric |
+	data := SWACoverageData new.
+	aSWACoverage resultMap keysAndValuesDo: [:key :count |
+		data recordInvocationCount: count for: key].
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
+	tm selectDataset: ds.
+	"Prefer the #call metric (invocation counts) over the default #coverage metric."
+	callMetric := ds metrics detect: [:m | m id == #call] ifNone: [nil].
+	callMetric ifNotNil: [tm colorMode: callMetric modeSymbol].
+	self treemapCoverageStatus: 'Call Tally (', ds name, '): ',
+		data invocationMap size printString, ' methods invoked'.
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
+}
+SWAPane >> addCoverageDataset: aCoverageData name: aName [
+	"Retain an already-built SWACoverageData as a named, ACTIVE coverage dataset --
+	the shared tail of both the file LOAD path (#loadCoverageJson:name:) and the
+	async GENERATE paths (coverage run, call tally). Answers the dataset."
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset coverageFrom: aCoverageData named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Coverage (', ds name, '): ', aCoverageData coveredMethodCount printString,
+		' methods, ', aCoverageData testNames size printString, ' tests',
+		(aCoverageData hasInvocationData ifTrue: [' (+call counts)'] ifFalse: ['']).
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
+}
+SWAPane >> addDuplicationDataset: aDuplicationData name: aName [
+	"Retain an already-built SWADuplicationData as a named, ACTIVE duplication
+	dataset -- the shared tail of the file LOAD path (#loadDuplicationJson:name:)
+	and the async GENERATE path. Answers the dataset."
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset duplicationFrom: aDuplicationData named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Duplication (', ds name, '): ', aDuplicationData matchedMethodCount printString,
+		' methods with near-duplicates of ', aDuplicationData methodNames size printString, ' analysed'.
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:32'
+}
+SWAPane >> addSampleTallyDataset: aSampleTallyData name: aName [
+	"Retain an already-built SWASampleTallyData as a named, ACTIVE #sampleTally
+	dataset and color the map by its self-sample heat. Shared tail of the Sample-Tally
+	generator; peer of #addCoverageDataset:name: / #addDuplicationDataset:name:."
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset sampleTallyFrom: aSampleTallyData named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Sample Tally (', ds name, '): ',
+		aSampleTallyData methodNames size printString, ' methods sampled, ',
+		aSampleTallyData totalSamples printString, ' self-samples'.
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane >> addTopicDataset: aSWATopicData name: aName [
+	"Retain an already-built SWATopicData as a named, ACTIVE #topic dataset and color
+	the map by dominant-topic hue family. Shared tail of the Topic generator and the
+	Topic file-load path; peer of #addCoverageDataset:name: etc."
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset topicFrom: aSWATopicData named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Topics (', ds name, '): ', aSWATopicData k printString,
+		' topics in ', aSWATopicData hueFamilyCount printString, ' hue families, ',
+		aSWATopicData methodNames size printString, ' methods'.
+	self refresh.
+	^ ds
 ]
 
 {
@@ -494,6 +670,33 @@ SWAPane >> clearCoverage [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane >> codeMapGeneratorEntries [
+	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
+	GENERATORS offered -- in italic -- under the Data menu. Each is the async twin of
+	the 'Load' button: picking it computes data for the shown packages and retains it
+	as a named SWADataset (so it then appears in the Color/Size menus like any loaded
+	file). Empty unless the wrapped view is a Code Map.
+
+	Call Tally is TWO-PHASE (instrument -> exercise -> collect): its label reflects
+	whether a tally is currently live, so a second pick collects."
+	| entries |
+	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ #()].
+	entries := OrderedCollection new.
+	entries add: { 'Generate: duplication (clone heat)'. #generateDuplicationDataset }.
+	entries add: { 'Generate: test coverage (run related tests)'. #generateCoverageDataset }.
+	(liveTally notNil and: [tallyAsDataset == true])
+		ifTrue: [entries add: { 'Generate: call tally -- COLLECT now'. #generateCallTallyDataset }]
+		ifFalse: [liveTally isNil ifTrue: [
+			entries add: { 'Generate: call tally (instrument + exercise)'. #generateCallTallyDataset }]].
+	entries add: { 'Generate: sample tally (', self class sampleTallyDuration printString, 's CPU heat)'. #generateSampleTallyDataset }.
+	entries add: { 'Generate: topic model (k=', self class topicK printString, ')'. #generateTopicDataset }.
+	^ entries
+]
+
+{
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
@@ -521,19 +724,28 @@ SWAPane >> codeRoot [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
 }
 SWAPane >> collectInvocationTally [
-	"Read invocation counts from the live tally, uninstall the wrappers, overlay
-	the green tally ramp, and clear the live-tally state. Resets the Tally button.
-	Status shown in the meta line, no dialog."
-	| n tm |
+	"Read invocation counts from the live tally, uninstall the wrappers, and either
+	(a) retain the result as a #call-metric DATASET when the tally was started from
+	the Data-menu 'Generate: call tally' entry (#tallyAsDataset), or (b) overlay the
+	legacy green tally ramp (Tally button). Either way the wrappers are UNINSTALLED
+	first so instrumentation never lingers. Resets the Tally button + live state."
+	| n tm cov |
 	liveTally ifNil: [^ self].
 	liveTally collectTally.
 	liveTally uninstall.
-	n := liveTally resultMap size.
+	cov := liveTally.
+	n := cov resultMap size.
 	tm := self treemap.
-	tm showCoverage: liveTally.
+	tallyAsDataset == true
+		ifTrue: [
+			tallyAsDataset := false.
+			liveTally := nil.
+			self updateTallyButton.
+			^ self addCallTallyDataset: cov name: 'Call Tally (generated)'].
+	tm showCoverage: cov.
 	(tm respondsTo: #noteColorMode:) ifTrue: [tm noteColorMode: #tally].
 	self treemapCoverageStatus: 'Tally: ', n printString, ' methods invoked'.
 	self refresh.
@@ -619,15 +831,16 @@ SWAPane >> cycleLeafKind [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:40'
 }
 SWAPane >> dataMenuMorph [
 	"Build the top-level Data menu for ANY view: None, one entry per RETAINED dataset,
-	then -- below a separator -- one entry per OPEN PEER view (cross-reference as a
-	dataset, replacing the old X-ref button). The active dataset is ticked. Peer
-	entries add+select a #peer dataset on first pick. Answers nil if there is nothing
-	to pick (no datasets, no peers)."
-	| tm menu active current peers any |
+	then -- in italic, below a separator -- the async GENERATOR entries (the on-the-fly
+	twins of the 'Load' button: compute duplication/coverage/... for the shown
+	packages and retain the result as a dataset). Finally -- below a separator -- one
+	entry per OPEN PEER view (cross-reference as a dataset). The active dataset is
+	ticked. Answers nil if there is nothing to pick."
+	| tm menu active current peers any gens |
 	tm := self treemap.
 	tm ifNil: [^ nil].
 	menu := MenuMorph new defaultTarget: self.
@@ -642,6 +855,16 @@ SWAPane >> dataMenuMorph [
 			menu add: (current == ds modeSymbol ifTrue: ['* '] ifFalse: ['   ']),
 					'Data: ', (ds name ifNil: ['?'])
 				selector: #setDataMode: argument: ds modeSymbol]].
+	"Italic async GENERATOR entries (compute a dataset on the fly)."
+	gens := self codeMapGeneratorEntries.
+	gens isEmpty ifFalse: [
+		any := true.
+		menu addLine.
+		gens do: [:pair |
+			| item |
+			menu add: pair first selector: pair second argument: nil.
+			item := menu lastSubmorph.
+			(item isKindOf: MenuItemMorph) ifTrue: [item emphasis: 2]]].
 	peers := self peerPanels.
 	peers isEmpty ifFalse: [
 		menu addLine.
@@ -754,6 +977,137 @@ SWAPane >> focusSearchField: evt [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
+}
+SWAPane >> generateCallTallyDataset [
+	"Data-menu GENERATE (async twin of Load): a live CALL TALLY as a dataset. This is
+	inherently TWO-PHASE and must be driven carefully -- instrumenting every shown
+	method installs self-evicting wrappers that stay live until collected:
+	  1st pick -- instrument the shown packages (wrappers installed; Tally button red),
+	  2nd pick -- collect the counts, UNINSTALL the wrappers, and retain the result as
+	              a named SWADataset whose #call metric colors the map.
+	Between the two picks, EXERCISE the system so calls are counted. Reuses the same
+	liveTally state machine as the Tally button, so the two never install twice."
+	| root |
+	liveTally ifNotNil: [^ self collectInvocationTally].
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Call Tally: only on a Code Map'].
+	tallyAsDataset := true.
+	self startInvocationTally: root.
+	self treemapCoverageStatus: 'Call Tally: instrumented ', liveTally methods size printString,
+		' methods -- EXERCISE the system, then pick ''Generate: call tally'' again (or press Tally) to collect'
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
+}
+SWAPane >> generateCoverageDataset [
+	"Data-menu GENERATE (async twin of Load): run SUnit coverage WITH provenance for
+	the shown packages' related tests (forked + Stop-able via SWACoverage's run
+	panel), then retain the result as a named, active SWADataset exactly as loading a
+	coverage *.json would. Safe on a broad selection -- hit STOP to keep the partial."
+	| root names testClasses |
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Coverage: only on a Code Map'].
+	names := root packageNames.
+	testClasses := SWACoverage testClassesForPackages: names.
+	testClasses isEmpty ifTrue: [
+		^ self treemapCoverageStatus: 'Coverage: no related test classes found'].
+	self treemapCoverageStatus: 'Coverage: running ', testClasses size printString,
+		' test classes (use STOP to abort)...'.
+	SWACoverage
+		runProvenanceForPackages: names
+		tests: testClasses
+		then: [:data | self addCoverageDataset: data name: 'Coverage (generated)']
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
+}
+SWAPane >> generateDuplicationDataset [
+	"Data-menu GENERATE (async twin of Load): compute a duplication scan of the shown
+	packages IN A FORK -- with an interruptible progress bar -- then retain the result
+	as a named, active SWADataset exactly as loading a *.json would. Never wedges the
+	UI: the fork runs at background priority and the dataset is installed back on the
+	UI process."
+	| root names |
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Duplication: only on a Code Map'].
+	names := root packageNames.
+	names isEmpty ifTrue: [^ self treemapCoverageStatus: 'Duplication: no packages shown'].
+	self treemapCoverageStatus: 'Duplication: analysing ', names size printString, ' package(s)...'.
+	[ | data |
+	  data := SWADuplicationData generatePackages: names asArray.
+	  WorldState addDeferredUIMessage: [
+		self addDuplicationDataset: data name: 'Duplication (generated)'] ]
+		forkAt: Processor userBackgroundPriority
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:32'
+}
+SWAPane >> generateSampleTallyDataset [
+	"Data-menu GENERATE (async twin of Load): run the external st-spy SAMPLING
+	profiler against THIS image for #sampleTallyDuration seconds (a Preferences-
+	configurable class pragma, default 10s), then retain the per-method self-sample
+	counts as a named #sampleTally SWADataset that colors the map by CPU self-time
+	heat. Fully async: st-spy samples in a detached process and #whenReadyDo: builds
+	the tree + installs the dataset back on the UI process. EXERCISE the image during
+	the window so there is something to sample."
+	| tally secs |
+	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [
+		^ self treemapCoverageStatus: 'Sample Tally: only on a Code Map'].
+	secs := self class sampleTallyDuration.
+	tally := SWASamplingTally new
+		duration: secs;
+		showProgress: true;
+		yourself.
+	tally record.
+	tally failed ifTrue: [
+		^ self treemapCoverageStatus: 'Sample Tally: could not start -- ', tally failureReason].
+	self treemapCoverageStatus: 'Sample Tally: sampling this image for ', secs printString,
+		's (exercise it now)...'.
+	tally whenReadyDo: [:spy | | data |
+		data := SWASampleTallyData fromSamplingTree: spy rootNode.
+		self addSampleTallyDataset: data name: 'Sample Tally (', secs printString, 's)']
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+}
+SWAPane >> generateTopicDataset [
+	"Data-menu GENERATE (async twin of Load): fit a Biterm Topic Model over the shown
+	packages' methods IN A FORK (k = #topicK, sweeps = #topicSweeps, both Preferences-
+	configurable), then retain the resulting SWATopicData as a named #topic SWADataset
+	that tints each method by its dominant topic's hue family. Runs at background
+	priority; the dataset is installed back on the UI process."
+	| root leaves k sweeps |
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Topic: only on a Code Map'].
+	leaves := OrderedCollection new.
+	root withAllChildrenDo: [:n | (n isKindOf: SWACodeMethodNode) ifTrue: [leaves add: n]].
+	leaves isEmpty ifTrue: [^ self treemapCoverageStatus: 'Topic: no methods shown'].
+	k := self class topicK.
+	sweeps := self class topicSweeps.
+	self treemapCoverageStatus: 'Topic: fitting BTM (k=', k printString, ', ',
+		sweeps printString, ' sweeps) over ', leaves size printString, ' methods...'.
+	[ | model data |
+	  model := SWABitermTopicModel onMethodNodes: leaves.
+	  model k: k.
+	  data := model buildAndRun: sweeps.
+	  WorldState addDeferredUIMessage: [
+		data isNil
+			ifTrue: [self treemapCoverageStatus: 'Topic: corpus empty after pruning -- nothing to model']
+			ifFalse: [self addTopicDataset: data name: 'Topics (k=', k printString, ')']] ]
+		forkAt: Processor userBackgroundPriority
+]
+
+{
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
 }
@@ -847,7 +1201,7 @@ SWAPane >> importCoverage [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:08'
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:50'
 }
 SWAPane >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
@@ -855,9 +1209,10 @@ SWAPane >> importData [
 	match. Dispatch is by the JSON marker, so one button handles all kinds:
 	  'SWACoverageData/1'    -> coverage overlay (green covered + blue tests)
 	  'SWADuplicationData/1' -> duplication overlay (#duplication color mode)
+	  'SWATopicData/1'       -> topic dataset (dominant-topic hue families)
 	  space tally (kind=classSummary, or a node tree) -> per-class byte coloring
-	Coverage/duplication are image-independent ('Class>>selector'-keyed) and may be
-	generated offline; space-tally JSON comes from SWASpaceTally>>writeToFile: (node
+	Coverage/duplication/topic are image-independent ('Class>>selector'-keyed) and may
+	be generated offline; space-tally JSON comes from SWASpaceTally>>writeToFile: (node
 	tree) or SWASpaceTallyClassSummary>>writeToFile: (flat class census).
 
 	Every load is ALSO retained as a named SWADataset, so loading twice gives two
@@ -875,6 +1230,8 @@ SWAPane >> importData [
 	format := (json at: 'format' ifAbsent: ['']) asString.
 	(format beginsWith: 'SWADuplicationData')
 		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: path)].
+	(format beginsWith: 'SWATopicData')
+		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: path)].
 	"Default / 'SWACoverageData...' / legacy files with no marker -> coverage."
 	self loadCoverageJson: json name: (self datasetNameFor: path)
 ]
@@ -890,26 +1247,20 @@ SWAPane >> loadCoverageJson: json [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
 }
 SWAPane >> loadCoverageJson: json name: aName [
 	"Overlay an already-parsed SWACoverageData JSON object (see #importData) as a
-	retained, named SWADataset and make it the ACTIVE data source, applying its fitting
-	defaults across the axes (color + size by coverage). Its metrics ('By coverage',
-	and 'By call' when the file has invocation data) stay selectable in the menus, and
-	loading twice yields distinct entries you switch between instantly, no reload.
+	retained, named SWADataset and make it the ACTIVE data source (shared tail
+	#addCoverageDataset:name:). Its metrics ('By coverage', and 'By call' when the
+	file has invocation data) stay selectable in the menus, and loading twice yields
+	distinct entries you switch between instantly, no reload.
 
 	Deliberately does NOT touch the legacy single-ivar coverage overlay."
-	| data tm ds |
+	| data |
 	data := SWACoverageData new.
 	data loadFromJson: json.
-	tm := self treemap.
-	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
-	tm selectDataset: ds.
-	self treemapCoverageStatus: 'Coverage (', ds name, '): ', data coveredMethodCount printString,
-		' methods, ', data testNames size printString, ' tests',
-		(data hasInvocationData ifTrue: [' (+call counts)'] ifFalse: ['']).
-	self refresh
+	^ self addCoverageDataset: data name: aName
 ]
 
 {
@@ -923,22 +1274,17 @@ SWAPane >> loadDuplicationJson: json [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
 }
 SWAPane >> loadDuplicationJson: json name: aName [
 	"Overlay an already-parsed SWADuplicationData JSON object as a retained, named
-	SWADataset and make it the ACTIVE data source, applying its fitting defaults across
-	the axes: color by clone heat + decoration = clone links (size left intrinsic).
-	Purely a dataset -- does NOT touch the legacy dupScores overlay."
-	| data tm ds |
-	tm := self treemap.
+	SWADataset and make it the ACTIVE data source (shared tail
+	#addDuplicationDataset:name:). Purely a dataset -- does NOT touch the legacy
+	dupScores overlay."
+	| data |
 	data := SWADuplicationData new.
 	data loadFromJson: json.
-	ds := tm addDataset: (SWADataset duplicationFrom: data named: aName).
-	tm selectDataset: ds.
-	self treemapCoverageStatus: 'Duplication (', ds name, '): ', data matchedMethodCount printString,
-		' methods with near-duplicates of ', data methodNames size printString, ' analysed'.
-	self refresh
+	^ self addDuplicationDataset: data name: aName
 ]
 
 {
@@ -963,6 +1309,21 @@ SWAPane >> loadSpaceTallyJson: json name: aName [
 		ds source classCount printString, ' classes',
 		(ds providesStructure ifTrue: [' (Tree available)'] ifFalse: ['']).
 	self refresh
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:51'
+}
+SWAPane >> loadTopicJson: json name: aName [
+	"Load an already-parsed SWATopicData JSON object (see #importData) as a retained,
+	named #topic SWADataset via the shared tail #addTopicDataset:name:. Refactors the
+	old special-case topic load (SWAPane class>>openTopics:onPackageNamed:) into the
+	same dataset path as coverage/duplication, so topic color is a switchable dataset
+	metric like the rest -- no legacy #topic mode needed."
+	| data |
+	data := SWATopicData new loadFromJson: json.
+	^ self addTopicDataset: data name: aName
 ]
 
 {
@@ -1243,11 +1604,13 @@ SWAPane >> provenanceIndex [
 
 {
 	#category : #'covering tests pane',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:32'
+	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:08'
 }
 SWAPane >> provenanceIndex: anInteger [
 	"List-model click handler for the side pane. The entry VALUE decides the action:
 	 - nil (a '... N more' note) -> no-op;
+	 - a topic id (SmallInteger) while a TOPIC dataset is active -> FOCUS that single
+	   topic (weight-heat recolor) and show its top raw words in the Details box;
 	 - a  fromKey -> partnerKey  Association (a CONTAINER's aggregated duplicate pair) ->
 	   PREVIEW that pair's diff WITHOUT navigating, so the list stays and the clicked row
 	   just highlights (keep #provenanceIndex);
@@ -1259,6 +1622,12 @@ SWAPane >> provenanceIndex: anInteger [
 	assoc := provenanceEntries at: anInteger ifAbsent: [^ self].
 	value := assoc value.
 	value ifNil: [^ self].   "non-navigating note"
+	"Topic focus: entry value is a topic id while a topic dataset is active."
+	((value isKindOf: Integer)
+		and: [(view respondsTo: #isTopicProvenanceActive) and: [view isTopicProvenanceActive]]) ifTrue: [
+			(view respondsTo: #focusTopic:) ifTrue: [view focusTopic: value].
+			self refresh.
+			^ self].
 	"Container aggregated pair: preview the diff, keep the list + highlight."
 	(value isKindOf: Association) ifTrue: [
 		(view respondsTo: #previewDuplicatePairFrom:to:) ifTrue: [
