@@ -39,7 +39,7 @@ Class {
 		'hueFamilyCount',
 		'topicLabels'
 	],
-	#category : #'SWA-CodeMap',
+	#category : #'SWA-TopicModel',
 	#'squeak_changestamp' : '<historical>'
 }
 
