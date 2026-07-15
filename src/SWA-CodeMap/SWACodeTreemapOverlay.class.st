@@ -3,7 +3,7 @@ Interaction overlay for SWACodeTreemapMorph. Context menu offers browse, and (fo
 "
 Class {
 	#name : #SWACodeTreemapOverlay,
-	#superclass : #AnObsoleteSWATreemapOverlay,
+	#superclass : #SWATreemapOverlay,
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
 }

@@ -21,7 +21,7 @@ See SWAChangeParser for construction and SWAChangeTreemapMorph for the view.
 "
 Class {
 	#name : #SWAChangeNode,
-	#superclass : #AnObsoleteSWANode,
+	#superclass : #SWANode,
 	#instVars : [
 		'kind',
 		'label',

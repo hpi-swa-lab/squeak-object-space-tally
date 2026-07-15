@@ -3,7 +3,7 @@ Transparent overlay on SWASpaceTallyTreemapMorph. Handles mouse events (hover, c
 "
 Class {
 	#name : #SWASpaceTallyTreemapOverlay,
-	#superclass : #AnObsoleteSWATreemapOverlay,
+	#superclass : #SWATreemapOverlay,
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }

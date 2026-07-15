@@ -7,7 +7,7 @@ own Color submenu options and a Browse item for method changes.
 "
 Class {
 	#name : #SWAChangeTreemapOverlay,
-	#superclass : #AnObsoleteSWATreemapOverlay,
+	#superclass : #SWATreemapOverlay,
 	#category : #'SWA-ChangeMap',
 	#'squeak_changestamp' : '<historical>'
 }

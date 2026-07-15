@@ -14,7 +14,7 @@ treemap, diff) is inherited unchanged.
 "
 Class {
 	#name : #SWASimSpaceTallyNode,
-	#superclass : #AnObsoleteSWASpaceTallyNode,
+	#superclass : #SWASpaceTallyNode,
 	#instVars : [
 		'simulator',
 		'oop',

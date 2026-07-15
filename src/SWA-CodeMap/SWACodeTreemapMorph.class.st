@@ -3,7 +3,7 @@ A squarified treemap of a SWACodeNode tree (Package -> Class -> Category -> Meth
 "
 Class {
 	#name : #SWACodeTreemapMorph,
-	#superclass : #AnObsoleteSWATreemapMorph,
+	#superclass : #SWATreemapMorph,
 	#instVars : [
 		'coverageStatus',
 		'dupScores',
@@ -271,7 +271,7 @@ SWACodeTreemapMorph >> colorByTopic: aNode [
 ]
 
 {
-	#category : #'as yet unclassified',
+	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:41'
 }
 SWACodeTreemapMorph >> colorByVersions: aNode [
