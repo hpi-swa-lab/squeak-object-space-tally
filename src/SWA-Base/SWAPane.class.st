@@ -2384,21 +2384,21 @@ SWAPane >> toggleFullScreen [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 14:40'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 17:41'
 }
 SWAPane >> toggleMarks [
 	"Marks button: show/hide the left-hand Marks panel -- a MULTI-SELECT list of the
 	GLOBAL bookmarked nodes (SWAMarkSet) plus a comment editor, shared across every
 	open panel. Hidden by default (like the bottom Show pane). A draggable vertical
 	SWASplitter sits between the list and the main view so the column can be resized.
-	Showing the panel installs the global SWAMarksClickFilter so Ctrl+click toggles
-	selection despite the VM's single-button emulation."
+	The marks list registers/removes its own hand mouse-capture filter via
+	intoWorld:/outOfWorld:, so Ctrl+click toggles selection despite the VM's
+	single-button emulation."
 	(marksPanel notNil and: [marksPanel owner notNil])
 		ifTrue: [
 			marksSplitter ifNotNil: [marksSplitter delete. marksSplitter := nil].
 			marksPanel delete. marksPanel := nil. marksList := nil. commentField := nil]
 		ifFalse: [
-			SWAMarksClickFilter ensureInstalled.
 			marksPanel := self newMarksPanel.
 			marksSplitter := SWASplitter vertical
 				resizeAction: [:delta | self growMarksPanelBy: delta];
