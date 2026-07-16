@@ -40,7 +40,8 @@ Class {
 		'decorationMetric',
 		'activeDataset',
 		'searchQuery',
-		'searchMatchSet'
+		'searchMatchSet',
+		'markedNodesCache'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -479,6 +480,16 @@ SWAView >> filterToTestKey: aTestOrClassKey [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+}
+SWAView >> flushMarksCache [
+	"Drop the cached set of marked nodes so it is rebuilt from the global mark set
+	on next draw. Called when the shared SWAMarkSet changes."
+	markedNodesCache := nil
+]
+
+{
 	#category : #'event handling',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
 }
@@ -647,6 +658,15 @@ SWAView >> isFilteredOut: aNode [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+}
+SWAView >> isNodeMarked: aNode [
+	"Is aNode currently marked in the global mark set?"
+	^ aNode notNil and: [SWAMarkSet default includes: aNode markKey]
+]
+
+{
 	#category : #search,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
 }
@@ -708,6 +728,26 @@ SWAView >> leavesUnder: aNode do: aBlock [
 	aNode children isEmpty
 		ifTrue: [aBlock value: aNode]
 		ifFalse: [aNode children do: [:c | self leavesUnder: c do: aBlock]]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+}
+SWAView >> markedNodes [
+	"The nodes in THIS view whose #markKey is in the global SWAMarkSet -- i.e. the
+	marked tiles to draw a green border around. Resolved from the shared key set so
+	a mark set in any view lights up here too. Cached (rebuilt on #flushMarksCache,
+	which the pane calls when the global marks change) because the overlay asks for
+	this every frame."
+	markedNodesCache ifNotNil: [^ markedNodesCache].
+	markedNodesCache := IdentitySet new.
+	rootNode ifNil: [^ markedNodesCache].
+	SWAMarkSet default isEmpty ifTrue: [^ markedNodesCache].
+	rootNode withAllChildrenDo: [:n |
+		(SWAMarkSet default includes: n markKey)
+			ifTrue: [markedNodesCache add: n]].
+	^ markedNodesCache
 ]
 
 {
@@ -1093,6 +1133,19 @@ SWAView >> testFilterKeys [
 	"The set of method crossRefKeys the green highlight is currently restricted to
 	(because a test/TestCase is selected), or nil for 'show all covered methods'."
 	^ testFilterKeys
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+}
+SWAView >> toggleMark: aNode [
+	"Toggle aNode in/out of the global mark set (shift-click / menu). No-op for
+	unmarkable nodes (markKey nil). The mark set notifies all open panes, which
+	flush this view's marks cache and repaint."
+	aNode ifNil: [^ self].
+	aNode markKey ifNil: [^ self].
+	SWAMarkSet default toggle: aNode markKey
 ]
 
 {

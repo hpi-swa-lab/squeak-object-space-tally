@@ -497,13 +497,14 @@ SWASamplingTallyFlamegraphMorph >> selectionPathString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:27'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
 }
 SWASamplingTallyFlamegraphMorph >> setRoot: aNode [
 	rootNode := aNode.
 	focusNode := aNode.
 	frames := OrderedCollection new.
 	cachedForm := nil.
+	self flushMarksCache.
 	self rebuildKeyIndex.
 	self changed.
 	^ self

@@ -61,6 +61,21 @@ SWANode >> isLeaf [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:56'
+}
+SWANode >> markKey [
+	"Cross-view identity String used by the GLOBAL mark set (SWAMarkSet) to bookmark
+	this node across every open view, or nil if this node is not markable. Defaults
+	to #crossRefKey (class name, or 'ClassName>>selector' for methods). Node kinds
+	that have no crossRefKey but ARE meaningful marks -- notably PACKAGES and
+	CATEGORIES -- override this to answer their own name. Kept distinct from
+	crossRefKey so the coverage/space-tally cross-referencing (which is deliberately
+	class-granular and nil for packages) is unaffected."
+	^ self crossRefKey
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:32'
 }

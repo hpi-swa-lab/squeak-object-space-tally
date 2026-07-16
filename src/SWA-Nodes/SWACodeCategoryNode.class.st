@@ -61,6 +61,15 @@ SWACodeCategoryNode >> kind [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:56'
+}
+SWACodeCategoryNode >> markKey [
+	"Categories are markable by their (display) name."
+	^ self name
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
 }

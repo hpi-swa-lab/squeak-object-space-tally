@@ -198,6 +198,15 @@ SWACodePackageNode >> kind [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:56'
+}
+SWACodePackageNode >> markKey [
+	"Packages are markable by their package name (they have no crossRefKey)."
+	^ subject packageName
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:00'
 }

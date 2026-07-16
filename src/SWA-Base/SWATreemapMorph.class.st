@@ -636,7 +636,7 @@ SWATreemapMorph >> selectionPathString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:35'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
 }
 SWATreemapMorph >> setRoot: aNode [
 	"Set the root node and invalidate the layout. Rebuilds the cross-ref
@@ -644,6 +644,7 @@ SWATreemapMorph >> setRoot: aNode [
 	rootNode := aNode.
 	currentNode := aNode.
 	layoutValid := false.
+	self flushMarksCache.
 	self rebuildKeyIndex.
 	self changed.
 	^ self

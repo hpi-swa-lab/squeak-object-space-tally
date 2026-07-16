@@ -24,6 +24,23 @@ Class {
 }
 
 {
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
+}
+SWATreemapOverlay >> addMarkMenuItems: aMenu for: aNode [
+	"Add the mark/bookmark context-menu items for aNode: a toggle (Mark / Unmark)
+	when the node is markable, an object-explore of the tally node (previously
+	shift-click), and a shortcut to show the Marks panel. Kept out of the
+	domain-specific #addMenuItems:for: hook so every view gets them."
+	aMenu addLine.
+	aNode markKey ifNotNil: [
+		(treemapMorph isNodeMarked: aNode)
+			ifTrue: [aMenu add: 'Unmark' target: treemapMorph selector: #toggleMark: argument: aNode]
+			ifFalse: [aMenu add: 'Mark' target: treemapMorph selector: #toggleMark: argument: aNode]].
+	aMenu add: 'explore tally node' target: treemapMorph selector: #exploreNode: argument: aNode
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
 }
@@ -78,18 +95,39 @@ SWATreemapOverlay >> colorModeOptions [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:00'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
+}
+SWATreemapOverlay >> drawMarksOn: aCanvas origin: origin [
+	"Draw a GREEN border around every tile currently in the global mark set
+	(SWAMarkSet), resolved to this view's nodes via #markedNodes. Hover-independent
+	and persistent: marks stay visible as the mouse moves. Only currently-laid-out
+	tiles have a rectangle (rectForNode: answers nil otherwise), so marks off-screen
+	under a zoom are simply not drawn."
+	(treemapMorph respondsTo: #markedNodes) ifFalse: [^ self].
+	treemapMorph markedNodes do: [:node | | r |
+		r := treemapMorph rectForNode: node.
+		r ifNotNil: [
+			SWASelectionPainter
+				frame: (r translateBy: origin) on: aCanvas width: 3 color: Color green]]
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
 }
 SWATreemapOverlay >> drawOn: aCanvas [
 	"HOVER feedback (transient): a white border on the tile under the cursor + fading
 	cyan ancestor borders, plus our OWN canvas-drawn tooltip for that tile (Morphic's
 	balloon never worked here). A RED border marks any secondary-selection tile
-	(hover-independent). Hover NEVER changes the selection -- the persistent CLICK
-	selection + decorations are drawn by subclass #drawOn: overrides. Requires
-	#wantsEveryMouseMove so button-up moves are delivered. Border/tooltip drawing is
-	delegated to the shared SWASelectionPainter."
+	(hover-independent). GREEN borders mark every bookmarked tile (the global
+	SWAMarkSet, hover-independent). Hover NEVER changes the selection -- the
+	persistent CLICK selection + decorations are drawn by subclass #drawOn: overrides.
+	Requires #wantsEveryMouseMove so button-up moves are delivered. Border/tooltip
+	drawing is delegated to the shared SWASelectionPainter."
 	| origin hoveredNode |
 	origin := self position.
+	"--- Marks: green borders (hover-independent, every marked tile) ---"
+	self drawMarksOn: aCanvas origin: origin.
 	"--- Secondary selection: red border (hover-independent) ---"
 	self drawSecondarySelectionOn: aCanvas origin: origin.
 	hoveredTile ifNil: [^ self].
@@ -215,11 +253,13 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
 }
 SWATreemapOverlay >> mouseDown: evt [
 	"Left-click a tile: select it. Click the ALREADY-SELECTED tile again: zoom in.
-	 Right-click: context menu.  Shift+click: explore tally node."
+	 Right-click: context menu.  Shift+click: toggle the tile in/out of the global
+	 mark set (bookmark). (Object-explore of the tally node moved to the context
+	 menu.)"
 	| local hit |
 	treemapMorph takeKeyboardFocusFrom: evt.   "so Ctrl+F reaches the view"
 	local := evt position - self position.
@@ -230,9 +270,10 @@ SWATreemapOverlay >> mouseDown: evt [
 	evt yellowButtonPressed ifTrue: [
 		^ self showMenuFor: hit key event: evt].
 
-	"Shift+click: explore tally node"
+	"Shift+click: toggle bookmark/mark"
 	evt shiftPressed ifTrue: [
-		^ treemapMorph exploreNode: hit key].
+		treemapMorph toggleMark: hit key.
+		^ self changed].
 
 	"Click on the already-selected tile -> zoom in"
 	(treemapMorph selectedNode notNil
@@ -318,16 +359,18 @@ SWATreemapOverlay >> setSizeMode: aSymbol [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
 }
 SWATreemapOverlay >> showMenuFor: aNode event: evt [
-	"Show a context menu for the given node. Generic items (title, go back, then the
-	Size and Color submenus, both built by the shared #sizeMenuMorph/#colorMenuMorph)
-	plus domain items via the #addMenuItems:for: hook."
+	"Show a context menu for the given node. Generic items (title, go back, the
+	mark/unmark toggle, then the Size and Color submenus, both built by the shared
+	#sizeMenuMorph/#colorMenuMorph) plus domain items via the #addMenuItems:for:
+	hook."
 	| menu sizeMenu colorMenu |
 	menu := MenuMorph new defaultTarget: self.
 	menu addTitle: (aNode name ifNil: ['?']).
 	menu add: 'go back' target: treemapMorph selector: #zoomOut.
+	self addMarkMenuItems: menu for: aNode.
 	menu addLine.
 	self addMenuItems: menu for: aNode.
 	sizeMenu := self sizeMenuMorph.

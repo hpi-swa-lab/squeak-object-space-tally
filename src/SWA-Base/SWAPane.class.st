@@ -35,7 +35,17 @@ Class {
 		'structureViews',
 		'activeStructureKey',
 		'searchField',
-		'tallyAsDataset'
+		'tallyAsDataset',
+		'bodyRow',
+		'marksPanel',
+		'marksList',
+		'marksButton',
+		'marksSplitter',
+		'marksWidth',
+		'marksSelectedKeys',
+		'marksPrimaryIndex',
+		'commentField',
+		'commentEditKey'
 	],
 	#classVars : [
 		'SampleTallyDuration',
@@ -431,6 +441,19 @@ SWAPane class >> unload [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> acceptComment: aText [
+	"Save the edited comment onto the mark currently being edited. No-op if no row is
+	being edited. The mark set notifies all panes so every open Marks editor/list
+	refreshes; comments persist in the global SWAMarkSet (image-resident)."
+	commentEditKey ifNil: [^ self].
+	SWAMarkSet default commentAt: commentEditKey put: aText asString.
+	commentField ifNotNil: [commentField hasUnacceptedEdits: false]
+]
+
+{
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 18:24'
 }
@@ -626,6 +649,18 @@ SWAPane >> chooseJsonFilePrompt: aPromptString [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> clearAllMarks [
+	"Menu 'Clear all': remove EVERY mark globally, regardless of selection."
+	marksSelectedKeys := Set new.
+	marksPrimaryIndex := 0.
+	commentEditKey := nil.
+	SWAMarkSet default clear
+]
+
+{
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:23'
 }
@@ -645,6 +680,22 @@ SWAPane >> clearCoverage [
 		ifTrue: [tm weightMetric: #loc].
 	(tm respondsTo: #coverageStatus:) ifTrue: [tm coverageStatus: nil].
 	self refresh
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> clearMarks [
+	"Clear button: remove the SELECTED marks if any rows are selected, otherwise ALL
+	marks (globally). Every open pane's list + green borders refresh."
+	(marksSelectedKeys notNil and: [marksSelectedKeys notEmpty])
+		ifTrue: [
+			SWAMarkSet default removeAll: marksSelectedKeys asArray.
+			marksSelectedKeys := Set new.
+			marksPrimaryIndex := 0.
+			commentEditKey := nil]
+		ifFalse: [SWAMarkSet default clear]
 ]
 
 {
@@ -729,6 +780,30 @@ SWAPane >> collectInvocationTally [
 	self refresh.
 	liveTally := nil.
 	self updateTallyButton
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> commentFieldText [
+	"The comment for the mark currently being edited (primary/last-clicked row), as
+	Text for the PluggableTextMorph."
+	commentEditKey ifNil: [^ Text new].
+	^ (SWAMarkSet default commentAt: commentEditKey) asText
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> copyMarks [
+	"Copy marks to the clipboard: the SELECTED marks if any rows are selected,
+	otherwise ALL marks. Each line is 'key' or 'key  --  comment'."
+	| picked |
+	picked := self selectedMarkKeys.
+	SWAMarkSet default copyKeysToClipboard: picked.
+	self flashMarksMessage: 'Copied ', picked size printString, ' mark(s)'
 ]
 
 {
@@ -943,6 +1018,31 @@ SWAPane >> exportCoverage [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 12:33'
+}
+SWAPane >> extendMarksSelectionTo: anIndex [
+	"SHIFT-click: select the contiguous range of rows between the previous primary row
+	and anIndex (inclusive). With no prior primary, behaves like a single select."
+	| items from to |
+	items := self marksListItems.
+	from := (marksPrimaryIndex isNil or: [marksPrimaryIndex = 0]) ifTrue: [anIndex] ifFalse: [marksPrimaryIndex].
+	to := anIndex.
+	marksSelectedKeys := Set new.
+	(from min: to) to: (from max: to) do: [:i |
+		(i between: 1 and: items size) ifTrue: [marksSelectedKeys add: (items at: i)]]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
+}
+SWAPane >> flashMarksMessage: aString [
+	"Briefly show feedback (e.g. after Copy) in the run-info line."
+	runInfoMorph ifNotNil: [runInfoMorph contents: aString]
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
 }
@@ -1098,6 +1198,22 @@ SWAPane >> growCoveringTestsPaneBy: deltaPixels [
 	coveringTestsWidth := coveringTestsWidth min: 900.
 	coveringTestsColumn width: coveringTestsWidth.
 	coveringTestsColumn owner ifNotNil: [:r | r layoutChanged].
+	self layoutChanged
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:21'
+}
+SWAPane >> growMarksPanelBy: deltaPixels [
+	"Widen (positive = dragging the splitter RIGHT) or narrow (negative) the
+	left-docked Marks column by deltaPixels, from the SWASplitter drag. Clamped to a
+	sane range; the view (spaceFill) absorbs the change. Relays out the body row."
+	marksPanel ifNil: [^ self].
+	marksWidth := ((marksWidth ifNil: [260]) + deltaPixels) max: 140.
+	marksWidth := marksWidth min: 900.
+	marksPanel width: marksWidth.
+	marksPanel owner ifNotNil: [:r | r layoutChanged].
 	self layoutChanged
 ]
 
@@ -1305,6 +1421,127 @@ SWAPane >> loadTopicJson: json name: aName [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
+}
+SWAPane >> marksChanged [
+	"The global SWAMarkSet changed: flush this view's marked-node cache, repaint the
+	view + its overlay (green borders), and refresh the Marks list panel if shown.
+	Called on every open pane by SWAMarkSet>>notifyPanes."
+	(view respondsTo: #flushMarksCache) ifTrue: [view flushMarksCache].
+	view ifNotNil: [view changed].
+	((view respondsTo: #overlayMorph) and: [view overlayMorph notNil])
+		ifTrue: [view overlayMorph changed].
+	self updateMarksList
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
+}
+SWAPane >> marksListItems [
+	"The list contents for the Marks panel: the global mark keys in mark order
+	(package name / class name / 'ClassName>>selector')."
+	^ SWAMarkSet default keys asArray
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> marksListMenu: aMenu [
+	"Right-click context menu for the Marks list. Copy and Remove act on the current
+	multi-selection when there is one, otherwise on all marks; the labels say which."
+	| n |
+	n := (marksSelectedKeys ifNil: [Set new]) size.
+	aMenu addTitle: 'Marks'.
+	n > 0
+		ifTrue: [
+			aMenu add: 'Copy selected (', n printString, ') to clipboard' target: self selector: #copyMarks.
+			aMenu addLine.
+			aMenu add: 'Remove selected (', n printString, ')' target: self selector: #removeSelectedMark.
+			aMenu add: 'Clear all' target: self selector: #clearAllMarks]
+		ifFalse: [
+			aMenu add: 'Copy all to clipboard' target: self selector: #copyMarks.
+			aMenu addLine.
+			aMenu add: 'Clear all' target: self selector: #clearAllMarks].
+	^ aMenu
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:36'
+}
+SWAPane >> marksListSelectionAt: index [
+	"Is the Marks row at index part of the multi-selection?"
+	| items |
+	items := self marksListItems.
+	(index between: 1 and: items size) ifFalse: [^ false].
+	^ marksSelectedKeys notNil and: [marksSelectedKeys includes: (items at: index)]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> marksListSelectionAt: index put: aBoolean [
+	"Add/remove the Marks row at index from the multi-selection (shift/ctrl-click)."
+	| items key |
+	items := self marksListItems.
+	(index between: 1 and: items size) ifFalse: [^ self].
+	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
+	key := items at: index.
+	aBoolean
+		ifTrue: [marksSelectedKeys add: key. commentEditKey := key]
+		ifFalse: [marksSelectedKeys remove: key ifAbsent: []].
+	self updateCommentField
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:36'
+}
+SWAPane >> marksPrimaryIndex [
+	"The primary-selection row index for the Marks list (drives the comment editor).
+	0 = none."
+	^ marksPrimaryIndex ifNil: [0]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 14:47'
+}
+SWAPane >> marksPrimaryIndex: anIndex shifted: shifted controlled: controlled [
+	"Selection semantics for the Marks list (AlternatePluggableListMorphOfMany):
+	 - PLAIN click: replace the selection with just this row.
+	 - CTRL click: toggle this row in/out of the selection.
+	 - SHIFT click: extend the selection as a range from the previous primary row.
+	The clicked row becomes primary and its comment loads into the editor.
+
+	Ctrl+click arrives here as #controlled:true because the global SWAMarksClickFilter
+	rewrites the VM's emulated Ctrl+click (yellow button) back into a real Ctrl+Red
+	left-click before dispatch (requires Morph metaMenuForAll to be OFF)."
+	| items key |
+	items := self marksListItems.
+	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
+	(anIndex between: 1 and: items size) ifFalse: [
+		marksPrimaryIndex := 0. commentEditKey := nil.
+		self updateCommentField. marksList ifNotNil: [marksList changed]. ^ self].
+	key := items at: anIndex.
+	shifted
+		ifTrue: [self extendMarksSelectionTo: anIndex]
+		ifFalse: [controlled
+			ifTrue: [(marksSelectedKeys includes: key)
+				ifTrue: [marksSelectedKeys remove: key ifAbsent: []]
+				ifFalse: [marksSelectedKeys add: key]]
+			ifFalse: [marksSelectedKeys := Set with: key]].
+	marksPrimaryIndex := anIndex.
+	commentEditKey := key.
+	self updateCommentField.
+	marksList ifNotNil: [marksList changed]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -1317,7 +1554,7 @@ SWAPane >> metaInfoContents [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:38'
 }
 SWAPane >> morphViewInto: aViewMorph [
 	"Replace the panel's inner view with aViewMorph and rebuild the chrome around it,
@@ -1336,6 +1573,8 @@ SWAPane >> morphViewInto: aViewMorph [
 	sourceMorph := detailsPane := detailsTitle := sourceRow := nil.
 	coveringTestsPane := coveringTestsTitle := sourceSplitter := nil.
 	depthButton := fullButton := tallyButton := nil.
+	bodyRow := marksPanel := marksList := marksButton := nil.
+	marksSplitter := commentField := nil.
 	self setView: aViewMorph.
 	self layoutChanged.
 	aViewMorph changed
@@ -1419,6 +1658,80 @@ SWAPane >> newDetailsPane [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 14:39'
+}
+SWAPane >> newMarksPanel [
+	"Build the left-hand Marks panel: a title, a Copy/Clear button row, a MULTI-SELECT
+	list of the global mark keys (black-on-white), and -- beneath it -- a comment
+	editor for the primary-selected mark. PLAIN click replaces the selection, SHIFT
+	click ranges, and CTRL click toggles. Ctrl+click reaching the list is made
+	possible by the global SWAMarksClickFilter, which rewrites this VM's emulated
+	Ctrl+click (yellow button) back into a real Ctrl+left-click over a marks list.
+	Comments are shown only in the editor (not inline) and persist in SWAMarkSet."
+	| column title buttons commentTitle |
+	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
+	title := StringMorph new
+		contents: 'Marks';
+		font: ((TextStyle default fontOfPointSize: 11) emphasized: 1);
+		color: (Color gray: 0.9);
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself.
+	buttons := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellInset: 4;
+		hResizing: #spaceFill; vResizing: #shrinkWrap;
+		yourself.
+	buttons
+		addMorphBack: (self buttonLabelled: 'Copy' action: #copyMarks);
+		addMorphBack: (self buttonLabelled: 'Clear' action: #clearMarks).
+	marksList := SWAMarksListMorph
+		on: self
+		list: #marksListItems
+		primarySelection: #marksPrimaryIndex
+		changePrimarySelection: #marksPrimaryIndex:shifted:controlled:
+		listSelection: #marksListSelectionAt:
+		changeListSelection: #marksListSelectionAt:put:
+		menu: #marksListMenu:
+		keystroke: nil.
+	marksList
+		hResizing: #spaceFill; vResizing: #spaceFill;
+		color: Color white;
+		textColor: Color black.
+	commentTitle := StringMorph new
+		contents: 'Comment (Enter to save)';
+		font: (TextStyle default fontOfPointSize: 10);
+		color: (Color gray: 0.7);
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself.
+	commentField := PluggableTextMorph
+		on: self
+		text: #commentFieldText
+		accept: #acceptComment:.
+	commentField
+		hResizing: #spaceFill; vResizing: #rigid;
+		height: 70.
+	column := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		cellPositioning: #topLeft;
+		cellInset: 2;
+		hResizing: #rigid; vResizing: #spaceFill;
+		width: (marksWidth ifNil: [260]);
+		yourself.
+	column
+		addMorphBack: title;
+		addMorphBack: buttons;
+		addMorphBack: marksList;
+		addMorphBack: commentTitle;
+		addMorphBack: commentField.
+	^ column
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:19'
 }
@@ -1471,14 +1784,14 @@ SWAPane >> newSourceMorph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:22'
 }
 SWAPane >> newSourceRow [
 	"The bottom (Show-mode) area: a left-to-right row. For the Code Map (which has
 	the extra vertical room and a #detailInfoString) it is
 	[details box | source pane (spaceFill) | SPLITTER | covering-tests pane]; other
-	views get just the source pane (spaceFill). The vertical SWAListSplitter lets you
-	widen the list to read long duplicate entries."
+	views get just the source pane (spaceFill). A vertical SWASplitter lets you widen
+	the RIGHT-docked list (drag LEFT to grow it) to read long duplicate entries."
 	| row |
 	sourceMorph ifNil: [sourceMorph := self newSourceMorph].
 	row := Morph new
@@ -1495,7 +1808,9 @@ SWAPane >> newSourceRow [
 	sourceMorph hResizing: #spaceFill; vResizing: #spaceFill.
 	row addMorphBack: sourceMorph.
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
-		row addMorphBack: (SWAListSplitter new panel: self; yourself).
+		row addMorphBack: (SWASplitter vertical
+			resizeAction: [:delta | self growCoveringTestsPaneBy: delta negated];
+			yourself).
 		row addMorphBack: self newCoveringTestsPane].
 	^ row
 ]
@@ -1653,6 +1968,28 @@ SWAPane >> refresh [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> removeSelectedMark [
+	"Remove the currently multi-selected marks (globally). Falls back to the primary
+	row if the multi-selection is empty."
+	| picked |
+	picked := (marksSelectedKeys notNil and: [marksSelectedKeys notEmpty])
+		ifTrue: [marksSelectedKeys asArray]
+		ifFalse: [
+			| items idx |
+			items := self marksListItems.
+			idx := self marksPrimaryIndex.
+			(idx between: 1 and: items size) ifTrue: [{ items at: idx }] ifFalse: [#()]].
+	picked isEmpty ifTrue: [^ self].
+	SWAMarkSet default removeAll: picked.
+	marksSelectedKeys := Set new.
+	marksPrimaryIndex := 0.
+	commentEditKey := nil
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
 }
@@ -1677,6 +2014,19 @@ SWAPane >> runSearch: aString [
 	the match computation and redraw (see SWAView>>searchFor:)."
 	view ifNil: [^ self].
 	(view respondsTo: #searchFor:) ifTrue: [view searchFor: aString]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> selectedMarkKeys [
+	"The mark keys the Copy/Clear actions operate on: the multi-selection if any rows
+	are selected, otherwise ALL marks. Returned in mark order (not selection order)."
+	| all |
+	all := SWAMarkSet default keys.
+	(marksSelectedKeys isNil or: [marksSelectedKeys isEmpty]) ifTrue: [^ all asArray].
+	^ all select: [:k | marksSelectedKeys includes: k]
 ]
 
 {
@@ -1751,19 +2101,23 @@ SWAPane >> setStructureMode: aKey [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:38'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:59'
 }
 SWAPane >> setView: aViewMorph [
 	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
-	Deselect/Show + optional Data/Tree/Size/Color/Links + optional coverage controls +
-	optional Depth + a name-SEARCH field), then a breadcrumb line carrying the
-	fullscreen toggle at its right, then the selection-path line, a generic RUN-info
-	line, a SELECTION-info line, then the view. The button bar wraps onto additional
-	rows when the window is too narrow to fit every button. The source pane is created
-	lazily by #toggleSource.
+	Deselect/Show/Marks + optional Data/Tree/Size/Color/Links + optional coverage
+	controls + optional Depth + a name-SEARCH field), then a breadcrumb line carrying
+	the fullscreen toggle at its right, then the selection-path line, a generic
+	RUN-info line, a SELECTION-info line, then a BODY ROW holding the (initially
+	hidden) Marks list panel on the LEFT and the view (spaceFill) on the right. The
+	button bar wraps onto additional rows when the window is too narrow to fit every
+	button. The source pane is created lazily by #toggleSource.
 
 	The search field filters the view's entity NAMES live: typing dims every
 	non-matching tile (see #runSearch: / SWAView>>searchFor:), Esc clears it.
+
+	The Marks button toggles a left-hand list of the GLOBAL bookmarked nodes
+	(SWAMarkSet), shared across every open panel; shift-click a tile to add/remove.
 
 	Cross-referencing another open view is no longer a dedicated X-ref/Clear button
 	pair: open peers appear as entries in the Data menu (pick one to color by it, pick
@@ -1817,6 +2171,10 @@ SWAPane >> setView: aViewMorph [
 	(view respondsTo: #selectTileNode:) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
 	headerRow addMorphBack: showButton.
+	"Marks: toggle the left-hand list of globally bookmarked nodes."
+	(view respondsTo: #markedNodes) ifTrue: [
+		marksButton := self buttonLabelled: 'Marks' action: #toggleMarks.
+		headerRow addMorphBack: marksButton].
 	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it.
 	Data leads (top-level source picker: loaded datasets AND open peers for
 	cross-reference). Tree picks the base STRUCTURE. Size/Color are shown only when
@@ -1879,12 +2237,23 @@ SWAPane >> setView: aViewMorph [
 
 	view hResizing: #spaceFill; vResizing: #spaceFill.
 
+	"BODY ROW: [ (hidden) Marks panel | view ], laid out left-to-right so the Marks
+	list docks on the left like the Show pane docks at the bottom."
+	bodyRow := Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellPositioning: #topLeft;
+		hResizing: #spaceFill; vResizing: #spaceFill;
+		yourself.
+	bodyRow addMorphBack: view.
+
 	self addMorphBack: headerRow;
 		addMorphBack: crumbRow;
 		addMorphBack: selectionPathMorph;
 		addMorphBack: runInfoMorph;
 		addMorphBack: metaInfoMorph;
-		addMorphBack: view.
+		addMorphBack: bodyRow.
 
 	(view respondsTo: #navPanel:) ifTrue: [view navPanel: self]
 ]
@@ -2014,16 +2383,44 @@ SWAPane >> toggleFullScreen [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 14:40'
+}
+SWAPane >> toggleMarks [
+	"Marks button: show/hide the left-hand Marks panel -- a MULTI-SELECT list of the
+	GLOBAL bookmarked nodes (SWAMarkSet) plus a comment editor, shared across every
+	open panel. Hidden by default (like the bottom Show pane). A draggable vertical
+	SWASplitter sits between the list and the main view so the column can be resized.
+	Showing the panel installs the global SWAMarksClickFilter so Ctrl+click toggles
+	selection despite the VM's single-button emulation."
+	(marksPanel notNil and: [marksPanel owner notNil])
+		ifTrue: [
+			marksSplitter ifNotNil: [marksSplitter delete. marksSplitter := nil].
+			marksPanel delete. marksPanel := nil. marksList := nil. commentField := nil]
+		ifFalse: [
+			SWAMarksClickFilter ensureInstalled.
+			marksPanel := self newMarksPanel.
+			marksSplitter := SWASplitter vertical
+				resizeAction: [:delta | self growMarksPanelBy: delta];
+				yourself.
+			"Front-to-back: [marks list | splitter | view]."
+			bodyRow addMorphFront: marksSplitter.
+			bodyRow addMorphFront: marksPanel.
+			self updateMarksList].
+	self layoutChanged
+]
+
+{
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:22'
 }
 SWAPane >> toggleSource [
 	"Show button: show/hide the bottom area at the bottom of the panel. The bottom
 	area is a horizontal row holding -- for the Code Map -- a details box (left), the
 	source pane (center), and a covering-tests list pane (right); other views get
-	just the source pane. A draggable splitter handle is inserted ABOVE the row so
-	the user can resize it taller (e.g. to read an inline diff). When shown, load the
-	current selection's source, details, and provenance."
+	just the source pane. A draggable horizontal SWASplitter is inserted ABOVE the row
+	so the user can resize it taller (e.g. to read an inline diff); dragging UP grows
+	it. When shown, load the current selection's source, details, and provenance."
 	(sourceRow notNil and: [sourceRow owner notNil])
 		ifTrue: [
 			sourceSplitter ifNotNil: [sourceSplitter delete].
@@ -2031,7 +2428,9 @@ SWAPane >> toggleSource [
 		ifFalse: [
 			sourceRow ifNil: [sourceRow := self newSourceRow].
 			sourceSplitter ifNil: [
-				sourceSplitter := SWASourceSplitter new panel: self; yourself].
+				sourceSplitter := SWASplitter horizontal
+					resizeAction: [:delta | self growSourceRowBy: delta negated];
+					yourself].
 			self addMorphBack: sourceSplitter.
 			self addMorphBack: sourceRow.
 			self updateSource.
@@ -2087,6 +2486,15 @@ SWAPane >> treemapCoverageStatus: aString [
 SWAPane >> treemapOverlay [
 	"The wrapped view's event/menu overlay, or nil if it has none."
 	^ (view respondsTo: #overlayMorph) ifTrue: [view overlayMorph] ifFalse: [nil]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+}
+SWAPane >> updateCommentField [
+	"Reload the comment editor from the mark currently being edited."
+	commentField ifNotNil: [commentField setText: self commentFieldText]
 ]
 
 {
@@ -2146,6 +2554,23 @@ SWAPane >> updateDetails [
 	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
 	detailsPane ifNotNil: [
 		detailsPane contents: (self detailInfoContents ifNil: [''])]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:38'
+}
+SWAPane >> updateMarksList [
+	"Refresh the Marks list contents (if shown), pruning selection/comment keys that
+	no longer exist and reloading the comment editor."
+	| live |
+	live := SWAMarkSet default keys asSet.
+	marksSelectedKeys ifNotNil: [
+		marksSelectedKeys := marksSelectedKeys select: [:k | live includes: k]].
+	(commentEditKey notNil and: [(live includes: commentEditKey) not])
+		ifTrue: [commentEditKey := nil].
+	marksList ifNotNil: [marksList updateList].
+	self updateCommentField
 ]
 
 {
