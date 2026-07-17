@@ -45,7 +45,9 @@ Class {
 		'marksSelectedKeys',
 		'marksPrimaryIndex',
 		'commentField',
-		'commentEditKey'
+		'commentEditKey',
+		'marksTab',
+		'marksCollapseTab'
 	],
 	#classVars : [
 		'SampleTallyDuration',
@@ -617,18 +619,20 @@ SWAPane >> browseSelected [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:54'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:10'
 }
 SWAPane >> buildBodyRow [
-	"Build the body row into bodyRow: laid out left-to-right so the (initially hidden)
-	Marks list panel can dock on the LEFT while the view fills the rest on the right,
-	like the Show pane docks at the bottom. Answers bodyRow with the view installed."
+	"Build the body row into bodyRow: laid out left-to-right so the Marks flap can dock
+	on the LEFT while the view fills the rest on the right. By default the flap is
+	COLLAPSED, shown as a thin vertical 'Marks' tab (#showMarksTab) at the left edge;
+	clicking it slides the full panel in (#openMarks). Answers bodyRow."
 	bodyRow := self newChromeRow
 		cellPositioning: #topLeft;
 		vResizing: #spaceFill;
 		yourself.
 	view hResizing: #spaceFill; vResizing: #spaceFill.
 	bodyRow addMorphBack: view.
+	self showMarksTab.
 	^ bodyRow
 ]
 
@@ -654,15 +658,17 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:53'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:11'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
 	(far left; overflow home for growing actions like Export/Load), then Back/Browse/
-	optional Deselect/Show/optional Marks, then the overlay-gated Data/Tree/Size/
-	Color/Links, then Code-Map Tally, then optional Depth and the name-search field.
-	Each optional control is gated on the view/overlay actually SUPPORTING it, so a
-	view opts into just the subset it implements. Answers headerRow."
+	optional Deselect/Show, then the overlay-gated Data/Tree/Size/Color/Links, then
+	Code-Map Tally, then optional Depth and the name-search field. (Marks is NO LONGER
+	a header button -- it is a vertical flap tab docked at the left of the body row;
+	see #buildBodyRow / #showMarksTab.) Each optional control is gated on the view/
+	overlay actually SUPPORTING it, so a view opts into just the subset it implements.
+	Answers headerRow."
 	| menuButton ovl |
 	headerRow := self newChromeRow
 		wrapDirection: #topToBottom;
@@ -679,10 +685,6 @@ SWAPane >> buildHeaderRow [
 	(view respondsTo: #selectTileNode:) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
 	headerRow addMorphBack: (self buttonLabelled: 'Show' action: #toggleSource).
-	"Marks: toggle the left-hand list of globally bookmarked nodes."
-	(view respondsTo: #markedNodes) ifTrue: [
-		marksButton := self buttonLabelled: 'Marks' action: #toggleMarks.
-		headerRow addMorphBack: marksButton].
 	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it."
 	ovl := self treemapOverlay.
 	ovl ifNotNil: [
@@ -870,6 +872,22 @@ SWAPane >> codeRoot [
 	(tm notNil and: [tm rootNode isKindOf: SWACodeRootNode])
 		ifTrue: [^ tm rootNode].
 	^ nil
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+}
+SWAPane >> collapseMarks [
+	"Collapse the Marks flap: remove the panel + splitter (and its floating collapse
+	tab) and restore the vertical tab over the view's left edge. Called by the panel's
+	tab. No-op if not open."
+	(marksPanel isNil or: [marksPanel owner isNil]) ifTrue: [^ self].
+	marksSplitter ifNotNil: [marksSplitter delete. marksSplitter := nil].
+	marksPanel delete. marksPanel := nil. marksList := nil. commentField := nil.
+	marksCollapseTab := nil.
+	self showMarksTab.
+	self layoutChanged
 ]
 
 {
@@ -1384,6 +1402,15 @@ SWAPane >> headerNaturalWidth [
 ]
 
 {
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:09'
+}
+SWAPane >> hideMarksTab [
+	"Remove the vertical Marks tab from the body row (called when the flap opens)."
+	marksTab ifNotNil: [marksTab delete. marksTab := nil]
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:52'
 }
@@ -1465,6 +1492,19 @@ SWAPane >> importData [
 		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: path)].
 	"Default / 'SWACoverageData...' / legacy files with no marker -> coverage."
 	self loadCoverageJson: json name: (self datasetNameFor: path)
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+}
+SWAPane >> layoutChanged [
+	"After the panel relays out, re-pin the floating Marks tabs -- the COLLAPSED tab to
+	the view's left edge and the OPEN panel's collapse tab to the panel's left edge.
+	Neither is a layout participant, so both must be repositioned explicitly."
+	super layoutChanged.
+	self positionMarksTab.
+	self positionMarksCollapseTab
 ]
 
 {
@@ -1870,38 +1910,47 @@ SWAPane >> newInfoLine: aString font: aFont color: aColor [
 ]
 
 {
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:06'
+}
+SWAPane >> newMarksCollapseButton [
+	"The OPEN panel's collapse control: the SAME compact vertical 'Marks' tab as the
+	collapsed floater. It FLOATS (disableTableLayout: true) over the panel content's
+	left edge -- overlapping into the list rather than taking its own column -- and is
+	positioned vertically centred by #positionMarksCollapseTab. Clicking it collapses
+	the flap (#collapseMarks)."
+	| tab |
+	tab := self newVerticalMarksTabOn: #collapseMarks balloon: 'Hide Marks'.
+	tab disableTableLayout: true.
+	^ tab
+]
+
+{
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:33'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
 }
 SWAPane >> newMarksPanel [
-	"Build the left-hand Marks panel: a title row (label + 'burger' menu button),
-	a MULTI-SELECT list of the global mark keys (black-on-white), and -- beneath it --
-	a comment editor for the primary-selected mark. PLAIN click replaces the selection,
-	SHIFT click ranges, and CTRL click toggles. Ctrl+click reaching the list is made
-	possible by the global SWAMarksClickFilter, which rewrites this VM's emulated
-	Ctrl+click (yellow button) back into a real Ctrl+left-click over a marks list.
-	The burger menu (a JustifiedIcon graphic; Squeak has no reliable Unicode glyphs)
-	bundles Copy/Clear plus Save/Load to a JSON sidecar file. Comments are shown only
-	in the editor (not inline) and persist in SWAMarkSet."
-	| column titleRow title burger commentTitle |
+	"Build the left-hand Marks panel. The content column (burger-menu row, then a
+	MULTI-SELECT list of the global mark keys, then a comment editor) fills the WHOLE
+	panel width; the vertical 'Marks' collapse tab (#newMarksCollapseButton) FLOATS
+	over the content's left edge, overlapping into the list rather than taking its own
+	column, and is centred vertically by #positionMarksCollapseTab. Clicking the tab
+	collapses the flap. PLAIN click on a row replaces the selection, SHIFT ranges, CTRL
+	toggles (via the global SWAMarksClickFilter). The burger menu bundles Copy/Clear +
+	Save/Load to a JSON sidecar file. Comments persist in SWAMarkSet."
+	| panel column burgerRow burger commentTitle |
 	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
-	title := StringMorph new
-		contents: 'Marks';
-		font: ((TextStyle default fontOfPointSize: 11) emphasized: 1);
-		color: (Color gray: 0.9);
-		hResizing: #spaceFill; vResizing: #rigid;
-		yourself.
 	burger := self iconButtonGraphic: MenuIcons smallJustifiedIcon action: #openMarksBurgerMenu.
 	burger setBalloonText: 'Marks menu: Copy, Clear, Save, Load'.
-	titleRow := Morph new
+	burgerRow := Morph new
 		color: (Color gray: 0.12);
 		layoutPolicy: TableLayout new;
 		listDirection: #leftToRight;
 		vResizing: #shrinkWrap; hResizing: #spaceFill;
 		cellInset: 4;
-		wrapCentering: #center; cellPositioning: #leftCenter;
+		wrapCentering: #center; cellPositioning: #rightCenter;
 		yourself.
-	titleRow addMorphBack: title; addMorphBack: burger.
+	burgerRow addMorphBack: burger.
 	marksList := SWAMarksListMorph
 		on: self
 		list: #marksListItems
@@ -1934,15 +1983,45 @@ SWAPane >> newMarksPanel [
 		listDirection: #topToBottom;
 		cellPositioning: #topLeft;
 		cellInset: 2;
-		hResizing: #rigid; vResizing: #spaceFill;
-		width: (marksWidth ifNil: [260]);
+		hResizing: #spaceFill; vResizing: #spaceFill;
 		yourself.
 	column
-		addMorphBack: titleRow;
+		addMorphBack: burgerRow;
 		addMorphBack: marksList;
 		addMorphBack: commentTitle;
 		addMorphBack: commentField.
-	^ column
+	panel := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellPositioning: #topLeft;
+		cellInset: 0;
+		hResizing: #rigid; vResizing: #spaceFill;
+		width: (marksWidth ifNil: [260]);
+		yourself.
+	"Content fills the whole panel; the collapse tab floats over its left edge."
+	panel addMorphBack: column.
+	marksCollapseTab := self newMarksCollapseButton.
+	panel addMorphFront: marksCollapseTab.
+	^ panel
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:28'
+}
+SWAPane >> newMarksTab [
+	"The COLLAPSED-state floating Marks tab: a shared vertical 'Marks' tab
+	(#newVerticalMarksTabOn:balloon:) that OPENS the flap, plus the floating flags --
+	#disableTableLayout: true so the pane's TableLayout ignores it, and #rigid vResizing
+	since it is positioned/sized absolutely by #positionMarksTab (a compact,
+	vertically-centred pull-tab over the treemap's left edge)."
+	| tab |
+	tab := self newVerticalMarksTabOn: #openMarks balloon: 'Show Marks'.
+	tab
+		vResizing: #rigid;
+		disableTableLayout: true.
+	^ tab
 ]
 
 {
@@ -2027,6 +2106,63 @@ SWAPane >> newSourceRow [
 			yourself).
 		row addMorphBack: self newCoveringTestsPane].
 	^ row
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:31'
+}
+SWAPane >> newVerticalMarksTabOn: anActionSelector balloon: aString [
+	"Build a thin vertical 'Marks' tab: a StringMorph rotated so it reads BOTTOM-TO-TOP
+	(the left-edge convention: baseline up the right side, tilt head left to read),
+	via a TransformationMorph (tight bounds), on a half-transparent strip only as wide
+	AND as tall as the rotated label so the word is fully shown. Clicking it sends
+	anActionSelector to the pane. Shared by the COLLAPSED floating tab
+	(#newMarksTab -> #openMarks) and the OPEN panel's left-edge collapse spine
+	(#newMarksCollapseButton -> #collapseMarks) so both read identically."
+	| label flex tab |
+	label := StringMorph new
+		contents: 'Marks';
+		font: ((TextStyle default fontOfPointSize: 11) emphasized: 1);
+		color: (Color gray: 0.9);
+		yourself.
+	flex := TransformationMorph new asFlexOf: label.
+	flex rotationDegrees: 270.
+	tab := Morph new
+		color: ((Color gray: 0.22) alpha: 0.5);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		cellPositioning: #center;
+		wrapCentering: #center;
+		cellInset: 0;
+		hResizing: #rigid; vResizing: #rigid;
+		extent: flex fullBounds extent;
+		yourself.
+	tab addMorphBack: flex.
+	tab setBalloonText: aString.
+	tab on: #mouseUp send: anActionSelector to: self.
+	^ tab
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:09'
+}
+SWAPane >> openMarks [
+	"Open the Marks flap: hide the vertical tab and slide the full Marks panel in at
+	the LEFT of the body row, with a draggable SWASplitter between it and the view.
+	No-op if already open. The panel's title acts as the collapse control (#collapseMarks)."
+	(marksPanel notNil and: [marksPanel owner notNil]) ifTrue: [^ self].
+	self hideMarksTab.
+	marksPanel := self newMarksPanel.
+	marksSplitter := SWASplitter vertical
+		resizeAction: [:delta | self growMarksPanelBy: delta];
+		yourself.
+	"Front-to-back: [marks panel | splitter | view]."
+	bodyRow addMorphFront: marksSplitter.
+	bodyRow addMorphFront: marksPanel.
+	self updateMarksList.
+	self layoutChanged
 ]
 
 {
@@ -2138,6 +2274,42 @@ SWAPane >> popUpTreeMenu [
 		^ self treemapCoverageStatus:
 			'Tree: load a space-tally node-tree JSON to switch structure'].
 	menu popUpInWorld: self world
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+}
+SWAPane >> positionMarksCollapseTab [
+	"Pin the open panel's floating 'Marks' collapse tab to the LEFT edge of the panel,
+	vertically centred, so it overlaps the content instead of occupying a column.
+	Mirrors #positionMarksTab for the collapsed floater. No-op unless the panel and its
+	tab are live."
+	| panelBounds |
+	(marksPanel isNil or: [marksPanel owner isNil]) ifTrue: [^ self].
+	(marksCollapseTab isNil or: [marksCollapseTab owner isNil]) ifTrue: [^ self].
+	self fullBounds.
+	panelBounds := marksPanel bounds.
+	marksCollapseTab position:
+		(panelBounds left @ (panelBounds center y - (marksCollapseTab height // 2)))
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:25'
+}
+SWAPane >> positionMarksTab [
+	"Place the floating Marks tab as a compact pull-tab over the LEFT edge of the view,
+	VERTICALLY CENTERED (its own natural label height, not stretched to the full view).
+	Forces the PANE's layout current first (#fullBounds on self) so the view morph has
+	its settled position -- right after the panel is added/removed the pane's
+	TableLayout hasn't repositioned the view yet. Kept in its own method so the anchor
+	is trivial to tweak (inset, top instead of centre, right edge instead)."
+	| viewBounds |
+	(marksTab isNil or: [marksTab owner isNil]) ifTrue: [^ self].
+	self fullBounds.
+	viewBounds := view bounds.
+	marksTab position: (viewBounds left @ (viewBounds center y - (marksTab height // 2)))
 ]
 
 {
@@ -2407,6 +2579,23 @@ SWAPane >> setView: aViewMorph [
 ]
 
 {
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:21'
+}
+SWAPane >> showMarksTab [
+	"Show the collapsed-state vertical Marks tab as a FLOATING, absolutely-positioned
+	morph that overlays the LEFT edge of the treemap (it is NOT in bodyRow's layout,
+	so it doesn't steal width from the rendering). Parented on the pane itself and
+	placed by #positionMarksTab. Only for views that support marks."
+	(view respondsTo: #markedNodes) ifFalse: [^ self].
+	(marksPanel notNil and: [marksPanel owner notNil]) ifTrue: [^ self].
+	(marksTab notNil and: [marksTab owner notNil]) ifTrue: [^ self].
+	marksTab := self newMarksTab.
+	self addMorphFront: marksTab.
+	self positionMarksTab
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
 }
@@ -2532,30 +2721,15 @@ SWAPane >> toggleFullScreen [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 17:41'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:10'
 }
 SWAPane >> toggleMarks [
-	"Marks button: show/hide the left-hand Marks panel -- a MULTI-SELECT list of the
-	GLOBAL bookmarked nodes (SWAMarkSet) plus a comment editor, shared across every
-	open panel. Hidden by default (like the bottom Show pane). A draggable vertical
-	SWASplitter sits between the list and the main view so the column can be resized.
-	The marks list registers/removes its own hand mouse-capture filter via
-	intoWorld:/outOfWorld:, so Ctrl+click toggles selection despite the VM's
-	single-button emulation."
+	"Toggle the Marks flap open/collapsed. Kept for any external/keyboard callers;
+	the primary UI is now the vertical tab (#openMarks) and the panel-title collapse
+	button (#collapseMarks)."
 	(marksPanel notNil and: [marksPanel owner notNil])
-		ifTrue: [
-			marksSplitter ifNotNil: [marksSplitter delete. marksSplitter := nil].
-			marksPanel delete. marksPanel := nil. marksList := nil. commentField := nil]
-		ifFalse: [
-			marksPanel := self newMarksPanel.
-			marksSplitter := SWASplitter vertical
-				resizeAction: [:delta | self growMarksPanelBy: delta];
-				yourself.
-			"Front-to-back: [marks list | splitter | view]."
-			bodyRow addMorphFront: marksSplitter.
-			bodyRow addMorphFront: marksPanel.
-			self updateMarksList].
-	self layoutChanged
+		ifTrue: [self collapseMarks]
+		ifFalse: [self openMarks]
 ]
 
 {
