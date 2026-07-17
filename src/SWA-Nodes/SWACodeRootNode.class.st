@@ -83,6 +83,18 @@ SWACodeRootNode >> childPackageInfosOf: aPackageInfoOrNil [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:44'
+}
+SWACodeRootNode >> displayName [
+	"The raw scope label this aggregate root was built from -- for code roots this is the
+	package GLOB passed to SWAPane open* ('Kernel', 'Morphic*', '*'). Distinct from #name,
+	which decorates it with the package count. Used to record a respawnable scope in mark
+	provenance."
+	^ displayName
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:08'
 }

@@ -288,3 +288,11 @@ SWASpaceTallyTreemapMorph >> overlayClass [
 	SWAPane can (re)wire an overlay when morphing structures."
 	^ SWASpaceTallyTreemapOverlay
 ]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWASpaceTallyTreemapMorph >> viewKind [
+	^ #spaceTally
+]

@@ -8,7 +8,8 @@ Class {
 	#superclass : #Object,
 	#instVars : [
 		'keys',
-		'comments'
+		'comments',
+		'provenance'
 	],
 	#classVars : [
 		'Default'
@@ -40,32 +41,54 @@ SWAMarkSet >> add: aKey [
 ]
 
 {
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
+}
+SWAMarkSet >> add: aKey from: aProvenanceDict [
+	"Mark aKey and record where it came from (a serializable String->String Dictionary,
+	or nil). Provenance is only (re)recorded when the key is newly added, so an existing
+	mark keeps the origin of its FIRST sighting. Notifies open panes once."
+	| wasMarked |
+	aKey ifNil: [^ self].
+	wasMarked := keys includes: aKey.
+	self add: aKey.
+	wasMarked ifFalse: [self provenanceAt: aKey put: aProvenanceDict]
+]
+
+{
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
 }
 SWAMarkSet >> asJsonString [
-	"Serialise the mark keys (in order) and their comments to a JSON string.
-	Only keys that actually have a non-empty comment are written."
-	| dict commentsOut |
+	"Serialise the mark keys (in order), their comments, and their provenance to a JSON
+	string. Only keys that actually have a non-empty comment / recorded provenance are
+	written. Provenance values are plain String->String maps, so this round-trips."
+	| dict commentsOut provOut |
 	commentsOut := Dictionary new.
 	keys do: [:k | | c |
 		c := self commentAt: k.
 		c isEmpty ifFalse: [commentsOut at: k put: c]].
+	provOut := Dictionary new.
+	keys do: [:k | | p |
+		p := self provenanceAt: k.
+		(p notNil and: [p notEmpty]) ifTrue: [provOut at: k put: p]].
 	dict := Dictionary new.
 	dict at: 'keys' put: keys asArray.
 	dict at: 'comments' put: commentsOut.
+	dict at: 'provenance' put: provOut.
 	^ Json render: dict
 ]
 
 {
 	#category : #mutating,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
 }
 SWAMarkSet >> clear [
-	"Remove all marks (and their comments). Notifies open panes on change."
+	"Remove all marks (and their comments + provenance). Notifies open panes on change."
 	keys isEmpty ifTrue: [^ self].
 	keys := OrderedCollection new.
 	comments := Dictionary new.
+	provenance := Dictionary new.
 	self notifyPanes
 ]
 
@@ -164,12 +187,13 @@ SWAMarkSet >> includes: aKey [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:38'
 }
 SWAMarkSet >> initialize [
 	super initialize.
 	keys := OrderedCollection new.
-	comments := Dictionary new
+	comments := Dictionary new.
+	provenance := Dictionary new
 ]
 
 {
@@ -205,20 +229,28 @@ SWAMarkSet >> loadFromFile: aFileName [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:40'
 }
 SWAMarkSet >> loadFromJsonString: aString [
-	"Replace the current marks + comments with those parsed from a JSON string
-	produced by #asJsonString. Notifies open panes once when done."
-	| parsed newKeys newComments |
+	"Replace the current marks + comments + provenance with those parsed from a JSON
+	string produced by #asJsonString. Provenance is optional (older sidecars omit it).
+	Notifies open panes once when done."
+	| parsed newKeys newComments newProv |
 	parsed := Json readFrom: aString readStream.
 	newKeys := OrderedCollection new.
 	(parsed at: 'keys' ifAbsent: [#()]) do: [:k | newKeys add: k asString].
 	newComments := Dictionary new.
 	(parsed at: 'comments' ifAbsent: [Dictionary new])
 		keysAndValuesDo: [:k :v | newComments at: k asString put: v asString].
+	newProv := Dictionary new.
+	(parsed at: 'provenance' ifAbsent: [Dictionary new])
+		keysAndValuesDo: [:k :v | | entry |
+			entry := Dictionary new.
+			v keysAndValuesDo: [:pk :pv | entry at: pk asString put: pv asString].
+			newProv at: k asString put: entry].
 	keys := newKeys.
 	comments := newComments.
+	provenance := newProv.
 	self notifyPanes
 ]
 
@@ -235,31 +267,74 @@ SWAMarkSet >> notifyPanes [
 ]
 
 {
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:38'
+}
+SWAMarkSet >> provenance [
+	"markKey -> provenance Dictionary. Records WHERE a mark was made: the kind of
+	visualization, the dataset (name/kind/source label) and the root scope. Values are
+	Strings/Symbols only, so the whole thing round-trips through JSON. Lazily created
+	so a singleton persisted before provenance existed still works."
+	provenance ifNil: [provenance := Dictionary new].
+	^ provenance
+]
+
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:38'
+}
+SWAMarkSet >> provenanceAt: aKey [
+	"The provenance Dictionary for aKey, or nil if none was recorded. Keys inside are
+	Strings ('viewKind', 'viewLabel', 'datasetName', 'datasetKind', 'datasetSource',
+	'rootScope'); all values are Strings."
+	aKey ifNil: [^ nil].
+	^ self provenance at: aKey ifAbsent: [nil]
+]
+
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
+}
+SWAMarkSet >> provenanceAt: aKey put: aProvenanceDict [
+	"Record provenance for aKey (only meaningful for a marked key). aProvenanceDict is a
+	Dictionary of String->String; nil or empty clears it. Values MUST be serializable
+	(Strings/Symbols) -- never object references. Does NOT notify panes on its own; it is
+	set alongside #add: which already notifies."
+	aKey ifNil: [^ self].
+	(keys includes: aKey) ifFalse: [^ self].
+	(aProvenanceDict isNil or: [aProvenanceDict isEmpty])
+		ifTrue: [self provenance removeKey: aKey ifAbsent: []]
+		ifFalse: [self provenance at: aKey put: aProvenanceDict]
+]
+
+{
 	#category : #mutating,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
 }
 SWAMarkSet >> remove: aKey [
-	"Unmark aKey (and drop its comment). No-op if nil or not marked. Notifies open
-	panes on change."
+	"Unmark aKey (and drop its comment + provenance). No-op if nil or not marked.
+	Notifies open panes on change."
 	aKey ifNil: [^ self].
 	(keys includes: aKey) ifFalse: [^ self].
 	keys remove: aKey ifAbsent: [].
 	comments removeKey: aKey ifAbsent: [].
+	self provenance removeKey: aKey ifAbsent: [].
 	self notifyPanes
 ]
 
 {
 	#category : #mutating,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:36'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
 }
 SWAMarkSet >> removeAll: someKeys [
-	"Unmark every key in someKeys (and drop their comments), then notify ONCE."
+	"Unmark every key in someKeys (and drop their comments + provenance), then notify ONCE."
 	| changed |
 	changed := false.
 	someKeys copy do: [:k |
 		(keys includes: k) ifTrue: [
 			keys remove: k ifAbsent: [].
 			self comments removeKey: k ifAbsent: [].
+			self provenance removeKey: k ifAbsent: [].
 			changed := true]].
 	changed ifTrue: [self notifyPanes]
 ]
@@ -293,4 +368,17 @@ SWAMarkSet >> toggle: aKey [
 	(keys includes: aKey)
 		ifTrue: [self remove: aKey]
 		ifFalse: [self add: aKey]
+]
+
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
+}
+SWAMarkSet >> toggle: aKey from: aProvenanceDict [
+	"Flip aKey's marked state, recording provenance (a serializable String->String
+	Dictionary, or nil) when it becomes marked. No-op if nil."
+	aKey ifNil: [^ self].
+	(keys includes: aKey)
+		ifTrue: [self remove: aKey]
+		ifFalse: [self add: aKey from: aProvenanceDict]
 ]

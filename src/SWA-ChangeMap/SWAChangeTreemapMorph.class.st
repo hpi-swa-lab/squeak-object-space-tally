@@ -276,3 +276,11 @@ SWAChangeTreemapMorph >> selectionInfoString [
 				s nextPutAll: '   '; print: n changeCount; nextPutAll: ' changes, ';
 					print: n totalLoc; nextPutAll: ' diff lines']]
 ]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWAChangeTreemapMorph >> viewKind [
+	^ #changeMap
+]

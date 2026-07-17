@@ -75,3 +75,11 @@ SWASamplingTallyTreemapMorph >> metaInfoString [
 	^ focus name, '   ', (focus formatMicros: focus totalSize),
 		'   ', kids size printString, ' children'
 ]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWASamplingTallyTreemapMorph >> viewKind [
+	^ #messageTallyTreemap
+]

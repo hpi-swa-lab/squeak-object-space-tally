@@ -49,7 +49,8 @@ Class {
 		'marksTab',
 		'marksCollapseTab',
 		'sourceTab',
-		'sourceCollapseTab'
+		'sourceCollapseTab',
+		'marksDetailsMorph'
 	],
 	#classVars : [
 		'SampleTallyDuration',
@@ -328,6 +329,15 @@ SWAPane class >> openPanels [
 ]
 
 {
+	#category : #'marks-show',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:44'
+}
+SWAPane class >> openPanes [
+	"All SWAPane instances that are currently in a live world (open windows)."
+	^ self allInstances select: [:p | p world notNil]
+]
+
+{
 	#category : #topic,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
@@ -365,6 +375,35 @@ SWAPane class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 ]
 
 {
+	#category : #'marks-show',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWAPane class >> paneMatchingProvenance: aProvenanceDict [
+	"An already-open SWAPane whose view KIND and root scope match the given provenance
+	Dictionary (String->String, or nil), or nil if none. Matches on #viewKind (the
+	machine-readable Symbol, compared as a String; falls back to viewClass for older
+	records that predate viewKind) and, when present, the scope glob."
+	| wantKind wantClass wantScope |
+	aProvenanceDict ifNil: [^ nil].
+	wantKind := aProvenanceDict at: 'viewKind' ifAbsent: [nil].
+	wantClass := aProvenanceDict at: 'viewClass' ifAbsent: [nil].
+	wantScope := aProvenanceDict at: 'scopeGlob' ifAbsent: [nil].
+	^ self openPanes
+		detect: [:p | | v root kindOk |
+			v := p view.
+			kindOk := wantKind notNil
+				ifTrue: [(v respondsTo: #viewKind) and: [v viewKind asString = wantKind]]
+				ifFalse: [wantClass isNil or: [v class name asString = wantClass]].
+			kindOk
+				and: [wantScope isNil
+					or: [root := (v respondsTo: #rootNode) ifTrue: [v rootNode] ifFalse: [nil].
+						root notNil
+							and: [(root respondsTo: #displayName)
+								and: [root displayName asString = wantScope]]]]]
+		ifNone: [nil]
+]
+
+{
 	#category : #preferences,
 	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:29'
 }
@@ -386,6 +425,47 @@ SWAPane class >> sampleTallyDuration: aNumber [
 	"Set the Sample Tally profiling duration (seconds). Backs the #sampleTallyDuration
 	preference."
 	SampleTallyDuration := aNumber
+]
+
+{
+	#category : #'marks-show',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:45'
+}
+SWAPane class >> showMarkKey: aMarkKey [
+	"Reveal aMarkKey in a real view: reuse an already-open pane of the recorded kind+scope
+	if there is one, otherwise best-effort spawn a fresh one from the mark's provenance.
+	Then bring its window to the front and select the node (if the view contains it, via
+	crossRefKey). Answers the pane, or nil if nothing could be opened."
+	| prov pane window |
+	aMarkKey ifNil: [^ nil].
+	prov := SWAMarkSet default provenanceAt: aMarkKey.
+	pane := self paneMatchingProvenance: prov.
+	pane ifNil: [
+		window := self spawnFromProvenance: prov.
+		window ifNil: [^ nil].
+		pane := window allMorphs detect: [:m | m isKindOf: SWAPane] ifNone: [nil]].
+	pane ifNil: [^ nil].
+	pane enclosingWindow ifNotNil: [:w | w activate; comeToFront].
+	pane revealMarkKey: aMarkKey.
+	^ pane
+]
+
+{
+	#category : #'marks-show',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:45'
+}
+SWAPane class >> spawnFromProvenance: aProvenanceDict [
+	"BEST-EFFORT open a fresh SWAPane matching the recorded provenance and answer its
+	window (or nil if we cannot). We only reliably know the code-structure scope (the
+	package glob), so we open a plain code treemap on that glob. Dataset-backed overlays
+	(coverage/topic/duplication) can't be rebuilt -- their source file isn't recorded --
+	so those degrade to the same structural map, which still contains the marked node.
+	Answers the opened window."
+	| glob |
+	aProvenanceDict ifNil: [^ nil].
+	glob := aProvenanceDict at: 'scopeGlob' ifAbsent: [nil].
+	glob ifNil: [^ nil].
+	^ self openOnPackageNamed: glob leafKind: nil
 ]
 
 {
@@ -1685,6 +1765,33 @@ SWAPane >> marksChanged [
 
 {
 	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:41'
+}
+SWAPane >> marksDetailsText [
+	"Read-only details for the mark currently being edited (primary/last-clicked row):
+	its key plus the recorded provenance (kind of visualization, dataset, root scope).
+	Shown in the small pane above the comment editor."
+	| prov |
+	commentEditKey ifNil: [^ 'Select a mark to see where it was made.' asText].
+	prov := SWAMarkSet default provenanceAt: commentEditKey.
+	prov ifNil: [^ (commentEditKey, String cr, '(no provenance recorded)') asText].
+	^ (String streamContents: [:s |
+		s nextPutAll: commentEditKey; cr.
+		(prov at: 'viewLabel' ifAbsent: [nil]) ifNotNil: [:v |
+			s nextPutAll: 'View: '; nextPutAll: v; cr].
+		(prov at: 'datasetName' ifAbsent: [nil]) ifNotNil: [:v |
+			s nextPutAll: 'Dataset: '; nextPutAll: v.
+			(prov at: 'datasetKind' ifAbsent: [nil]) ifNotNil: [:k |
+				s nextPutAll: ' ('; nextPutAll: k; nextPut: $)].
+			s cr].
+		(prov at: 'datasetSource' ifAbsent: [nil]) ifNotNil: [:v |
+			s nextPutAll: 'Source: '; nextPutAll: v; cr].
+		(prov at: 'rootScope' ifAbsent: [nil]) ifNotNil: [:v |
+			s nextPutAll: 'Root scope: '; nextPutAll: v; cr]]) asText
+]
+
+{
+	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
 }
 SWAPane >> marksListItems [
@@ -1695,14 +1802,19 @@ SWAPane >> marksListItems [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:45'
 }
 SWAPane >> marksListMenu: aMenu [
 	"Right-click context menu for the Marks list. Copy and Remove act on the current
-	multi-selection when there is one, otherwise on all marks; the labels say which."
+	multi-selection when there is one, otherwise on all marks; the labels say which.
+	'Show' reveals the primary (last-clicked) mark in a real view -- reusing an open pane
+	of the recorded kind+scope or best-effort spawning one -- and selects the node there."
 	| n |
 	n := (marksSelectedKeys ifNil: [Set new]) size.
 	aMenu addTitle: 'Marks'.
+	commentEditKey ifNotNil: [
+		aMenu add: 'Show in a view' target: self selector: #showSelectedMark.
+		aMenu addLine].
 	n > 0
 		ifTrue: [
 			aMenu add: 'Copy selected (', n printString, ') to clipboard' target: self selector: #copyMarks.
@@ -1757,14 +1869,17 @@ SWAPane >> marksPrimaryIndex [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 14:47'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:46'
 }
 SWAPane >> marksPrimaryIndex: anIndex shifted: shifted controlled: controlled [
 	"Selection semantics for the Marks list (AlternatePluggableListMorphOfMany):
 	 - PLAIN click: replace the selection with just this row.
 	 - CTRL click: toggle this row in/out of the selection.
 	 - SHIFT click: extend the selection as a range from the previous primary row.
-	The clicked row becomes primary and its comment loads into the editor.
+	The clicked row becomes primary and its comment loads into the editor. On a PLAIN
+	click we also try to REVEAL the mark in an already-open view of its recorded kind+scope
+	(select the node so its source shows) -- like clicking the node itself. We never spawn
+	a new window here; that is reserved for the explicit 'Show in a view' menu entry.
 
 	Ctrl+click arrives here as #controlled:true because the global SWAMarksClickFilter
 	rewrites the VM's emulated Ctrl+click (yellow button) back into a real Ctrl+Red
@@ -1786,6 +1901,7 @@ SWAPane >> marksPrimaryIndex: anIndex shifted: shifted controlled: controlled [
 	marksPrimaryIndex := anIndex.
 	commentEditKey := key.
 	self updateCommentField.
+	(shifted not and: [controlled not]) ifTrue: [self revealMarkInOpenView: key].
 	marksList ifNotNil: [marksList changed]
 ]
 
@@ -1992,7 +2108,7 @@ SWAPane >> newMarksCollapseButton [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:48'
 }
 SWAPane >> newMarksPanel [
 	"Build the left-hand Marks panel. The content column (burger-menu row, then a
@@ -2003,7 +2119,7 @@ SWAPane >> newMarksPanel [
 	collapses the flap. PLAIN click on a row replaces the selection, SHIFT ranges, CTRL
 	toggles (via the global SWAMarksClickFilter). The burger menu bundles Copy/Clear +
 	Save/Load to a JSON sidecar file. Comments persist in SWAMarkSet."
-	| panel column burgerRow burger commentTitle |
+	| panel column burgerRow burger commentTitle detailsTitle |
 	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
 	burger := self iconButtonGraphic: MenuIcons smallJustifiedIcon action: #openMarksBurgerMenu.
 	burger setBalloonText: 'Marks menu: Copy, Clear, Save, Load'.
@@ -2029,8 +2145,23 @@ SWAPane >> newMarksPanel [
 		hResizing: #spaceFill; vResizing: #spaceFill;
 		color: Color white;
 		textColor: Color black.
+	detailsTitle := StringMorph new
+		contents: 'Origin';
+		font: (TextStyle default fontOfPointSize: 10);
+		color: (Color gray: 0.7);
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself.
+	marksDetailsMorph := PluggableTextMorph
+		on: self
+		text: #marksDetailsText
+		accept: nil.
+	marksDetailsMorph
+		hResizing: #spaceFill; vResizing: #rigid;
+		height: 66;
+		askBeforeDiscardingEdits: false.
+	marksDetailsMorph textMorph readOnly: true.
 	commentTitle := StringMorph new
-		contents: 'Comment (Enter to save)';
+		contents: 'Comment (Cmd+S to save)';
 		font: (TextStyle default fontOfPointSize: 10);
 		color: (Color gray: 0.7);
 		hResizing: #spaceFill; vResizing: #rigid;
@@ -2053,6 +2184,8 @@ SWAPane >> newMarksPanel [
 	column
 		addMorphBack: burgerRow;
 		addMorphBack: marksList;
+		addMorphBack: detailsTitle;
+		addMorphBack: marksDetailsMorph;
 		addMorphBack: commentTitle;
 		addMorphBack: commentField.
 	panel := Morph new
@@ -2504,6 +2637,40 @@ SWAPane >> removeSelectedMark [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:47'
+}
+SWAPane >> revealMarkInOpenView: aMarkKey [
+	"If a view of aMarkKey's recorded kind+scope is ALREADY open, select the node there
+	(like clicking it), so its source/details appear. Does NOT spawn a window -- silent
+	no-op when no matching pane is open (use 'Show in a view' to force one). Prefers a
+	matching pane but falls back to THIS pane if it happens to contain the node."
+	| prov pane |
+	aMarkKey ifNil: [^ self].
+	prov := SWAMarkSet default provenanceAt: aMarkKey.
+	pane := SWAPane paneMatchingProvenance: prov.
+	pane ifNil: [
+		((view respondsTo: #keyIndex) and: [view keyIndex includesKey: aMarkKey])
+			ifTrue: [pane := self]].
+	pane ifNil: [^ self].
+	pane revealMarkKey: aMarkKey
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:45'
+}
+SWAPane >> revealMarkKey: aMarkKey [
+	"Select the node identified by aMarkKey in this pane's view, as if the user had
+	clicked it: the view finds the node by crossRefKey, selects it (zooming so the tile is
+	visible) and refreshes the chrome, so the source/details appear. No-op if the view has
+	no such node. (markKey == crossRefKey for classes and methods, which is where marks
+	most often point.)"
+	aMarkKey ifNil: [^ self].
+	(view respondsTo: #selectNodeForKey:) ifTrue: [view selectNodeForKey: aMarkKey]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
 }
@@ -2681,6 +2848,19 @@ SWAPane >> showMarksTab [
 	marksTab := self newMarksTab.
 	self addMorphFront: marksTab.
 	self positionMarksTab
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:45'
+}
+SWAPane >> showSelectedMark [
+	"Reveal the primary (last-clicked) mark in a real view via SWAPane>>showMarkKey:,
+	which reuses an open pane of the recorded kind+scope or best-effort spawns one, then
+	selects the node. Flashes a message if the mark has no usable provenance."
+	commentEditKey ifNil: [^ self].
+	(SWAPane showMarkKey: commentEditKey)
+		ifNil: [self flashMarksMessage: 'No view to show this mark (missing scope).']
 ]
 
 {
@@ -2899,11 +3079,13 @@ SWAPane >> treemapOverlay [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:41'
 }
 SWAPane >> updateCommentField [
-	"Reload the comment editor from the mark currently being edited."
-	commentField ifNotNil: [commentField setText: self commentFieldText]
+	"Reload the comment editor and the read-only provenance details from the mark
+	currently being edited."
+	commentField ifNotNil: [commentField setText: self commentFieldText].
+	marksDetailsMorph ifNotNil: [marksDetailsMorph setText: self marksDetailsText]
 ]
 
 {

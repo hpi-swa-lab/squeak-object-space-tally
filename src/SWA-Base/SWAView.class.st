@@ -48,6 +48,24 @@ Class {
 }
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:00'
+}
+SWAView class >> viewKindLabelFor: aSymbol [
+	"Human-readable label for a #viewKind Symbol, for the Marks details pane. Falls back
+	to a capitalised, de-camel-cased form of the symbol so a new kind still reads sensibly
+	without a table entry."
+	^ aSymbol caseOf: {
+		[#codeMap] -> ['Code Map'].
+		[#spaceTally] -> ['Space Tally'].
+		[#messageTallyTreemap] -> ['Message Tally (treemap)'].
+		[#messageTallyFlamegraph] -> ['Message Tally (flamegraph)'].
+		[#changeMap] -> ['Change Map'].
+		[#classDiagram] -> ['Class Diagram']
+	} otherwise: [aSymbol asString capitalized]
+]
+
+{
 	#category : #styling,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
 }
@@ -732,6 +750,38 @@ SWAView >> leavesUnder: aNode do: aBlock [
 
 {
 	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWAView >> markProvenance [
+	"A SERIALIZABLE snapshot (String->String Dictionary) describing where a mark made in
+	this view came from AND enough to best-effort re-open it: the KIND of visualization
+	(#viewKind Symbol, stored as a String -- the thing we dispatch on), a human label,
+	the view class, the active dataset (name/kind), and the root SCOPE. For code views the
+	respawn argument is the package GLOB the root was built from (SWACodeRootNode
+	displayName -- e.g. 'Kernel', 'Morphic*', '*'); we store that as 'scopeGlob' and the
+	pretty root label as 'rootScope'. NO object references are stored -- every value is a
+	String -- so this round-trips through JSON with the mark set. Recorded once when a
+	mark is first made (see SWAMarkSet>>add:from:)."
+	| dict ds root |
+	dict := Dictionary new.
+	dict at: 'viewKind' put: self viewKind asString.
+	dict at: 'viewLabel' put: self viewKindLabel asString.
+	dict at: 'viewClass' put: self class name asString.
+	ds := (self respondsTo: #activeDataset) ifTrue: [self activeDataset] ifFalse: [nil].
+	ds ifNotNil: [
+		ds name ifNotNil: [:n | dict at: 'datasetName' put: n asString].
+		ds kind ifNotNil: [:k | dict at: 'datasetKind' put: k asString]].
+	root := self rootNode.
+	root ifNotNil: [
+		dict at: 'rootScope' put: root name asString.
+		(root respondsTo: #displayName)
+			ifTrue: [dict at: 'scopeGlob' put: root displayName asString].
+		(root respondsTo: #pathString) ifTrue: [dict at: 'rootPath' put: root pathString asString]].
+	^ dict
+]
+
+{
+	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
 }
 SWAView >> markedNodes [
@@ -1137,15 +1187,17 @@ SWAView >> testFilterKeys [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:40'
 }
 SWAView >> toggleMark: aNode [
 	"Toggle aNode in/out of the global mark set (shift-click / menu). No-op for
-	unmarkable nodes (markKey nil). The mark set notifies all open panes, which
-	flush this view's marks cache and repaint."
+	unmarkable nodes (markKey nil). When a mark is newly ADDED, a serializable
+	provenance snapshot (#markProvenance) is recorded so the Marks pane can show which
+	visualization / dataset / root scope it came from. The mark set notifies all open
+	panes, which flush this view's marks cache and repaint."
 	aNode ifNil: [^ self].
 	aNode markKey ifNil: [^ self].
-	SWAMarkSet default toggle: aNode markKey
+	SWAMarkSet default toggle: aNode markKey from: self markProvenance
 ]
 
 {
@@ -1169,4 +1221,35 @@ SWAView >> updateTestFilterForSelection [
 		^ self filterToCoveredMethodKey: key].
 	(testFilterKeys notNil or: [coveringTestFilter notNil]) ifTrue: [
 		self clearTestFilters]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:00'
+}
+SWAView >> viewKind [
+	"A machine-readable Symbol identifying THIS kind of visualization -- the thing we
+	dispatch on (respawn, pane matching, filtering). E.g. #codeMap, #spaceTally,
+	#classDiagram. Subclasses override. The default derives one from the class name by
+	stripping the 'SWA' prefix and 'Morph' suffix and lowercasing the first letter, so an
+	un-overridden view still has a stable non-nil kind. Kept distinct from the display
+	string #viewKindLabel."
+	| n |
+	n := self class name asString.
+	(n beginsWith: 'SWA') ifTrue: [n := n allButFirst: 3].
+	(n endsWith: 'Morph') ifTrue: [n := n allButLast: 5].
+	n isEmpty ifTrue: [^ #view].
+	^ (n first asLowercase asString, n allButFirst) asSymbol
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:00'
+}
+SWAView >> viewKindLabel [
+	"A short, human-readable name for THIS kind of visualization, shown in the Marks
+	details pane (e.g. 'Code Map', 'Space Tally', 'Duplication'). Derived from #viewKind
+	via #viewKindLabelFor: so the machine-readable symbol stays the single source of
+	truth; override #viewKind (not this) in subclasses."
+	^ self class viewKindLabelFor: self viewKind
 ]

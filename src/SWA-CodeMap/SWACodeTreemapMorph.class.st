@@ -1850,6 +1850,14 @@ SWACodeTreemapMorph >> topicProvenanceTitleFor: aNode [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWACodeTreemapMorph >> viewKind [
+	^ #codeMap
+]
+
+{
 	#category : #'byte-composition',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }

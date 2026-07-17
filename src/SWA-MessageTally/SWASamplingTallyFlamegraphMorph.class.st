@@ -511,6 +511,14 @@ SWASamplingTallyFlamegraphMorph >> setRoot: aNode [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWASamplingTallyFlamegraphMorph >> viewKind [
+	^ #messageTallyFlamegraph
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:52'
 }

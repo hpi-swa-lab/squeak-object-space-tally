@@ -437,6 +437,14 @@ SWAClassDiagram >> updateSelectionHighlight [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
+}
+SWAClassDiagram >> viewKind [
+	^ #classDiagram
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
