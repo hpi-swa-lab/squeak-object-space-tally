@@ -617,6 +617,127 @@ SWAPane >> browseSelected [
 
 {
 	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:54'
+}
+SWAPane >> buildBodyRow [
+	"Build the body row into bodyRow: laid out left-to-right so the (initially hidden)
+	Marks list panel can dock on the LEFT while the view fills the rest on the right,
+	like the Show pane docks at the bottom. Answers bodyRow with the view installed."
+	bodyRow := self newChromeRow
+		cellPositioning: #topLeft;
+		vResizing: #spaceFill;
+		yourself.
+	view hResizing: #spaceFill; vResizing: #spaceFill.
+	bodyRow addMorphBack: view.
+	^ bodyRow
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:54'
+}
+SWAPane >> buildCrumbRow [
+	"Build the breadcrumb line: the (width-filling) breadcrumb label plus the
+	fullscreen toggle pinned at its right. Sets breadcrumbMorph and fullButton.
+	Answers the row (this row does NOT wrap, so the right-pinned fullButton stays
+	put)."
+	| crumbRow |
+	breadcrumbMorph := self
+		newInfoLine: self breadcrumbContents
+		font: (TextStyle default fontOfPointSize: 12)
+		color: Color white.
+	fullButton := self iconButtonGraphic: MenuIcons smallFullscreenOnIcon action: #toggleFullScreen.
+	crumbRow := self newChromeRow.
+	crumbRow addMorphBack: breadcrumbMorph; addMorphBack: fullButton.
+	^ crumbRow
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:53'
+}
+SWAPane >> buildHeaderRow [
+	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
+	(far left; overflow home for growing actions like Export/Load), then Back/Browse/
+	optional Deselect/Show/optional Marks, then the overlay-gated Data/Tree/Size/
+	Color/Links, then Code-Map Tally, then optional Depth and the name-search field.
+	Each optional control is gated on the view/overlay actually SUPPORTING it, so a
+	view opts into just the subset it implements. Answers headerRow."
+	| menuButton ovl |
+	headerRow := self newChromeRow
+		wrapDirection: #topToBottom;
+		vResizing: #shrinkWrap;
+		yourself.
+	"Generic pane menu leads the bar (far left)."
+	menuButton := self iconButtonGraphic: MenuIcons smallJustifiedIcon action: #openPaneMenu.
+	menuButton setBalloonText: 'Pane menu'.
+	headerRow addMorphBack: menuButton.
+	headerRow
+		addMorphBack: (self buttonLabelled: 'Back' action: #zoomOut);
+		addMorphBack: (self buttonLabelled: 'Browse' action: #browseSelected).
+	"Deselect: clear the selection so the map shows everything again."
+	(view respondsTo: #selectTileNode:) ifTrue: [
+		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
+	headerRow addMorphBack: (self buttonLabelled: 'Show' action: #toggleSource).
+	"Marks: toggle the left-hand list of globally bookmarked nodes."
+	(view respondsTo: #markedNodes) ifTrue: [
+		marksButton := self buttonLabelled: 'Marks' action: #toggleMarks.
+		headerRow addMorphBack: marksButton].
+	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it."
+	ovl := self treemapOverlay.
+	ovl ifNotNil: [
+		(view respondsTo: #selectDataset:) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Data' action: #popUpDataMenu)].
+		self showsTreeButton ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
+		((ovl respondsTo: #sizeModeOptions) and: [ovl sizeModeOptions notEmpty]) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu)].
+		((ovl respondsTo: #colorModeOptions) and: [ovl colorModeOptions notEmpty]) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu)].
+		(view respondsTo: #decorationMetric) ifTrue: [
+			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
+	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
+		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
+		headerRow addMorphBack: tallyButton.
+		self updateTallyButton].
+	"Depth: cycle how deep tiles are drawn (only where the view supports leafKind:)."
+	(view respondsTo: #leafKind:) ifTrue: [
+		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
+		self updateDepthLabel.
+		headerRow addMorphBack: depthButton].
+	"Live name-search: dims tiles whose entity name doesn't match what you type."
+	(view respondsTo: #searchFor:) ifTrue: [
+		headerRow addMorphBack: self newSearchField].
+	^ headerRow
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:54'
+}
+SWAPane >> buildInfoLines [
+	"Create the three stacked info StringMorphs -- the selection PATH line (big), the
+	generic RUN-info line, and the SELECTION-info line -- setting selectionPathMorph,
+	runInfoMorph and metaInfoMorph. They are added to the panel by the caller."
+	| detailFont metaFont |
+	detailFont := (TextStyle default fontOfPointSize: 15) emphasized: 1.
+	metaFont := TextStyle default fontOfPointSize: 11.
+	selectionPathMorph := self
+		newInfoLine: self selectionPathContents
+		font: detailFont
+		color: (Color gray: 0.95).
+	runInfoMorph := self
+		newInfoLine: self runInfoContents
+		font: metaFont
+		color: (Color gray: 0.6).
+	metaInfoMorph := self
+		newInfoLine: self selectionInfoContents
+		font: metaFont
+		color: (Color gray: 0.8)
+]
+
+{
+	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
 SWAPane >> buttonLabelled: aString action: aSelector [
@@ -1264,18 +1385,25 @@ SWAPane >> headerNaturalWidth [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:11'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:52'
 }
 SWAPane >> iconButtonGraphic: aForm action: aSelector [
-	"A header button showing aForm as its icon that sends aSelector to THIS panel."
-	^ IconicButton new
+	"A header button showing aForm as its icon that sends aSelector to THIS panel.
+	Sized (via border padding) to match the height of a text #buttonLabelled: button
+	so icon and text buttons line up in the header row."
+	| button refHeight |
+	button := IconicButton new
 		labelGraphic: aForm;
 		color: (Color gray: 0.3);
 		borderWidth: 0;
 		target: self;
 		actionSelector: aSelector;
 		hResizing: #rigid; vResizing: #rigid;
-		yourself
+		yourself.
+	"Pad top/bottom so the button matches a text button's height."
+	refHeight := (self buttonLabelled: 'X' action: nil) fullBounds height.
+	button extent: (button fullBounds extent max: (button fullBounds width @ refHeight)).
+	^ button
 ]
 
 {
@@ -1392,14 +1520,15 @@ SWAPane >> loadDuplicationJson: json name: aName [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:34'
 }
 SWAPane >> loadMarks [
 	"Prompt for a JSON marks file and REPLACE the current marks + comments with it.
-	Clears the local selection since the keys change; all panes refresh via notifyPanes."
+	Clears the local selection since the keys change; all panes refresh via notifyPanes.
+	The pattern is a String (';'/CR/LF-separated globs), NOT an Array."
 	| name n |
 	name := UIManager default
-		chooseFileMatching: #('*.json')
+		chooseFileMatching: '*.json'
 		label: 'Load marks from file'.
 	(name isNil or: [name isEmpty]) ifTrue: [^ self].
 	n := SWAMarkSet default loadFromFile: name.
@@ -1630,6 +1759,25 @@ SWAPane >> morphViewInto: aViewMorph [
 ]
 
 {
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:53'
+}
+SWAPane >> newChromeRow [
+	"An empty left-to-right, width-filling, shrink-wrap-height row used for the
+	header button bar, the breadcrumb line, and the body row (callers tweak wrapping
+	/ direction as needed)."
+	^ Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellPositioning: #leftCenter;
+		cellInset: 6;
+		hResizing: #spaceFill;
+		vResizing: #shrinkWrap;
+		yourself
+]
+
+{
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:36'
 }
@@ -1704,6 +1852,21 @@ SWAPane >> newDetailsPane [
 		yourself.
 	column addMorphBack: detailsTitle; addMorphBack: box.
 	^ column
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:53'
+}
+SWAPane >> newInfoLine: aString font: aFont color: aColor [
+	"A single-line, width-filling StringMorph used for the breadcrumb / path / info
+	rows in the chrome. aString nil is treated as empty."
+	^ StringMorph new
+		contents: (aString ifNil: ['']);
+		font: aFont;
+		color: aColor;
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself
 ]
 
 {
@@ -1876,6 +2039,34 @@ SWAPane >> openMarksBurgerMenu [
 	menu := MenuMorph new.
 	self marksBurgerMenu: menu.
 	menu popUpInWorld: self world
+]
+
+{
+	#category : #'pane menu',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:49'
+}
+SWAPane >> openPaneMenu [
+	"Pop up the generic per-pane menu (the header-row hamburger)."
+	| menu |
+	menu := MenuMorph new.
+	self paneMenu: menu.
+	menu popUpInWorld: self world
+]
+
+{
+	#category : #'pane menu',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:49'
+}
+SWAPane >> paneMenu: aMenu [
+	"The generic per-pane overflow menu, opened from the hamburger icon at the FAR
+	LEFT of the header row. This is the catch-all home for less-frequent / growing
+	actions so they don't each need a button. Items may be gated on the view type:
+	Export / Load are Code-Map-only (they read/write analysis JSON overlays)."
+	aMenu addTitle: 'Pane'.
+	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
+		aMenu add: 'Export...' target: self selector: #exportCoverage.
+		aMenu add: 'Load...' target: self selector: #importData].
+	^ aMenu
 ]
 
 {
@@ -2181,37 +2372,21 @@ SWAPane >> setStructureMode: aKey [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:59'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:54'
 }
 SWAPane >> setView: aViewMorph [
-	"Build the panel chrome around aViewMorph: a WRAPPING button bar (Back/Browse/
-	Deselect/Show/Marks + optional Data/Tree/Size/Color/Links + optional coverage
-	controls + optional Depth + a name-SEARCH field), then a breadcrumb line carrying
-	the fullscreen toggle at its right, then the selection-path line, a generic
-	RUN-info line, a SELECTION-info line, then a BODY ROW holding the (initially
-	hidden) Marks list panel on the LEFT and the view (spaceFill) on the right. The
-	button bar wraps onto additional rows when the window is too narrow to fit every
-	button. The source pane is created lazily by #toggleSource.
-
-	The search field filters the view's entity NAMES live: typing dims every
-	non-matching tile (see #runSearch: / SWAView>>searchFor:), Esc clears it.
-
-	The Marks button toggles a left-hand list of the GLOBAL bookmarked nodes
-	(SWAMarkSet), shared across every open panel; shift-click a tile to add/remove.
-
-	Cross-referencing another open view is no longer a dedicated X-ref/Clear button
-	pair: open peers appear as entries in the Data menu (pick one to color by it, pick
-	None to clear), unifying 'which source colors this map' into one selector.
-
-	Each optional button is gated on the overlay actually SUPPORTING it (non-empty
-	Size/Color options, Data/Tree/Links protocols), so a view can opt into just the
-	subset it implements -- e.g. the graph view exposes an overlay offering only Color."
-	| crumbFont detailFont metaFont backButton browseButton showButton crumbRow ovl |
+	"Build the panel chrome around aViewMorph, top to bottom:
+	  1. headerRow    -- wrapping button bar led by a generic pane hamburger menu
+	                     (#buildHeaderRow),
+	  2. crumbRow     -- breadcrumb line with the fullscreen toggle at its right
+	                     (#buildCrumbRow),
+	  3. info lines   -- selection PATH, RUN-info, SELECTION-info (#buildInfoLines),
+	  4. bodyRow      -- the (initially hidden) left Marks panel + the view
+	                     (#buildBodyRow).
+	The source pane is created lazily by #toggleSource; the Marks panel by
+	#toggleMarks. Each optional control is gated on the view/overlay SUPPORTING it
+	(see #buildHeaderRow)."
 	view := aViewMorph.
-	crumbFont := TextStyle default fontOfPointSize: 12.
-	detailFont := (TextStyle default fontOfPointSize: 15) emphasized: 1.
-	metaFont := TextStyle default fontOfPointSize: 11.
-
 	self
 		color: (Color gray: 0.15);
 		layoutPolicy: TableLayout new;
@@ -2219,122 +2394,15 @@ SWAPane >> setView: aViewMorph [
 		cellPositioning: #topLeft;
 		hResizing: #spaceFill;
 		vResizing: #spaceFill.
-
-	backButton := self buttonLabelled: 'Back' action: #zoomOut.
-	browseButton := self buttonLabelled: 'Browse' action: #browseSelected.
-	showButton := self buttonLabelled: 'Show' action: #toggleSource.
-	(view respondsTo: #leafKind:) ifTrue: [
-		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
-		self updateDepthLabel].
-	fullButton := self iconButtonGraphic: MenuIcons smallFullscreenOnIcon action: #toggleFullScreen.
-
-	breadcrumbMorph := StringMorph new
-		contents: self breadcrumbContents;
-		font: crumbFont;
-		color: Color white;
-		hResizing: #spaceFill; vResizing: #rigid;
-		yourself.
-
-	headerRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		wrapDirection: #topToBottom;
-		cellPositioning: #leftCenter;
-		cellInset: 6;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	headerRow addMorphBack: backButton; addMorphBack: browseButton.
-	"Deselect: clear the selection so the map shows everything again (drops the
-	selected tile + its link/coverage filters + any duplicate diff)."
-	(view respondsTo: #selectTileNode:) ifTrue: [
-		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
-	headerRow addMorphBack: showButton.
-	"Marks: toggle the left-hand list of globally bookmarked nodes."
-	(view respondsTo: #markedNodes) ifTrue: [
-		marksButton := self buttonLabelled: 'Marks' action: #toggleMarks.
-		headerRow addMorphBack: marksButton].
-	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it.
-	Data leads (top-level source picker: loaded datasets AND open peers for
-	cross-reference). Tree picks the base STRUCTURE. Size/Color are shown only when
-	the overlay offers a non-empty option list, so a view can light up just Color
-	(the graph) without a dead Size button."
-	ovl := self treemapOverlay.
-	ovl ifNotNil: [
-		(view respondsTo: #selectDataset:) ifTrue: [
-			headerRow addMorphBack: (self buttonLabelled: 'Data' action: #popUpDataMenu)].
-		self showsTreeButton ifTrue: [
-			headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
-		((ovl respondsTo: #sizeModeOptions) and: [ovl sizeModeOptions notEmpty]) ifTrue: [
-			headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu)].
-		((ovl respondsTo: #colorModeOptions) and: [ovl colorModeOptions notEmpty]) ifTrue: [
-			headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu)].
-		(view respondsTo: #decorationMetric) ifTrue: [
-			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
-	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
-		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
-		headerRow addMorphBack: tallyButton.
-		headerRow addMorphBack: (self buttonLabelled: 'Export' action: #exportCoverage).
-		headerRow addMorphBack: (self buttonLabelled: 'Load' action: #importData).
-		self updateTallyButton].
-	depthButton ifNotNil: [headerRow addMorphBack: depthButton].
-	"Live name-search: dims tiles whose entity name doesn't match what you type."
-	(view respondsTo: #searchFor:) ifTrue: [
-		headerRow addMorphBack: self newSearchField].
-
-	crumbRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		cellPositioning: #leftCenter;
-		cellInset: 6;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	crumbRow addMorphBack: breadcrumbMorph; addMorphBack: fullButton.
-
-	selectionPathMorph := StringMorph new
-		contents: (self selectionPathContents ifNil: ['']);
-		font: detailFont;
-		color: (Color gray: 0.95);
-		hResizing: #spaceFill; vResizing: #rigid;
-		yourself.
-
-	runInfoMorph := StringMorph new
-		contents: (self runInfoContents ifNil: ['']);
-		font: metaFont;
-		color: (Color gray: 0.6);
-		hResizing: #spaceFill; vResizing: #rigid;
-		yourself.
-
-	metaInfoMorph := StringMorph new
-		contents: (self selectionInfoContents ifNil: ['']);
-		font: metaFont;
-		color: (Color gray: 0.8);
-		hResizing: #spaceFill; vResizing: #rigid;
-		yourself.
-
-	view hResizing: #spaceFill; vResizing: #spaceFill.
-
-	"BODY ROW: [ (hidden) Marks panel | view ], laid out left-to-right so the Marks
-	list docks on the left like the Show pane docks at the bottom."
-	bodyRow := Morph new
-		color: (Color gray: 0.15);
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		cellPositioning: #topLeft;
-		hResizing: #spaceFill; vResizing: #spaceFill;
-		yourself.
-	bodyRow addMorphBack: view.
-
-	self addMorphBack: headerRow;
-		addMorphBack: crumbRow;
+	self buildHeaderRow.
+	self buildInfoLines.
+	self
+		addMorphBack: headerRow;
+		addMorphBack: self buildCrumbRow;
 		addMorphBack: selectionPathMorph;
 		addMorphBack: runInfoMorph;
 		addMorphBack: metaInfoMorph;
-		addMorphBack: bodyRow.
-
+		addMorphBack: self buildBodyRow.
 	(view respondsTo: #navPanel:) ifTrue: [view navPanel: self]
 ]
 
