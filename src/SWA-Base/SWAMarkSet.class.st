@@ -40,6 +40,24 @@ SWAMarkSet >> add: aKey [
 ]
 
 {
+	#category : #persistence,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
+}
+SWAMarkSet >> asJsonString [
+	"Serialise the mark keys (in order) and their comments to a JSON string.
+	Only keys that actually have a non-empty comment are written."
+	| dict commentsOut |
+	commentsOut := Dictionary new.
+	keys do: [:k | | c |
+		c := self commentAt: k.
+		c isEmpty ifFalse: [commentsOut at: k put: c]].
+	dict := Dictionary new.
+	dict at: 'keys' put: keys asArray.
+	dict at: 'comments' put: commentsOut.
+	^ Json render: dict
+]
+
+{
 	#category : #mutating,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:35'
 }
@@ -172,6 +190,39 @@ SWAMarkSet >> keys [
 ]
 
 {
+	#category : #persistence,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
+}
+SWAMarkSet >> loadFromFile: aFileName [
+	"Replace the current marks + comments with those read from the JSON file
+	aFileName. Answers the number of keys loaded."
+	| stream contents |
+	stream := FileStream readOnlyFileNamed: aFileName.
+	contents := [stream contentsOfEntireFile] ensure: [stream close].
+	self loadFromJsonString: contents.
+	^ keys size
+]
+
+{
+	#category : #persistence,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
+}
+SWAMarkSet >> loadFromJsonString: aString [
+	"Replace the current marks + comments with those parsed from a JSON string
+	produced by #asJsonString. Notifies open panes once when done."
+	| parsed newKeys newComments |
+	parsed := Json readFrom: aString readStream.
+	newKeys := OrderedCollection new.
+	(parsed at: 'keys' ifAbsent: [#()]) do: [:k | newKeys add: k asString].
+	newComments := Dictionary new.
+	(parsed at: 'comments' ifAbsent: [Dictionary new])
+		keysAndValuesDo: [:k :v | newComments at: k asString put: v asString].
+	keys := newKeys.
+	comments := newComments.
+	self notifyPanes
+]
+
+{
 	#category : #notifying,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:56'
 }
@@ -211,6 +262,17 @@ SWAMarkSet >> removeAll: someKeys [
 			self comments removeKey: k ifAbsent: [].
 			changed := true]].
 	changed ifTrue: [self notifyPanes]
+]
+
+{
+	#category : #persistence,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
+}
+SWAMarkSet >> saveToFile: aFileName [
+	"Write the marks as JSON to aFileName, overwriting any existing file."
+	| stream |
+	stream := FileStream forceNewFileNamed: aFileName.
+	[stream nextPutAll: self asJsonString] ensure: [stream close]
 ]
 
 {

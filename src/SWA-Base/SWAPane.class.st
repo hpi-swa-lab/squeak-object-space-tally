@@ -940,6 +940,15 @@ SWAPane >> datasetNameFor: aPath [
 ]
 
 {
+	#category : #'marks - persistence',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+}
+SWAPane >> defaultMarksFileName [
+	"The suggested file name for Save/Load, in the image directory."
+	^ FileDirectory default fullNameFor: 'swa-marks.json'
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:48'
 }
@@ -1382,6 +1391,26 @@ SWAPane >> loadDuplicationJson: json name: aName [
 ]
 
 {
+	#category : #'marks - persistence',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+}
+SWAPane >> loadMarks [
+	"Prompt for a JSON marks file and REPLACE the current marks + comments with it.
+	Clears the local selection since the keys change; all panes refresh via notifyPanes."
+	| name n |
+	name := UIManager default
+		chooseFileMatching: #('*.json')
+		label: 'Load marks from file'.
+	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	n := SWAMarkSet default loadFromFile: name.
+	marksSelectedKeys := Set new.
+	marksPrimaryIndex := 0.
+	commentEditKey := nil.
+	self flashMarksMessage: 'Loaded ', n printString,
+		' mark(s) from ', (FileDirectory localNameFor: name)
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:21'
 }
@@ -1418,6 +1447,26 @@ SWAPane >> loadTopicJson: json name: aName [
 	| data |
 	data := SWATopicData new loadFromJson: json.
 	^ self addTopicDataset: data name: aName
+]
+
+{
+	#category : #'marks - persistence',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+}
+SWAPane >> marksBurgerMenu: aMenu [
+	"The 'burger' menu that replaces the Copy/Clear button row. Bundles the
+	clipboard/clear actions together with Save/Load to a JSON sidecar file."
+	| n |
+	n := (marksSelectedKeys ifNil: [Set new]) size.
+	aMenu addTitle: 'Marks'.
+	n > 0
+		ifTrue: [aMenu add: 'Copy selected (', n printString, ')' target: self selector: #copyMarks]
+		ifFalse: [aMenu add: 'Copy all' target: self selector: #copyMarks].
+	aMenu add: 'Clear' target: self selector: #clearMarks.
+	aMenu addLine.
+	aMenu add: 'Save to file...' target: self selector: #saveMarks.
+	aMenu add: 'Load from file...' target: self selector: #loadMarks.
+	^ aMenu
 ]
 
 {
@@ -1659,17 +1708,19 @@ SWAPane >> newDetailsPane [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 14:39'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:33'
 }
 SWAPane >> newMarksPanel [
-	"Build the left-hand Marks panel: a title, a Copy/Clear button row, a MULTI-SELECT
-	list of the global mark keys (black-on-white), and -- beneath it -- a comment
-	editor for the primary-selected mark. PLAIN click replaces the selection, SHIFT
-	click ranges, and CTRL click toggles. Ctrl+click reaching the list is made
+	"Build the left-hand Marks panel: a title row (label + 'burger' menu button),
+	a MULTI-SELECT list of the global mark keys (black-on-white), and -- beneath it --
+	a comment editor for the primary-selected mark. PLAIN click replaces the selection,
+	SHIFT click ranges, and CTRL click toggles. Ctrl+click reaching the list is made
 	possible by the global SWAMarksClickFilter, which rewrites this VM's emulated
 	Ctrl+click (yellow button) back into a real Ctrl+left-click over a marks list.
-	Comments are shown only in the editor (not inline) and persist in SWAMarkSet."
-	| column title buttons commentTitle |
+	The burger menu (a JustifiedIcon graphic; Squeak has no reliable Unicode glyphs)
+	bundles Copy/Clear plus Save/Load to a JSON sidecar file. Comments are shown only
+	in the editor (not inline) and persist in SWAMarkSet."
+	| column titleRow title burger commentTitle |
 	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
 	title := StringMorph new
 		contents: 'Marks';
@@ -1677,16 +1728,17 @@ SWAPane >> newMarksPanel [
 		color: (Color gray: 0.9);
 		hResizing: #spaceFill; vResizing: #rigid;
 		yourself.
-	buttons := Morph new
+	burger := self iconButtonGraphic: MenuIcons smallJustifiedIcon action: #openMarksBurgerMenu.
+	burger setBalloonText: 'Marks menu: Copy, Clear, Save, Load'.
+	titleRow := Morph new
 		color: (Color gray: 0.12);
 		layoutPolicy: TableLayout new;
 		listDirection: #leftToRight;
+		vResizing: #shrinkWrap; hResizing: #spaceFill;
 		cellInset: 4;
-		hResizing: #spaceFill; vResizing: #shrinkWrap;
+		wrapCentering: #center; cellPositioning: #leftCenter;
 		yourself.
-	buttons
-		addMorphBack: (self buttonLabelled: 'Copy' action: #copyMarks);
-		addMorphBack: (self buttonLabelled: 'Clear' action: #clearMarks).
+	titleRow addMorphBack: title; addMorphBack: burger.
 	marksList := SWAMarksListMorph
 		on: self
 		list: #marksListItems
@@ -1723,8 +1775,7 @@ SWAPane >> newMarksPanel [
 		width: (marksWidth ifNil: [260]);
 		yourself.
 	column
-		addMorphBack: title;
-		addMorphBack: buttons;
+		addMorphBack: titleRow;
 		addMorphBack: marksList;
 		addMorphBack: commentTitle;
 		addMorphBack: commentField.
@@ -1813,6 +1864,18 @@ SWAPane >> newSourceRow [
 			yourself).
 		row addMorphBack: self newCoveringTestsPane].
 	^ row
+]
+
+{
+	#category : #'marks - persistence',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+}
+SWAPane >> openMarksBurgerMenu [
+	"Pop up the Marks burger menu (Copy/Clear/Save/Load)."
+	| menu |
+	menu := MenuMorph new.
+	self marksBurgerMenu: menu.
+	menu popUpInWorld: self world
 ]
 
 {
@@ -2014,6 +2077,23 @@ SWAPane >> runSearch: aString [
 	the match computation and redraw (see SWAView>>searchFor:)."
 	view ifNil: [^ self].
 	(view respondsTo: #searchFor:) ifTrue: [view searchFor: aString]
+]
+
+{
+	#category : #'marks - persistence',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+}
+SWAPane >> saveMarks [
+	"Prompt for a file name and write ALL marks + comments as JSON. Save always
+	acts on the whole set (selection is a view concern, not persistence)."
+	| name |
+	name := UIManager default
+		saveFilenameRequest: 'Save marks to file'
+		initialAnswer: self defaultMarksFileName.
+	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	SWAMarkSet default saveToFile: name.
+	self flashMarksMessage: 'Saved ', SWAMarkSet default keys size printString,
+		' mark(s) to ', (FileDirectory localNameFor: name)
 ]
 
 {
