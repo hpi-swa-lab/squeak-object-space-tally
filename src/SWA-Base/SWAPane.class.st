@@ -47,7 +47,9 @@ Class {
 		'commentField',
 		'commentEditKey',
 		'marksTab',
-		'marksCollapseTab'
+		'marksCollapseTab',
+		'sourceTab',
+		'sourceCollapseTab'
 	],
 	#classVars : [
 		'SampleTallyDuration',
@@ -619,13 +621,14 @@ SWAPane >> browseSelected [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:10'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:25'
 }
 SWAPane >> buildBodyRow [
 	"Build the body row into bodyRow: laid out left-to-right so the Marks flap can dock
-	on the LEFT while the view fills the rest on the right. By default the flap is
-	COLLAPSED, shown as a thin vertical 'Marks' tab (#showMarksTab) at the left edge;
-	clicking it slides the full panel in (#openMarks). Answers bodyRow."
+	on the LEFT while the view fills the rest on the right. By default BOTH flaps are
+	COLLAPSED, shown as floating tabs over the view edges: a vertical 'Marks' tab on
+	the LEFT (#showMarksTab -> #openMarks) and a horizontal 'Source' tab on the BOTTOM
+	(#showSourceTab -> #openSource). Answers bodyRow."
 	bodyRow := self newChromeRow
 		cellPositioning: #topLeft;
 		vResizing: #spaceFill;
@@ -633,6 +636,7 @@ SWAPane >> buildBodyRow [
 	view hResizing: #spaceFill; vResizing: #spaceFill.
 	bodyRow addMorphBack: view.
 	self showMarksTab.
+	self showSourceTab.
 	^ bodyRow
 ]
 
@@ -658,17 +662,17 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:11'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:25'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
 	(far left; overflow home for growing actions like Export/Load), then Back/Browse/
-	optional Deselect/Show, then the overlay-gated Data/Tree/Size/Color/Links, then
-	Code-Map Tally, then optional Depth and the name-search field. (Marks is NO LONGER
-	a header button -- it is a vertical flap tab docked at the left of the body row;
-	see #buildBodyRow / #showMarksTab.) Each optional control is gated on the view/
-	overlay actually SUPPORTING it, so a view opts into just the subset it implements.
-	Answers headerRow."
+	optional Deselect, then the overlay-gated Data/Tree/Size/Color/Links, then
+	Code-Map Tally, then optional Depth and the name-search field. (Marks and Source
+	are NO LONGER header buttons -- each is a floating flap tab over the body: Marks
+	vertical on the LEFT, Source horizontal on the BOTTOM; see #buildBodyRow.) Each
+	optional control is gated on the view/overlay actually SUPPORTING it, so a view
+	opts into just the subset it implements. Answers headerRow."
 	| menuButton ovl |
 	headerRow := self newChromeRow
 		wrapDirection: #topToBottom;
@@ -684,7 +688,6 @@ SWAPane >> buildHeaderRow [
 	"Deselect: clear the selection so the map shows everything again."
 	(view respondsTo: #selectTileNode:) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
-	headerRow addMorphBack: (self buttonLabelled: 'Show' action: #toggleSource).
 	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it."
 	ovl := self treemapOverlay.
 	ovl ifNotNil: [
@@ -887,6 +890,21 @@ SWAPane >> collapseMarks [
 	marksPanel delete. marksPanel := nil. marksList := nil. commentField := nil.
 	marksCollapseTab := nil.
 	self showMarksTab.
+	self layoutChanged
+]
+
+{
+	#category : #'source - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
+}
+SWAPane >> collapseSource [
+	"Collapse the Source flap: remove the row + splitter (and its floating collapse
+	tab) and restore the bottom 'Source' tab. No-op if not open."
+	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
+	sourceSplitter ifNotNil: [sourceSplitter delete].
+	sourceRow delete.
+	sourceCollapseTab ifNotNil: [sourceCollapseTab delete. sourceCollapseTab := nil].
+	self showSourceTab.
 	self layoutChanged
 ]
 
@@ -1411,6 +1429,15 @@ SWAPane >> hideMarksTab [
 ]
 
 {
+	#category : #'source - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
+}
+SWAPane >> hideSourceTab [
+	"Remove the collapsed 'Source' flap tab (called when the source row opens)."
+	sourceTab ifNotNil: [sourceTab delete. sourceTab := nil]
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:52'
 }
@@ -1496,15 +1523,18 @@ SWAPane >> importData [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:25'
 }
 SWAPane >> layoutChanged [
-	"After the panel relays out, re-pin the floating Marks tabs -- the COLLAPSED tab to
-	the view's left edge and the OPEN panel's collapse tab to the panel's left edge.
-	Neither is a layout participant, so both must be repositioned explicitly."
+	"After the pane relays out, re-pin every floating flap tab -- none is a layout
+	participant, so each must be repositioned explicitly:
+	  Marks (left):   collapsed tab over the view, open collapse tab over the panel;
+	  Source (bottom): collapsed tab over the view, open collapse tab over the row."
 	super layoutChanged.
 	self positionMarksTab.
-	self positionMarksCollapseTab
+	self positionMarksCollapseTab.
+	self positionSourceTab.
+	self positionSourceCollapseTab
 ]
 
 {
@@ -1895,6 +1925,46 @@ SWAPane >> newDetailsPane [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
+}
+SWAPane >> newFlapTabLabelled: aLabelString on: anActionSelector balloon: aBalloonString edge: anEdge [
+	"Build a compact, half-transparent flap 'pull-tab' bearing aLabelString that sends
+	anActionSelector to the pane when clicked. Shared by every flap (Marks/Details, in
+	both their collapsed and open states). Orientation follows anEdge:
+	  #left / #right  -> text rotated 270 degrees (reads bottom-to-top, the vertical
+	                     left-edge convention),
+	  #top / #bottom  -> text horizontal.
+	The tab is sized to its (rotated) label so the word is fully shown. Positioning is
+	done separately by #positionFlapTab:onEdge:of:."
+	| label content tab |
+	label := StringMorph new
+		contents: aLabelString;
+		font: ((TextStyle default fontOfPointSize: 11) emphasized: 1);
+		color: (Color gray: 0.9);
+		yourself.
+	content := (anEdge = #left or: [anEdge = #right])
+		ifTrue: [(TransformationMorph new asFlexOf: label) rotationDegrees: 270; yourself]
+		ifFalse: [label].
+	tab := Morph new
+		color: ((Color gray: 0.22) alpha: 0.5);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		listCentering: #center;
+		wrapCentering: #center;
+		cellPositioning: #center;
+		cellInset: 0;
+		hResizing: #rigid; vResizing: #rigid;
+		extent: content fullBounds extent + (anEdge = #bottom ifTrue: [8 @ 4] ifFalse: [0 @ 0]);
+		disableTableLayout: true;
+		yourself.
+	tab addMorphBack: content.
+	tab setBalloonText: aBalloonString.
+	tab on: #mouseUp send: anActionSelector to: self.
+	^ tab
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:53'
 }
@@ -1911,18 +1981,13 @@ SWAPane >> newInfoLine: aString font: aFont color: aColor [
 
 {
 	#category : #'marks - flap',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:06'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
 }
 SWAPane >> newMarksCollapseButton [
-	"The OPEN panel's collapse control: the SAME compact vertical 'Marks' tab as the
-	collapsed floater. It FLOATS (disableTableLayout: true) over the panel content's
-	left edge -- overlapping into the list rather than taking its own column -- and is
-	positioned vertically centred by #positionMarksCollapseTab. Clicking it collapses
-	the flap (#collapseMarks)."
-	| tab |
-	tab := self newVerticalMarksTabOn: #collapseMarks balloon: 'Hide Marks'.
-	tab disableTableLayout: true.
-	^ tab
+	"The OPEN panel's collapse control: the SAME vertical 'Marks' tab as the collapsed
+	floater. It floats over the panel content's left edge (positioned by
+	#positionMarksCollapseTab) and collapses the flap on click (#collapseMarks)."
+	^ self newVerticalMarksTabOn: #collapseMarks balloon: 'Hide Marks'
 ]
 
 {
@@ -2008,20 +2073,13 @@ SWAPane >> newMarksPanel [
 
 {
 	#category : #'marks - flap',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:28'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
 }
 SWAPane >> newMarksTab [
-	"The COLLAPSED-state floating Marks tab: a shared vertical 'Marks' tab
-	(#newVerticalMarksTabOn:balloon:) that OPENS the flap, plus the floating flags --
-	#disableTableLayout: true so the pane's TableLayout ignores it, and #rigid vResizing
-	since it is positioned/sized absolutely by #positionMarksTab (a compact,
-	vertically-centred pull-tab over the treemap's left edge)."
-	| tab |
-	tab := self newVerticalMarksTabOn: #openMarks balloon: 'Show Marks'.
-	tab
-		vResizing: #rigid;
-		disableTableLayout: true.
-	^ tab
+	"The COLLAPSED-state floating Marks tab: the shared vertical 'Marks' tab that OPENS
+	the flap. Floating flags (#disableTableLayout: true, #rigid) are set by the generic
+	builder; it is positioned by #positionMarksTab over the treemap's left edge."
+	^ self newVerticalMarksTabOn: #openMarks balloon: 'Show Marks'
 ]
 
 {
@@ -2110,38 +2168,14 @@ SWAPane >> newSourceRow [
 
 {
 	#category : #'marks - flap',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:31'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
 }
 SWAPane >> newVerticalMarksTabOn: anActionSelector balloon: aString [
-	"Build a thin vertical 'Marks' tab: a StringMorph rotated so it reads BOTTOM-TO-TOP
-	(the left-edge convention: baseline up the right side, tilt head left to read),
-	via a TransformationMorph (tight bounds), on a half-transparent strip only as wide
-	AND as tall as the rotated label so the word is fully shown. Clicking it sends
-	anActionSelector to the pane. Shared by the COLLAPSED floating tab
-	(#newMarksTab -> #openMarks) and the OPEN panel's left-edge collapse spine
+	"The Marks flap's vertical (#left-edge) tab: a thin wrapper over the generic
+	#newFlapTabLabelled:on:balloon:edge:. Shared by the COLLAPSED floating tab
+	(#newMarksTab -> #openMarks) and the OPEN panel's collapse tab
 	(#newMarksCollapseButton -> #collapseMarks) so both read identically."
-	| label flex tab |
-	label := StringMorph new
-		contents: 'Marks';
-		font: ((TextStyle default fontOfPointSize: 11) emphasized: 1);
-		color: (Color gray: 0.9);
-		yourself.
-	flex := TransformationMorph new asFlexOf: label.
-	flex rotationDegrees: 270.
-	tab := Morph new
-		color: ((Color gray: 0.22) alpha: 0.5);
-		layoutPolicy: TableLayout new;
-		listDirection: #topToBottom;
-		cellPositioning: #center;
-		wrapCentering: #center;
-		cellInset: 0;
-		hResizing: #rigid; vResizing: #rigid;
-		extent: flex fullBounds extent;
-		yourself.
-	tab addMorphBack: flex.
-	tab setBalloonText: aString.
-	tab on: #mouseUp send: anActionSelector to: self.
-	^ tab
+	^ self newFlapTabLabelled: 'Marks' on: anActionSelector balloon: aString edge: #left
 ]
 
 {
@@ -2187,6 +2221,32 @@ SWAPane >> openPaneMenu [
 	menu := MenuMorph new.
 	self paneMenu: menu.
 	menu popUpInWorld: self world
+]
+
+{
+	#category : #'source - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
+}
+SWAPane >> openSource [
+	"Open the Source flap: hide the bottom tab and dock the source row at the BOTTOM of
+	the pane, with a draggable horizontal SWASplitter above it (drag UP to grow). A
+	'Source' collapse tab floats over the row's TOP edge (#collapseSource). No-op if
+	already open. Loads the current selection's source, details and provenance."
+	(sourceRow notNil and: [sourceRow owner notNil]) ifTrue: [^ self].
+	self hideSourceTab.
+	sourceRow ifNil: [sourceRow := self newSourceRow].
+	sourceSplitter ifNil: [
+		sourceSplitter := SWASplitter horizontal
+			resizeAction: [:delta | self growSourceRowBy: delta negated];
+			yourself].
+	self addMorphBack: sourceSplitter.
+	self addMorphBack: sourceRow.
+	sourceCollapseTab := self newFlapTabLabelled: 'Source' on: #collapseSource balloon: 'Hide source' edge: #bottom.
+	self addMorphFront: sourceCollapseTab.
+	self updateSource.
+	self updateDetails.
+	self updateCoveringTests.
+	self layoutChanged
 ]
 
 {
@@ -2277,39 +2337,67 @@ SWAPane >> popUpTreeMenu [
 ]
 
 {
-	#category : #'marks - flap',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
 }
-SWAPane >> positionMarksCollapseTab [
-	"Pin the open panel's floating 'Marks' collapse tab to the LEFT edge of the panel,
-	vertically centred, so it overlaps the content instead of occupying a column.
-	Mirrors #positionMarksTab for the collapsed floater. No-op unless the panel and its
-	tab are live."
-	| panelBounds |
-	(marksPanel isNil or: [marksPanel owner isNil]) ifTrue: [^ self].
-	(marksCollapseTab isNil or: [marksCollapseTab owner isNil]) ifTrue: [^ self].
+SWAPane >> positionFlapTab: aTab onEdge: anEdge of: aReferenceMorph [
+	"Pin the floating flap tab aTab to the given edge of aReferenceMorph, CENTRED along
+	that edge, so it overlaps the content and steals no layout width/height. Forces the
+	PANE's layout current first (#fullBounds on self): right after a pane is added or
+	removed the pane's TableLayout hasn't repositioned the reference morph yet, so its
+	bounds would be stale. No-op unless the tab is live."
+	| b |
+	(aTab isNil or: [aTab owner isNil]) ifTrue: [^ self].
 	self fullBounds.
-	panelBounds := marksPanel bounds.
-	marksCollapseTab position:
-		(panelBounds left @ (panelBounds center y - (marksCollapseTab height // 2)))
+	b := aReferenceMorph bounds.
+	anEdge caseOf: {
+		[#left]   -> [aTab position: (b left @ (b center y - (aTab height // 2)))].
+		[#right]  -> [aTab position: ((b right - aTab width) @ (b center y - (aTab height // 2)))].
+		[#top]    -> [aTab position: ((b center x - (aTab width // 2)) @ b top)].
+		[#bottom] -> [aTab position: ((b center x - (aTab width // 2)) @ (b bottom - aTab height))] }
 ]
 
 {
 	#category : #'marks - flap',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:25'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:30'
+}
+SWAPane >> positionMarksCollapseTab [
+	"Pin the OPEN panel's Marks collapse tab, centred on the RIGHT edge of the panel --
+	beside the splitter/slider, mirroring the divider side -- rather than on the left
+	where it would cover the list rows. Delegates to #positionFlapTab:onEdge:of:."
+	marksPanel ifNil: [^ self].
+	self positionFlapTab: marksCollapseTab onEdge: #right of: marksPanel
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
 }
 SWAPane >> positionMarksTab [
-	"Place the floating Marks tab as a compact pull-tab over the LEFT edge of the view,
-	VERTICALLY CENTERED (its own natural label height, not stretched to the full view).
-	Forces the PANE's layout current first (#fullBounds on self) so the view morph has
-	its settled position -- right after the panel is added/removed the pane's
-	TableLayout hasn't repositioned the view yet. Kept in its own method so the anchor
-	is trivial to tweak (inset, top instead of centre, right edge instead)."
-	| viewBounds |
-	(marksTab isNil or: [marksTab owner isNil]) ifTrue: [^ self].
-	self fullBounds.
-	viewBounds := view bounds.
-	marksTab position: (viewBounds left @ (viewBounds center y - (marksTab height // 2)))
+	"Pin the collapsed Marks floating tab, centred on the LEFT edge of the view.
+	Delegates to the generic #positionFlapTab:onEdge:of:."
+	self positionFlapTab: marksTab onEdge: #left of: view
+]
+
+{
+	#category : #'source - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
+}
+SWAPane >> positionSourceCollapseTab [
+	"Pin the OPEN row's 'Source' collapse tab, centred on the TOP edge of the source
+	row, so it overlaps the row content. Delegates to #positionFlapTab:onEdge:of:."
+	sourceRow ifNil: [^ self].
+	self positionFlapTab: sourceCollapseTab onEdge: #top of: sourceRow
+]
+
+{
+	#category : #'source - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
+}
+SWAPane >> positionSourceTab [
+	"Pin the collapsed 'Source' flap tab, centred on the BOTTOM edge of the view.
+	Delegates to the generic #positionFlapTab:onEdge:of:."
+	self positionFlapTab: sourceTab onEdge: #bottom of: view
 ]
 
 {
@@ -2606,6 +2694,21 @@ SWAPane >> showSelectionPath: aStringOrNil [
 ]
 
 {
+	#category : #'source - flap',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
+}
+SWAPane >> showSourceTab [
+	"Show the collapsed-state horizontal 'Source' flap tab, floating over the BOTTOM
+	edge of the view, centred. Parented on the pane; placed by #positionSourceTab.
+	No-op if the source row is open or the tab is already up."
+	(sourceRow notNil and: [sourceRow owner notNil]) ifTrue: [^ self].
+	(sourceTab notNil and: [sourceTab owner notNil]) ifTrue: [^ self].
+	sourceTab := self newFlapTabLabelled: 'Source' on: #openSource balloon: 'Show source' edge: #bottom.
+	self addMorphFront: sourceTab.
+	self positionSourceTab
+]
+
+{
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:24'
 }
@@ -2734,31 +2837,15 @@ SWAPane >> toggleMarks [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:24'
 }
 SWAPane >> toggleSource [
-	"Show button: show/hide the bottom area at the bottom of the panel. The bottom
-	area is a horizontal row holding -- for the Code Map -- a details box (left), the
-	source pane (center), and a covering-tests list pane (right); other views get
-	just the source pane. A draggable horizontal SWASplitter is inserted ABOVE the row
-	so the user can resize it taller (e.g. to read an inline diff); dragging UP grows
-	it. When shown, load the current selection's source, details, and provenance."
+	"Toggle the Source flap open/collapsed. Kept for any external/keyboard callers; the
+	primary UI is now the bottom 'Source' flap tab (#openSource) and the row-top
+	collapse tab (#collapseSource)."
 	(sourceRow notNil and: [sourceRow owner notNil])
-		ifTrue: [
-			sourceSplitter ifNotNil: [sourceSplitter delete].
-			sourceRow delete]
-		ifFalse: [
-			sourceRow ifNil: [sourceRow := self newSourceRow].
-			sourceSplitter ifNil: [
-				sourceSplitter := SWASplitter horizontal
-					resizeAction: [:delta | self growSourceRowBy: delta negated];
-					yourself].
-			self addMorphBack: sourceSplitter.
-			self addMorphBack: sourceRow.
-			self updateSource.
-			self updateDetails.
-			self updateCoveringTests].
-	self layoutChanged
+		ifTrue: [self collapseSource]
+		ifFalse: [self openSource]
 ]
 
 {
