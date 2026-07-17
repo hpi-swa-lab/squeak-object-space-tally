@@ -4,6 +4,10 @@ A SWACodeNode whose subject is a Class. Children are SWACodeCategoryNodes (one p
 Class {
 	#name : #SWACodeClassNode,
 	#superclass : #SWACodeNode,
+	#instVars : [
+		'methodFilter',
+		'ivarFilter'
+	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
@@ -74,10 +78,36 @@ SWACodeClassNode >> instVarNames [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
+}
+SWACodeClassNode >> ivarFilter: aBlockOrNil [
+	"Set an optional one-arg predicate (SWACodeInstVarNode -> Boolean) that restricts which
+	instance variables this class renders in the diagram's state compartment. nil = show
+	all. Used by the class diagram's '+Selected' granularity to show only marked ivars.
+	Returns self."
+	ivarFilter := aBlockOrNil.
+	^ self
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
 }
 SWACodeClassNode >> kind [
 	^ #class
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:37'
+}
+SWACodeClassNode >> methodFilter: aBlockOrNil [
+	"Set an optional one-arg predicate (SWACodeMethodNode -> Boolean) that restricts which
+	methods this class renders in the diagram's methods compartment. nil = show all. Used
+	by the class diagram's 'classes + marked methods' granularity to show only marked
+	methods. Returns self."
+	methodFilter := aBlockOrNil.
+	^ self
 ]
 
 {
@@ -103,6 +133,19 @@ SWACodeClassNode >> name [
 
 {
 	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:52'
+}
+SWACodeClassNode >> recordEmptyRowOn: ws [
+	"Emit a single borderless spacer row so an EMPTY but enabled compartment still renders
+	as a (blank) UML section below its separator. Uses a non-breaking space so Graphviz
+	lays out (and gives us a text baseline for) exactly one row -- keeping the field-rect /
+	#recordFieldNodesShowState:showMethods: index alignment. No port -- it is not clickable
+	as a member (its field maps back to the class)."
+	ws nextPutAll: '<tr><td align="text">&nbsp;<br align="left"/></td></tr>'
+]
+
+{
+	#category : #graphviz,
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:14'
 }
 SWACodeClassNode >> recordFieldNodes [
@@ -121,22 +164,50 @@ SWACodeClassNode >> recordFieldNodesShowMethods: showMethods [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:22'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:52'
 }
 SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethods [
-	"The SWACodeNode for each record field, by field index, matching the row order
-	produced by #recordLabelColorMode:maxLoc:showState:showMethods:: index 0 = the
-	class name row, then -- when showState is true -- one entry PER IVAR (the class
-	itself -- selecting a state row selects the class, since an ivar is not a
-	browsable node), then -- when showMethods is true -- one entry per method in
-	#recordMethodNodes order. Used to resolve a clicked field index back to the node
-	it represents."
-	| out |
+	"The SWACodeNode for each record field, by field index, matching the ROW order emitted
+	by #recordLabelColorMode:maxLoc:showState:showMethods: EXACTLY -- including the blank
+	spacer row an enabled-but-empty compartment emits (mapped to the class itself, since
+	clicking blank space should select the whole class). Index 0 = the class name row; then
+	the state rows (one SWACodeInstVarNode per visible ivar, or ONE placeholder = self when
+	empty); then the method rows (one per visible method, or ONE placeholder = self when
+	empty). Honors the ivar/method filters via #recordIvarNodes / #recordMethodNodes so
+	this stays index-aligned with the emitted rows (each blank spacer produces one text
+	baseline, hence one field slot). Used to resolve a clicked field index back to its
+	node."
+	| out ivars methods |
 	out := OrderedCollection new.
-	out add: self.                                            "0: name row"
-	showState ifTrue: [self instVarNames do: [:v | out add: self]].  "ivar rows -> the class"
-	showMethods ifTrue: [out addAll: self recordMethodNodes].        "method rows"
+	out add: self.                        "0: name row"
+	showState ifTrue: [
+		ivars := self recordIvarNodes.
+		ivars isEmpty
+			ifTrue: [out add: self]        "blank spacer row -> the class"
+			ifFalse: [out addAll: ivars]].
+	showMethods ifTrue: [
+		methods := self recordMethodNodes.
+		methods isEmpty
+			ifTrue: [out add: self]        "blank spacer row -> the class"
+			ifFalse: [out addAll: methods]].
 	^ out asArray
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
+}
+SWACodeClassNode >> recordIvarNodes [
+	"The instance variables as SWACodeInstVarNodes, in definition order -- the state-row
+	order for the class box. This is the markable/clickable counterpart to the raw
+	#instVarNames strings. When an #ivarFilter is set (the '+Selected' granularity), only
+	ivars satisfying it are returned, so the DOT label, the click field map, and the state
+	compartment all agree (they all funnel through here)."
+	| nodes |
+	nodes := self instVarNames collect: [:v |
+		(SWACodeInstVarNode on: subject parent: self) ivarName: v; yourself].
+	ivarFilter isNil ifTrue: [^ nodes asArray].
+	^ (nodes select: [:n | ivarFilter value: n]) asArray
 ]
 
 {
@@ -172,7 +243,7 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showMethods
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:51'
 }
 SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: showState showMethods: showMethods [
 	"A Graphviz HTML-like label (UML class box) as a <table>: class name (bold) on
@@ -181,7 +252,13 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: 
 	Compartments are separated by <hr/> rules; rows are borderless and left-aligned.
 	Row order matches #recordFieldNodesShowState:showMethods:.
 
-	The two flags give three meaningful granularities:
+	Per UML, an ENABLED compartment always draws its separator line even when it has no
+	(visible) rows -- so an empty state/methods section shows as an empty box, and the
+	'+Selected' depth (which may filter a compartment down to nothing) keeps the familiar
+	three-section shape. The compartment methods emit rows only; the separator is drawn
+	here.
+
+	The two flags give the granularities:
 	  showState=false, showMethods=false -- classes only (name box)
 	  showState=true,  showMethods=false -- classes + state
 	  showState=true,  showMethods=true  -- classes + state + methods
@@ -195,8 +272,11 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: 
 	ws nextPutAll: (self recordTableBgColorMode: aColorMode); nextPutAll: '">'.
 	self recordNameRowOn: ws.
 	idx := 0.
-	showState ifTrue: [idx := self recordStateCompartmentOn: ws startingAt: idx].
+	showState ifTrue: [
+		ws nextPutAll: '<hr/>'.
+		idx := self recordStateCompartmentOn: ws startingAt: idx].
 	showMethods ifTrue: [
+		ws nextPutAll: '<hr/>'.
 		idx := self recordMethodCompartmentOn: ws startingAt: idx colorMode: aColorMode maxLoc: aMaxLoc].
 	ws nextPutAll: '</table>'.
 	^ ws contents
@@ -204,20 +284,21 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: 
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:51'
 }
 SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMode: aColorMode maxLoc: aMaxLoc [
-	"Emit the METHODS compartment (one row per method, static methods prefixed '$'),
-	preceded by an <hr/> rule, into ws. Ports continue from startIndex. In #loc mode
-	each cell is tinted by its LOC on a green->red ramp scaled to aMaxLoc. Answer the
-	next free port index. Emits nothing (and answers startIndex) when there are no
-	methods."
-	| idx locMode |
+	"Emit the METHODS compartment rows (one per method, static methods prefixed '$') into
+	ws. Ports continue from startIndex. In #loc mode each cell is tinted by its LOC on a
+	green->red ramp scaled to aMaxLoc. Answer the next free port index. When there are no
+	(visible) methods a single blank spacer row is emitted so the enabled-but-empty section
+	still renders below its separator (drawn by the caller). Honors #methodFilter (via
+	#recordMethodNodes)."
+	| idx locMode methods |
 	idx := startIndex.
-	self recordMethodNodes isEmpty ifTrue: [^ idx].
 	locMode := aColorMode = #loc.
-	ws nextPutAll: '<hr/>'.
-	self recordMethodNodes do: [:m | | text cellBg |
+	methods := self recordMethodNodes.
+	methods isEmpty ifTrue: [self recordEmptyRowOn: ws. ^ idx].
+	methods do: [:m | | text cellBg |
 		idx := idx + 1.
 		text := m isStatic ifTrue: ['$', m name] ifFalse: [m name].
 		cellBg := locMode ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc] ifFalse: [nil].
@@ -227,15 +308,21 @@ SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMo
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:43'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:37'
 }
 SWACodeClassNode >> recordMethodNodes [
 	"The method nodes as laid out in #recordLabel: instance methods first, then
 	static (class-side) methods. This ordering defines the record's method field
-	order (record field index = this index + 1; field 0 is the class name)."
-	| inst stat |
-	inst := self methodNodes reject: [:m | m isStatic].
-	stat := self methodNodes select: [:m | m isStatic].
+	order (record field index = this index + 1; field 0 is the class name). When a
+	#methodFilter is set (e.g. the 'marked methods only' diagram granularity), only
+	methods satisfying it are shown -- consistently across the DOT label, the click
+	field map, and the compartment, since all three funnel through here."
+	| inst stat all |
+	all := methodFilter isNil
+		ifTrue: [self methodNodes]
+		ifFalse: [self methodNodes select: [:m | methodFilter value: m]].
+	inst := all reject: [:m | m isStatic].
+	stat := all select: [:m | m isStatic].
 	^ inst asArray, stat asArray
 ]
 
@@ -267,19 +354,20 @@ SWACodeClassNode >> recordRowOn: ws port: portIndex bgColor: bgColorOrNil text: 
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:51'
 }
 SWACodeClassNode >> recordStateCompartmentOn: ws startingAt: startIndex [
-	"Emit the STATE compartment (one row per instance variable), preceded by an <hr/>
-	rule, into ws. Ports continue from startIndex. Answer the next free port index.
-	Emits nothing (and answers startIndex) when there are no ivars."
-	| idx |
+	"Emit the STATE compartment rows (one per instance variable) into ws. Ports continue
+	from startIndex. Answer the next free port index. When there are no (visible) ivars a
+	single blank spacer row is emitted so the enabled-but-empty section still renders below
+	its separator (drawn by the caller). Honors #ivarFilter (via #recordIvarNodes)."
+	| idx ivarNodes |
 	idx := startIndex.
-	self instVarNames isEmpty ifTrue: [^ idx].
-	ws nextPutAll: '<hr/>'.
-	self instVarNames do: [:v |
+	ivarNodes := self recordIvarNodes.
+	ivarNodes isEmpty ifTrue: [self recordEmptyRowOn: ws. ^ idx].
+	ivarNodes do: [:n |
 		idx := idx + 1.
-		self recordRowOn: ws port: idx bgColor: nil text: v].
+		self recordRowOn: ws port: idx bgColor: nil text: n ivarName].
 	^ idx
 ]
 

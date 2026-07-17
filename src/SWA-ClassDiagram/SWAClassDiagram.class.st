@@ -52,22 +52,24 @@ SWAClassDiagram class >> openOn: aCodeNode label: aLabel [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:13'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:52'
 }
 SWAClassDiagram class >> openOnMarkSet: aMarkSet [
 	"Open a LIVE class diagram of the classes currently marked in aMarkSet (marks whose
-	nodeKind is #class, plus the owning class of any method marks). The diagram stays
-	synced: marking/unmarking a class ANYWHERE updates this diagram. Wrapped in the usual
-	SWAPane chrome.
+	nodeKind is #class, plus the owning class of any method/ivar marks). Opens directly in
+	the '+Selected' depth, so each class box shows ONLY its bookmarked ivars and methods.
+	The diagram stays synced: marking/unmarking a member ANYWHERE updates it. Wrapped in
+	the usual SWAPane chrome.
 
 	SWAClassDiagram openOnMarkSet: SWAMarkSet default"
 	| root view panel window bounds |
 	root := SWACodeMarkSetRootNode new markSet: aMarkSet; yourself.
 	view := self on: root.
 	view syncToMarkSet: aMarkSet.
+	view leafKind: #selected.
 	panel := SWAPane on: view.
 	window := panel openInWindow.
-	window setLabel: 'Class Diagram: marked classes (live)'.
+	window setLabel: 'Class Diagram: marked members (live)'.
 	bounds := SWAPane defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
 	window bounds: bounds.
 	panel enforceMinimumWindowWidth.
@@ -161,14 +163,15 @@ SWAClassDiagram >> colorModeOptions [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:25'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
 }
 SWAClassDiagram >> depthLabelString [
-	"Friendly Depth-button text for this view's three granularities."
+	"Friendly Depth-button text for this view's granularities."
 	^ 'Depth: ', (leafKind caseOf: {
 		[#class]  -> ['Classes'].
 		[#state]  -> ['+State'].
-		[#method] -> ['+Methods'] }
+		[#method] -> ['+Methods'].
+		[#selected] -> ['+Selected'] }
 		otherwise: ['Classes'])
 ]
 
@@ -248,6 +251,21 @@ SWAClassDiagram >> initialize [
 ]
 
 {
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:45'
+}
+SWAClassDiagram >> ivarFilterForBuild [
+	"The ivar-filter block to install on class nodes for the current granularity, or nil to
+	show all instance variables. For #selected, only ivars whose crossRefKey
+	('Class>>#ivar') is in the mark set are shown. Uses the synced mark set if any, else the
+	global singleton."
+	| ms |
+	leafKind = #selected ifFalse: [^ nil].
+	ms := syncedMarkSet ifNil: [SWAMarkSet default].
+	^ [:ivarNode | ms includes: ivarNode crossRefKey]
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:15'
 }
@@ -259,21 +277,23 @@ SWAClassDiagram >> leafKind [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
 }
 SWAClassDiagram >> leafKind: aSymbol [
-	"Set the render granularity and rebuild. Three depths are meaningful for a UML
-	class diagram: #class (name box only), #state (name + instance variables), and
-	#method (name + state + methods). Anything else (the treemap's #package/#category)
-	is normalized to the nearest of the three, so the shared Depth button never lands
-	the graph on an unsupported depth. Rebuilds resetting the view, since the box
-	layout changes."
+	"Set the render granularity and rebuild. Four depths are meaningful for a UML class
+	diagram: #class (name box only), #state (name + all instance variables), #method
+	(name + all state + all methods), and #selected (name + only the MARKED ivars +
+	only the MARKED methods). Anything else (the treemap's #package/#category) is
+	normalized to the nearest, so the shared Depth button never lands the graph on an
+	unsupported depth. Rebuilds resetting the view, since the box layout changes."
 	| normalized |
 	normalized := (aSymbol = #class or: [aSymbol = #package])
 		ifTrue: [#class]
 		ifFalse: [(aSymbol = #state or: [aSymbol = #category])
 			ifTrue: [#state]
-			ifFalse: [#method]].
+			ifFalse: [(aSymbol = #selected or: [aSymbol = #markedMethods])
+				ifTrue: [#selected]
+				ifFalse: [#method]]].
 	leafKind = normalized ifTrue: [^ self].
 	leafKind := normalized.
 	rootNode ifNotNil: [self rebuildGraph]
@@ -281,13 +301,29 @@ SWAClassDiagram >> leafKind: aSymbol [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
 }
 SWAClassDiagram >> leafKindOrder [
 	"The granularities the Depth button cycles through for THIS view (as opposed to
-	the treemap's package->class->category->method). A class diagram has three
-	meaningful depths: classes only, classes + state, and classes + state + methods."
-	^ { #class. #state. #method }
+	the treemap's package->class->category->method). A class diagram has four
+	meaningful depths: classes only, classes + all state, classes + all state + all
+	methods, and #selected -- classes + only the MARKED instance variables and MARKED
+	methods (bookmarked in the mark set)."
+	^ { #class. #state. #method. #selected }
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:45'
+}
+SWAClassDiagram >> methodFilterForBuild [
+	"The method-filter block to install on class nodes for the current granularity, or nil
+	to show all methods. For #selected, only methods whose crossRefKey ('Class>>sel') is in
+	the mark set are shown. Uses the synced mark set if any, else the global singleton."
+	| ms |
+	leafKind = #selected ifFalse: [^ nil].
+	ms := syncedMarkSet ifNil: [SWAMarkSet default].
+	^ [:methodNode | ms includes: methodNode crossRefKey]
 ]
 
 {
@@ -315,7 +351,7 @@ SWAClassDiagram >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:57'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:45'
 }
 SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the class diagram and hand it to the embedded
@@ -324,13 +360,23 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	rectKeyByNode (node -> dot-id -> fieldIndexOrNil) so a selection can be located
 	as a highlight rectangle. The class diagram honors the active #colorMode (#kind /
 	#loc) AND the active #leafKind granularity (#class = classes only, #state =
-	classes + state, #method = classes + state + methods). Re-seat the morph in the
-	pane, preserving the current zoom + pan when keepView is true (e.g. a color-mode
-	recolor, which keeps the same layout) and resetting to top-left/100% otherwise."
-	| tuple ids showState showMethods |
+	classes + all state, #method = classes + all state + all methods, #selected =
+	classes + only the MARKED ivars and MARKED methods). Re-seat the morph in the pane,
+	preserving the current zoom + pan when keepView is true (e.g. a color-mode recolor,
+	which keeps the same layout) and resetting to top-left/100% otherwise."
+	| tuple ids showState showMethods methodFilter ivarFilter |
 	rootNode ifNil: [^ self].
 	showState := self showsState.
 	showMethods := self showsMethods.
+	"Install the per-granularity ivar/method filters on every class node before building,
+	so #recordIvarNodes / #recordMethodNodes (DOT label, field-click map, compartments)
+	all agree."
+	methodFilter := self methodFilterForBuild.
+	ivarFilter := self ivarFilterForBuild.
+	rootNode withAllChildrenDo: [:node |
+		(node isKindOf: SWACodeClassNode) ifTrue: [
+			node methodFilter: methodFilter.
+			node ivarFilter: ivarFilter]].
 	tuple := rootNode classDiagramGraphColorMode: self colorMode showState: showState showMethods: showMethods.
 	nodesByDotId := Dictionary new.
 	fieldNodesByDotId := Dictionary new.
@@ -344,8 +390,7 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 			fieldNodesByDotId at: dotId put: fields.
 			"Field 0 is the class name (whole node). Rows 1..N are ivar/method rows;
 			map each DISTINCT row node to its field rect -- but never overwrite the
-			class's own whole-box key (ivar rows resolve back to the class, and the
-			class should highlight its whole box, not an ivar row)."
+			class's own whole-box key (the class should highlight its whole box)."
 			fields doWithIndex: [:fnode :i |
 				(i > 1 and: [fnode ~~ node])
 					ifTrue: [rectKeyByNode at: fnode put: (dotId -> (i - 1))]]]].
@@ -434,20 +479,23 @@ SWAClassDiagram >> selectionPathString [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
 }
 SWAClassDiagram >> showsMethods [
-	"Whether the current granularity renders method rows inside class boxes."
-	^ leafKind = #method
+	"Whether the current granularity renders method rows inside class boxes. True for the
+	all-methods (#method) and selected (#selected) depths; which methods are shown is
+	decided by #methodFilterForBuild (#selected shows only marked methods)."
+	^ leafKind = #method or: [leafKind = #selected]
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:24'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
 }
 SWAClassDiagram >> showsState [
 	"Whether the current granularity renders the state (instance-variable) compartment
-	inside class boxes. Off only at the coarsest #class granularity."
+	inside class boxes. Off only at the coarsest #class granularity. For #selected the
+	compartment is rendered but FILTERED to marked ivars (see #ivarFilterForBuild)."
 	^ leafKind ~= #class
 ]
 
