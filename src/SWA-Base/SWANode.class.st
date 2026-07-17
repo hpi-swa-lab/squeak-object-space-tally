@@ -84,6 +84,27 @@ SWANode >> name [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
+}
+SWANode >> nodeKind [
+	"A machine-readable Symbol naming the KIND of thing this node represents -- what its
+	markKey points at -- independent of the view it is shown in. For code nodes this is
+	the existing #kind (#class / #package / #method / #category); other node families
+	answer their own (#spaceTally, #samplingTally, #change). Recorded in mark provenance
+	(as a String) so a mark remembers whether it is a class, a package, a space-tally
+	node, etc. Default: #kind if the node defines one, else a symbol derived from the
+	class name (strip 'SWA'/'Node', lowercase first letter)."
+	| n |
+	(self respondsTo: #kind) ifTrue: [^ self kind].
+	n := self class name asString.
+	(n beginsWith: 'SWA') ifTrue: [n := n allButFirst: 3].
+	(n endsWith: 'Node') ifTrue: [n := n allButLast: 4].
+	n isEmpty ifTrue: [^ #node].
+	^ (n first asLowercase asString, n allButFirst) asSymbol
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:32'
 }

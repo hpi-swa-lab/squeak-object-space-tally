@@ -1187,17 +1187,21 @@ SWAView >> testFilterKeys [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:40'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
 }
 SWAView >> toggleMark: aNode [
 	"Toggle aNode in/out of the global mark set (shift-click / menu). No-op for
-	unmarkable nodes (markKey nil). When a mark is newly ADDED, a serializable
-	provenance snapshot (#markProvenance) is recorded so the Marks pane can show which
-	visualization / dataset / root scope it came from. The mark set notifies all open
-	panes, which flush this view's marks cache and repaint."
+	unmarkable nodes (markKey nil). When a mark is newly ADDED, a serializable provenance
+	snapshot is recorded: the VIEW context (#markProvenance) plus the NODE kind
+	(#nodeKind -- class / package / method / space-tally node / ...) so the mark
+	remembers what its markKey points at. The mark set notifies all open panes, which
+	flush this view's marks cache and repaint."
+	| prov |
 	aNode ifNil: [^ self].
 	aNode markKey ifNil: [^ self].
-	SWAMarkSet default toggle: aNode markKey from: self markProvenance
+	prov := self markProvenance.
+	prov at: 'nodeKind' put: aNode nodeKind asString.
+	SWAMarkSet default toggle: aNode markKey from: prov
 ]
 
 {

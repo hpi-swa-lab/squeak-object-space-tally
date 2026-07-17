@@ -1730,11 +1730,12 @@ SWAPane >> loadTopicJson: json name: aName [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:14'
 }
 SWAPane >> marksBurgerMenu: aMenu [
 	"The 'burger' menu that replaces the Copy/Clear button row. Bundles the
-	clipboard/clear actions together with Save/Load to a JSON sidecar file."
+	clipboard/clear actions together with Save/Load to a JSON sidecar file and
+	'Class diagram of marks' (a live diagram of the marked classes)."
 	| n |
 	n := (marksSelectedKeys ifNil: [Set new]) size.
 	aMenu addTitle: 'Marks'.
@@ -1742,6 +1743,8 @@ SWAPane >> marksBurgerMenu: aMenu [
 		ifTrue: [aMenu add: 'Copy selected (', n printString, ')' target: self selector: #copyMarks]
 		ifFalse: [aMenu add: 'Copy all' target: self selector: #copyMarks].
 	aMenu add: 'Clear' target: self selector: #clearMarks.
+	aMenu addLine.
+	aMenu add: 'Class diagram of marks (live)' target: self selector: #openMarksClassDiagram.
 	aMenu addLine.
 	aMenu add: 'Save to file...' target: self selector: #saveMarks.
 	aMenu add: 'Load from file...' target: self selector: #loadMarks.
@@ -1765,18 +1768,21 @@ SWAPane >> marksChanged [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:41'
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
 }
 SWAPane >> marksDetailsText [
 	"Read-only details for the mark currently being edited (primary/last-clicked row):
-	its key plus the recorded provenance (kind of visualization, dataset, root scope).
-	Shown in the small pane above the comment editor."
+	its key, what KIND of node it is (class/package/method/space-tally/...), plus the
+	recorded provenance (kind of visualization, dataset, root scope). Shown in the small
+	pane above the comment editor."
 	| prov |
 	commentEditKey ifNil: [^ 'Select a mark to see where it was made.' asText].
 	prov := SWAMarkSet default provenanceAt: commentEditKey.
 	prov ifNil: [^ (commentEditKey, String cr, '(no provenance recorded)') asText].
 	^ (String streamContents: [:s |
 		s nextPutAll: commentEditKey; cr.
+		(prov at: 'nodeKind' ifAbsent: [nil]) ifNotNil: [:v |
+			s nextPutAll: 'Kind: '; nextPutAll: v; cr].
 		(prov at: 'viewLabel' ifAbsent: [nil]) ifNotNil: [:v |
 			s nextPutAll: 'View: '; nextPutAll: v; cr].
 		(prov at: 'datasetName' ifAbsent: [nil]) ifNotNil: [:v |
@@ -1784,8 +1790,6 @@ SWAPane >> marksDetailsText [
 			(prov at: 'datasetKind' ifAbsent: [nil]) ifNotNil: [:k |
 				s nextPutAll: ' ('; nextPutAll: k; nextPut: $)].
 			s cr].
-		(prov at: 'datasetSource' ifAbsent: [nil]) ifNotNil: [:v |
-			s nextPutAll: 'Source: '; nextPutAll: v; cr].
 		(prov at: 'rootScope' ifAbsent: [nil]) ifNotNil: [:v |
 			s nextPutAll: 'Root scope: '; nextPutAll: v; cr]]) asText
 ]
@@ -2342,6 +2346,16 @@ SWAPane >> openMarksBurgerMenu [
 	menu := MenuMorph new.
 	self marksBurgerMenu: menu.
 	menu popUpInWorld: self world
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:14'
+}
+SWAPane >> openMarksClassDiagram [
+	"Open a live class diagram of the classes currently in the global mark set. It stays
+	synced -- marking/unmarking classes anywhere updates it."
+	^ SWAClassDiagram openOnMarks
 ]
 
 {

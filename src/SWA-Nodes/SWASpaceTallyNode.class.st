@@ -654,6 +654,14 @@ SWASpaceTallyNode >> nodeForObject: anObject [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
+}
+SWASpaceTallyNode >> nodeKind [
+	^ #spaceTally
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:35'
 }

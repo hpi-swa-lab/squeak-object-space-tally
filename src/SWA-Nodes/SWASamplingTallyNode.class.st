@@ -261,6 +261,14 @@ SWASamplingTallyNode >> name: aString [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
+}
+SWASamplingTallyNode >> nodeKind [
+	^ #samplingTally
+]
+
+{
 	#category : #treemap,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:57'
 }

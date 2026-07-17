@@ -214,6 +214,16 @@ SWAMarkSet >> keys [
 ]
 
 {
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:11'
+}
+SWAMarkSet >> keysOfKind: aKindSymbol [
+	"The marked keys whose recorded node kind is aKindSymbol (e.g. #class), in mark order.
+	Marks with no recorded kind are excluded."
+	^ keys select: [:k | (self nodeKindAt: k) == aKindSymbol]
+]
+
+{
 	#category : #persistence,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:21'
 }
@@ -252,6 +262,21 @@ SWAMarkSet >> loadFromJsonString: aString [
 	comments := newComments.
 	provenance := newProv.
 	self notifyPanes
+]
+
+{
+	#category : #provenance,
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:11'
+}
+SWAMarkSet >> nodeKindAt: aKey [
+	"The recorded node KIND for aKey as a Symbol (#class / #package / #method /
+	#spaceTally / ...), or nil if unknown. Reads the 'nodeKind' field of the mark's
+	provenance. Lets callers (e.g. a marks-scoped class diagram) filter marks by what they
+	point at."
+	| prov |
+	prov := self provenanceAt: aKey.
+	prov ifNil: [^ nil].
+	^ (prov at: 'nodeKind' ifAbsent: [nil]) ifNotNil: [:s | s asSymbol]
 ]
 
 {

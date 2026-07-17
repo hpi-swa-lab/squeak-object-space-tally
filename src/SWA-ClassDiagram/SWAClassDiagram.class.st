@@ -14,7 +14,8 @@ Class {
 		'fieldNodesByDotId',
 		'rectKeyByNode',
 		'colorMode',
-		'leafKind'
+		'leafKind',
+		'syncedMarkSet'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
@@ -47,6 +48,41 @@ SWAClassDiagram class >> openOn: aCodeNode label: aLabel [
 	window bounds: bounds.
 	panel enforceMinimumWindowWidth.
 	^ window
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:13'
+}
+SWAClassDiagram class >> openOnMarkSet: aMarkSet [
+	"Open a LIVE class diagram of the classes currently marked in aMarkSet (marks whose
+	nodeKind is #class, plus the owning class of any method marks). The diagram stays
+	synced: marking/unmarking a class ANYWHERE updates this diagram. Wrapped in the usual
+	SWAPane chrome.
+
+	SWAClassDiagram openOnMarkSet: SWAMarkSet default"
+	| root view panel window bounds |
+	root := SWACodeMarkSetRootNode new markSet: aMarkSet; yourself.
+	view := self on: root.
+	view syncToMarkSet: aMarkSet.
+	panel := SWAPane on: view.
+	window := panel openInWindow.
+	window setLabel: 'Class Diagram: marked classes (live)'.
+	bounds := SWAPane defaultWindowBounds intersect: (0 @ 0 corner: Display extent).
+	window bounds: bounds.
+	panel enforceMinimumWindowWidth.
+	^ window
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:13'
+}
+SWAClassDiagram class >> openOnMarks [
+	"Open a live class diagram of the classes in the GLOBAL mark set.
+
+	SWAClassDiagram openOnMarks"
+	^ self openOnMarkSet: SWAMarkSet default
 ]
 
 {
@@ -413,6 +449,37 @@ SWAClassDiagram >> showsState [
 	"Whether the current granularity renders the state (instance-variable) compartment
 	inside class boxes. Off only at the coarsest #class granularity."
 	^ leafKind ~= #class
+]
+
+{
+	#category : #'marks-sync',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:13'
+}
+SWAClassDiagram >> syncToMarkSet: aMarkSet [
+	"Keep this diagram LIVE-synced to aMarkSet: register as a dependent so that whenever the
+	mark set changes (a mark added/removed elsewhere) we rebuild from the current marks.
+	Only meaningful when rootNode is a SWACodeMarkSetRootNode over the same set. Safe to
+	call once; re-registration is idempotent."
+	syncedMarkSet == aMarkSet ifTrue: [^ self].
+	syncedMarkSet ifNotNil: [syncedMarkSet removeDependent: self].
+	syncedMarkSet := aMarkSet.
+	aMarkSet ifNotNil: [aMarkSet addDependent: self]
+]
+
+{
+	#category : #'marks-sync',
+	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:13'
+}
+SWAClassDiagram >> update: anAspect [
+	"Dependent hook: the synced mark set changed. Invalidate the marks-scoped root so it
+	re-reads the live marks, then rebuild the graph keeping the current zoom/pan. Guard
+	against re-entrancy and non-marks roots."
+	syncedMarkSet ifNil: [^ self].
+	(rootNode isKindOf: SWACodeMarkSetRootNode) ifFalse: [^ self].
+	self world ifNil: [^ self syncToMarkSet: nil].	"detached: unsubscribe"
+	rootNode invalidate.
+	self rebuildKeyIndex.
+	self rebuildGraphKeepView: true
 ]
 
 {
