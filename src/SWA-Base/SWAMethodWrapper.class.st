@@ -35,9 +35,6 @@ Class {
 		'evictAt',
 		'evicted'
 	],
-	#classVars : [
-		'InWrapper'
-	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
@@ -73,65 +70,51 @@ SWAMethodWrapper class >> flushSystemCache [
 
 {
 	#category : #'reentrancy guard',
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:24'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
 }
 SWAMethodWrapper class >> guardedDo: aBlock [
-	"Evaluate aBlock with the reentrancy guard RAISED, restoring it afterwards. Use
-	this to run any instrumentation-framework code -- capture hooks, the runner loop,
-	the logger, recording -- so that wrapped methods it touches fall straight through
-	their wrappers instead of recursing. Re-entrant safe: nested calls save/restore.
-
-	Send-free in the common case is not required here (this is meta code), but the
-	read/write of InWrapper is a class-var access, cheap."
-	| was |
-	was := InWrapper.
-	InWrapper := true.
-	^ aBlock ensure: [InWrapper := was]
+	"Run aBlock with capturing SUPPRESSED (COP `withoutLayers(Capturing)`), restoring
+	afterwards. Use for any instrumentation-framework code -- capture hooks, the runner
+	loop, the logger, recording -- so wrapped methods it touches fall straight through
+	their wrappers instead of recursing. Now delegates to the process-specific
+	SWACapturingLayer, so this is re-entrant AND correct across concurrent processes."
+	^ SWACapturingLayer withoutCapturing: aBlock
 ]
 
 {
 	#category : #'reentrancy guard',
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:24'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
 }
 SWAMethodWrapper class >> isInWrapper [
-	"THE general reentrancy guard, shared by ALL wrapper subclasses (one class var on
-	the common superclass). True means 'control is currently inside instrumentation
-	machinery' -- a wrapper's capture hook, the runner, the logger, the recording
-	code. While true, EVERY wrapper's #run:with:in: must skip its capture and just
-	forward, so the instrumentation can never recurse into itself (the cause of the
-	unbounded context allocation on a broad run).
-
-	This is a MECHANISM, not a semantic flag: it answers 'am I inside my own code',
-	never 'should I record/count' -- those are separate per-tool flags."
-	^ InWrapper == true
+	"THE general reentrancy guard, shared by ALL wrapper subclasses. True means
+	'control is currently inside instrumentation machinery' in THIS process -- a
+	capture hook, the runner, the logger, the recording code -- so every wrapper's
+	#run:with:in: must skip capture and just forward. Now backed by the process-
+	specific SWACapturingLayer (true == layer suppressed here)."
+	^ SWACapturingLayer isActive not
 ]
 
 {
 	#category : #'reentrancy guard',
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:24'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
 }
 SWAMethodWrapper class >> resetGuard [
-	"Force the reentrancy guard down. Call before/after a run so a crash or stray
-	raise can't leave all wrappers permanently passing through."
-	InWrapper := false
+	"Force capturing back ACTIVE in THIS process so a crash or stray suppression can't
+	leave wrappers permanently passing through. Delegates to SWACapturingLayer reset."
+	SWACapturingLayer reset
 ]
 
 {
 	#category : #'reentrancy guard',
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:52'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
 }
 SWAMethodWrapper class >> whileUnguardedDo: aBlock [
-	"Evaluate aBlock with the reentrancy guard LOWERED (InWrapper=false) -- the
-	MEASURING WINDOW -- restoring it afterwards. This is the inverse of #guardedDo:.
-
-	The runner keeps the guard RAISED for all its own machinery (install, the loop,
-	logging, uninstall) so none of that is counted/captured or recurses; it opens this
-	window ONLY around the actual code under test (#testCase run). So 'unguarded' ==
-	'we are in target code, capture is allowed'."
-	| was |
-	was := InWrapper.
-	InWrapper := false.
-	^ aBlock ensure: [InWrapper := was]
+	"Run aBlock with capturing forced ACTIVE (COP MEASURING WINDOW), restoring the
+	previous layer state afterwards. The runner opens this ONLY around the actual code
+	under test (#testCase run) so the wrapped methods that code exercises -- at ANY
+	depth -- capture, while the surrounding machinery stays suppressed via #guardedDo:.
+	Delegates to the process-specific SWACapturingLayer."
+	^ SWACapturingLayer whileCapturing: aBlock
 ]
 
 {
@@ -333,44 +316,42 @@ SWAMethodWrapper >> onClass: aClass selector: aSelector [
 
 {
 	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:59'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
 }
 SWAMethodWrapper >> run: aSelector with: anArray in: aReceiver [
-	"THE shared template every wrapper runs. SEND-FREE on the hot path until we commit
-	to capturing (every wrapped method dispatches here; a per-call send or block
-	allocation explodes memory and recurses).
+	"THE shared template every wrapper runs. Every wrapped method dispatches here.
 
-	 1. REENTRANCY GUARD: InWrapper is a CLASS VAR read directly (bytecode, NO send).
-	    Raised means 'inside our own machinery' -> just forward. The runner keeps it
-	    raised for everything except the code under test (#whileUnguardedDo: around
-	    #testCase run), so install/loop/log/uninstall never count, capture, or recurse.
-	 2. COUNT: count := count + 1 (Kernel-Numbers substrate, never wrapped).
-	 3. EVICT-AFTER-N: once past evictAt, mark evicted and restore the real method in
-	    the dict (#uninstallNoFlush). CRITICAL: do NOT #flushCache here. We are CURRENTLY
-	    EXECUTING inside this wrapper's own dispatch; flushing the global method cache
-	    (primitive 89) mid-frame, then continuing into #withArgs:executeMethod:, can
-	    corrupt the in-flight send and abort the VM with a recursive doesNotUnderstand:
-	    (seen as ByteSymbol DNU on the Slider/ScrollBar #sliderColor theme path, but
-	    only in long runs where a hot method actually reaches evictAt mid-test). Just
-	    swapping the dict entry stops wrapping on the NEXT send; the stale cache entry
-	    for THIS method is harmless (it points at this wrapper, which still forwards to
-	    originalMethod) and is cleared by the run's final bulk #flushSystemCache. Also
-	    do the eviction GUARDED so #uninstallNoFlush's sends never re-enter.
-	 4. CAPTURE: raise the guard, call the hook, RESTORE it (it was false here, since
-	    we only got past step 1 when unguarded). One block/ensure: allocation, and only
-	    in the measuring window -- not on the (vast majority) guarded pass-throughs.
+	CONTEXT-ORIENTED GUARD (SWACapturingLayer): capturing is a process-specific LAYER.
+	The instrumentation's own machinery runs inside #withoutCapturing: (COP
+	`withoutLayers(Capturing)`), which deactivates the layer for its dynamic extent in
+	THAT process only. So:
+
+	 0. COUNT FIRST, ALWAYS: count := count + 1 (Kernel-Numbers, never wrapped).
+	    Counting is independent of the layer, so every invocation is tallied.
+
+	 1. LAYER CHECK: if capturing is SUPPRESSED in this process (we are inside our own
+	    machinery, or inside a capture hook), just forward -- no capture, no eviction,
+	    no recursion. Process-specific, so a concurrent redraw/stepping/XR process
+	    can't have its guard flipped by ours (the old global class-var stomped across
+	    processes and crashed as Message>(nil)/ByteSymbol DNU on the theme path).
+
+	 2. CAPTURE / EVICT (layer active): do the per-call work inside #withoutCapturing:
+	    so the hook's own sends fall through their wrappers. EVICTION restores the real
+	    method WITHOUT flushing the cache (#uninstallNoFlush); a mid-frame primitive-89
+	    flush corrupts the in-flight send. The stale cache entry still forwards to
+	    originalMethod and is cleared by the run's final bulk #flushSystemCache.
+
+	 3. FORWARD with the layer left as-is: capture stays ACTIVE across the forward so
+	    coverage attributes the FULL nested subtree a test exercises (each nested
+	    wrapped call re-enters here with the layer active and captures at its depth).
 
 	Forward via inline withArgs:executeMethod: (Kernel-Objects substrate)."
-	InWrapper == true ifTrue: [
-		^ aReceiver withArgs: anArray executeMethod: originalMethod].
 	count := count + 1.
-	(evictAt notNil and: [count >= evictAt]) ifTrue: [
-		evicted := true.
-		InWrapper := true.
-		[self uninstallNoFlush] ensure: [InWrapper := false].
+	SWACapturingLayer isActive ifFalse: [
 		^ aReceiver withArgs: anArray executeMethod: originalMethod].
-	InWrapper := true.
-	[self captureIn: aReceiver] ensure: [InWrapper := false].
+	(evictAt notNil and: [count >= evictAt])
+		ifTrue: [evicted := true. SWACapturingLayer withoutCapturing: [self uninstallNoFlush]]
+		ifFalse: [SWACapturingLayer withoutCapturing: [self captureIn: aReceiver]].
 	^ aReceiver withArgs: anArray executeMethod: originalMethod
 ]
 

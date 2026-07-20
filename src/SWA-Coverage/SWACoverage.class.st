@@ -469,7 +469,7 @@ SWACoverage class >> inMetaMode: aBoolean [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 16:11'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:55'
 }
 SWACoverage class >> infrastructureClasses [
 	"Classes that must NEVER be instrumented, regardless of package selection: the
@@ -485,8 +485,14 @@ SWACoverage class >> infrastructureClasses [
 	subclasses but not the new superclass, which is why '*' still blew up after the
 	refactor.)
 
+	CRITICAL: SWACapturingLayer is the process-specific reentrancy guard that
+	#run:with:in: consults on EVERY dispatch (#isActive / #suppressionDepth /
+	#withoutCapturing:). Wrapping it makes reading the guard call a wrapped method,
+	which reads the guard again -> infinite recursion -> HANG (the '*' tally hang
+	after the COP-guard refactor). It MUST be here too.
+
 	Always on, even with #exclusions: #()."
-	^ { SWAMethodWrapper. SWACoverage. SWACoverageData.
+	^ { SWAMethodWrapper. SWACapturingLayer. SWACoverage. SWACoverageData.
 		SWACoverageWrapper. SWATallyWrapper. SWACoverageRunPanel.
 		TestCase. TestSuite. TestResult. TestCoverage }
 ]
@@ -984,17 +990,24 @@ SWACoverage >> installTestCoverage [
 
 {
 	#category : #'invocation tally',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:30'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:33'
 }
 SWACoverage >> instrumentTally [
 	"TALLY mode: install a live counting SWATallyWrapper on every watched method.
 	They stay installed and count every call, self-evicting once a method passes
 	evictAt so hot methods stop paying overhead. Exercise the system, then send
-	#collectTally and #uninstall. Returns self."
+	#collectTally and #uninstall. Returns self.
+
+	BULK install: use #installNoFlush per wrapper then #flushSystemCache ONCE.
+	Calling #install (which flushes primitive 89, a GLOBAL cache flush) per method
+	over tens of thousands of methods re-flushes the whole VM cache tens of thousands
+	of times -- the '*' whole-image hang/crash. Same lesson as coverage's
+	#installTestCoverage / #runProvenanceCases:panel:."
 	wrappers := methods collect: [:m |
 		(SWATallyWrapper new
 			onClass: m methodClass selector: m selector evictAt: evictAt)
-			install; yourself].
+			installNoFlush; yourself].
+	SWAMethodWrapper flushSystemCache.
 	^ self
 ]
 
@@ -1331,11 +1344,16 @@ SWACoverage >> runWithProvenanceTestCases: testCases panel: aPanelOrNil [
 
 {
 	#category : #'invocation tally',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:30'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:33'
 }
 SWACoverage >> uninstall [
-	"Restore every method (tally mode). Idempotent; safe to call after eviction."
-	wrappers do: [:w | w uninstall].
+	"Restore every method (tally mode). Idempotent; safe to call after eviction.
+
+	BULK uninstall: #uninstallNoFlush per wrapper then #flushSystemCache ONCE, for
+	the same reason as #instrumentTally -- a per-method global cache flush over the
+	whole image ('*') hangs/crashes the VM."
+	wrappers do: [:w | w uninstallNoFlush].
+	SWAMethodWrapper flushSystemCache.
 	wrappers := OrderedCollection new.
 	^ self
 ]
