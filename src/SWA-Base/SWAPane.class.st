@@ -90,15 +90,16 @@ SWAPane class >> enforceMinimumWidthOn: aWindow [
 
 {
 	#category : #'class initialization',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 18:43'
 }
 SWAPane class >> initialize [
-	"Register the Apps-menu entry for the code map.
+	"Register the Apps-menu entry for the code map. The 'SWA ' label prefix
+	groups all SWA tools together in the (alphabetically sorted) Apps menu.
 	Idempotent: removes any prior entry for this receiver first."
 	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
 	TheWorldMenu unregisterOpenCommandWithReceiver: self.
 	TheWorldMenu registerOpenCommand: {
-		'Code Map'.
+		'SWA Code Map'.
 		{self. #open}.
 		'Open a treemap of all packages, classes as leaves' }
 ]

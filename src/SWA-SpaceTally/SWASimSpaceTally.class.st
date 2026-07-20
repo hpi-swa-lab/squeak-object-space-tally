@@ -83,18 +83,19 @@ SWASimSpaceTally class >> chooseImageAndExplore [
 
 {
 	#category : #'class initialization',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 18:43'
 }
 SWASimSpaceTally class >> initialize [
-	"Register an Apps/World menu entry next to 'Space Tally' that walks a
-	simulated image picked from a file, rather than the running image.
-	registerOpenCommand: is idempotent by label, so re-running is safe."
-
-	(TheWorldMenu respondsTo: #registerOpenCommand:)
-		ifTrue: [TheWorldMenu registerOpenCommand: {
-			'Space Tally (image file)'.
-			{self. #chooseImageAndExplore}.
-			'Walk and explore the heap of a Squeak image file (via the VM simulator)'}]
+	"Register an Apps-menu entry that walks a simulated image picked from a file,
+	rather than the running image. The 'SWA ' label prefix groups all SWA tools
+	together in the (alphabetically sorted) Apps menu.
+	Idempotent: removes any prior entry for this receiver first."
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Space Tally (image file)'.
+		{self. #chooseImageAndExplore}.
+		'Walk and explore the heap of a Squeak image file (via the VM simulator)' }
 ]
 
 {

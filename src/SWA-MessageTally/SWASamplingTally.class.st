@@ -57,15 +57,16 @@ Class {
 
 {
 	#category : #'class initialization',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:00'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 18:43'
 }
 SWASamplingTally class >> initialize [
-	"Register the Apps-menu entry for sampling-tally self profiling.
-	Idempotent: removes any prior entry for this receiver first."
+	"Register the Apps-menu entry for sampling-tally self profiling. The 'SWA '
+	label prefix groups all SWA tools together in the (alphabetically sorted)
+	Apps menu. Idempotent: removes any prior entry for this receiver first."
 	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
 	TheWorldMenu unregisterOpenCommandWithReceiver: self.
 	TheWorldMenu registerOpenCommand: {
-		'Sampling Tally (Self Profile)'.
+		'SWA Sampling Tally (Self Profile)'.
 		{self. #open}.
 		'Sample this image for 10s (statistical/sampling tally via st-spy) and open a flamegraph' }
 ]

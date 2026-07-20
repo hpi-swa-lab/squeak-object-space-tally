@@ -425,11 +425,17 @@ SWASpaceTally class >> generateToFile: aFilePath compact: compactThreshold [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 6/11/2026 15:07'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 18:43'
 }
 SWASpaceTally class >> initialize [
-	(TheWorldMenu respondsTo: #registerOpenCommand:)
-		ifTrue: [TheWorldMenu registerOpenCommand: {'Space Tally'. {self. #open}}]
+	"Register the Apps-menu entry for the running-image space tally. The 'SWA '
+	label prefix groups all SWA tools together in the (alphabetically sorted)
+	Apps menu. Idempotent: removes any prior entry for this receiver first."
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Space Tally'.
+		{self. #open} }
 ]
 
 {
