@@ -838,6 +838,27 @@ SWAPane >> buildInfoLines [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+}
+SWAPane >> buildMaskFrom: aBaseDataset overlay: anOverlayDataset [
+	"Create the synthetic MASK dataset 'B \ A' (methods touched in overlay B but not
+	in baseline A), retain it, make it the active data source, and refresh. The Code
+	Map analog of the Space Tally's 'Diff from this' -- as a SET MASK over method keys.
+	An empty mask (B subset of A) is still created (a valid 'nothing new' answer)."
+	| tm ds name |
+	tm := self treemap.
+	name := 'mask(', (anOverlayDataset name ifNil: ['?']), ' \ ',
+		(aBaseDataset name ifNil: ['?']), ')'.
+	ds := tm addDataset: (SWADataset maskFrom: aBaseDataset minus: anOverlayDataset named: name).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Mask ', ds source expressionString, ': ',
+		ds source survivorCount printString, ' new methods (in B, not A)'.
+	self refresh.
+	^ ds
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -868,6 +889,27 @@ SWAPane >> chooseJsonFilePrompt: aPromptString [
 	"Fallback."
 	^ (UIManager default request: aPromptString initialAnswer: '')
 		ifNil: [nil] ifNotNil: [:s | s isEmpty ifTrue: [nil] ifFalse: [s withBlanksTrimmed]]
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+}
+SWAPane >> chooseMaskOverlayFor: aBaseDataset [
+	"Second step of building a mask: the base A is chosen, now pop up the OVERLAY (B)
+	picker -- every maskable dataset except A itself. Picking one builds 'B \ A'."
+	| menu overlays |
+	overlays := self maskableDatasets reject: [:ds | ds == aBaseDataset].
+	overlays isEmpty ifTrue: [
+		^ self treemapCoverageStatus: 'Mask: need a second (different) dataset to use as overlay B'].
+	menu := MenuMorph new defaultTarget: self.
+	menu addTitle: 'Overlay B (kept):  B \ ', (aBaseDataset name ifNil: ['?']).
+	overlays do: [:ds |
+		menu add: (ds name ifNil: ['?'])
+			target: self
+			selector: #buildMaskFrom:overlay:
+			argumentList: { aBaseDataset. ds }].
+	menu popUpInWorld: self world
 ]
 
 {
@@ -1172,10 +1214,11 @@ SWAPane >> cycleLeafKind [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:40'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
 }
 SWAPane >> dataMenuMorph [
 	"Build the top-level Data menu for ANY view: None, one entry per RETAINED dataset,
+	then -- on its own line -- the MASK combinator (B \ A over two of those datasets),
 	then -- in italic, below a separator -- the async GENERATOR entries (the on-the-fly
 	twins of the 'Load' button: compute duplication/coverage/... for the shown
 	packages and retain the result as a dataset). Finally -- below a separator -- one
@@ -1196,6 +1239,11 @@ SWAPane >> dataMenuMorph [
 			menu add: (current == ds modeSymbol ifTrue: ['* '] ifFalse: ['   ']),
 					'Data: ', (ds name ifNil: ['?'])
 				selector: #setDataMode: argument: ds modeSymbol]].
+	"MASK combinator: set-subtract two loaded datasets (B \ A). Own line, right after
+	the dataset list it operates on. Only when there are >=2 maskable operands."
+	self maskableDatasets size >= 2 ifTrue: [
+		menu addLine.
+		menu add: 'Mask (B \ A): new methods only...' selector: #popUpMaskBaseMenu argument: nil].
 	"Italic async GENERATOR entries (compute a dataset on the fly)."
 	gens := self codeMapGeneratorEntries.
 	gens isEmpty ifFalse: [
@@ -1976,6 +2024,21 @@ SWAPane >> marksPrimaryIndex: anIndex shifted: shifted controlled: controlled [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+}
+SWAPane >> maskableDatasets [
+	"The retained datasets eligible as mask OPERANDS: those whose source can answer
+	a touched-method key set (#coveredMethodKeys) -- i.e. call tally / coverage /
+	other masks. The basis for the Data-menu 'Mask (B \ A)' submenus."
+	| tm |
+	tm := self treemap.
+	tm ifNil: [^ #()].
+	(tm respondsTo: #datasets) ifFalse: [^ #()].
+	^ tm datasets select: [:ds | ds source respondsTo: #coveredMethodKeys]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -2542,6 +2605,28 @@ SWAPane >> popUpDecorationMenu [
 	context menu uses (shared #decorationMenuMorph on the overlay)."
 	self treemapOverlay ifNotNil: [:o |
 		(o respondsTo: #popUpDecorationMenu) ifTrue: [o popUpDecorationMenu]]
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+}
+SWAPane >> popUpMaskBaseMenu [
+	"First step of building a mask (the 'Mask (B \ A)...' Data-menu entry): pop up the
+	BASELINE A picker. Choosing A then pops the overlay B picker. Only meaningful with
+	>=2 maskable datasets."
+	| menu bases |
+	bases := self maskableDatasets.
+	bases size < 2 ifTrue: [
+		^ self treemapCoverageStatus: 'Mask: need two call/coverage datasets to combine'].
+	menu := MenuMorph new defaultTarget: self.
+	menu addTitle: 'Baseline A (subtracted):  B \ A'.
+	bases do: [:ds |
+		menu add: (ds name ifNil: ['?'])
+			target: self
+			selector: #chooseMaskOverlayFor:
+			argumentList: { ds }].
+	menu popUpInWorld: self world
 ]
 
 {

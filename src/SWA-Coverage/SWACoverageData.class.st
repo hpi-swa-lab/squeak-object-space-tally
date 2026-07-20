@@ -117,6 +117,20 @@ SWACoverageData >> coveredMethodCount [
 
 {
 	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:02'
+}
+SWACoverageData >> coveredMethodKeys [
+	"The uniform 'which methods were touched' key set as 'Class>>selector' strings,
+	for both coverage (methods hit by a test) and call-tally (methods invoked). This
+	is the operand set for dataset MASK arithmetic (e.g. B \ A -- new methods only)."
+	| keys |
+	keys := Set new: coverage size.
+	coverage keysDo: [:mid | keys add: (methodNames at: mid)].
+	^ keys
+]
+
+{
+	#category : #querying,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:44'
 }
 SWACoverageData >> coveringTestCountFor: aMethodName [

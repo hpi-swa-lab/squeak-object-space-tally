@@ -57,6 +57,22 @@ SWADataset class >> duplicationFrom: aSWADuplicationData named: aString [
 
 {
 	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
+}
+SWADataset class >> maskFrom: aBaseDataset minus: anOverlayDataset named: aString [
+	"Wrap a MASK operation as a retained, named #masked dataset: highlights the method
+	keys touched in anOverlayDataset (B) that aBaseDataset (A) never touched -- the
+	Code Map analog of the Space Tally's 'Diff from this'. The dataset RETAINS its
+	operands (via the SWAMaskSource) so it displays and navigates as 'B \ A'."
+	^ self new
+		kind: #masked;
+		source: (SWAMaskSource left: aBaseDataset minus: anOverlayDataset);
+		name: aString;
+		yourself
+]
+
+{
+	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
 }
 SWADataset class >> peerFrom: aSWAPeerViewSource named: aString [
@@ -163,7 +179,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:37'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:04'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -197,6 +213,11 @@ SWADataset >> buildMetrics [
 			dataset: self; id: #sampleTallySelf; label: 'By self samples (CPU heat)';
 			axes: #(#color #size); rollup: #sum;
 			scale: (self spaceTallyScaleForMax: source maxSelf); yourself)].
+	kind == #masked ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #maskHit; label: 'By mask (B \ A: new only)';
+			axes: #(#color); rollup: #sum;
+			scale: self maskScale; yourself)].
 	kind == #topic ifTrue: [
 		ms add: ((SWADatasetMetric new
 			dataset: self; id: #topic; label: 'By topic (hue families)';
@@ -230,7 +251,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:48'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -247,6 +268,7 @@ SWADataset >> defaultBindings [
 	duplication: color by clone heat + decoration = clone links.
 	spaceTally: color by instance (self) bytes.
 	sampleTally: color by self-sample CPU heat.
+	masked: color by mask hit (B \ A highlight).
 	topic: color by dominant-topic hue family (categorical).
 	peer: color by the peer's shared per-key weight (cross-reference)."
 	| d |
@@ -259,6 +281,8 @@ SWADataset >> defaultBindings [
 	kind == #spaceTally ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	kind == #sampleTally ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+	kind == #masked ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	kind == #topic ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
@@ -297,6 +321,16 @@ SWADataset >> duplicationScale [
 ]
 
 {
+	#category : #testing,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
+}
+SWADataset >> isMaskOp [
+	"Whether this dataset is a MASK operation (an arithmetic between two other
+	datasets), as opposed to a raw capture. Such a dataset carries operand refs."
+	^ kind == #masked
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
 }
@@ -311,6 +345,22 @@ SWADataset >> kind [
 }
 SWADataset >> kind: aSymbol [
 	kind := aSymbol
+]
+
+{
+	#category : #scale,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:04'
+}
+SWADataset >> maskScale [
+	"Highlight ramp for a boolean MASK metric. The raw value is a survivor COUNT
+	(#sum rollup: a method is 1.0, a class is the number of its surviving methods).
+	Any survivor lights warm; classes with more new methods glow hotter. Zero/nil
+	stays neutral (handled by nil upstream), so untouched-baseline code recedes."
+	^ [:count |
+		count <= 0
+			ifTrue: [nil]
+			ifFalse: [| t | t := ((count - 1) / 8.0) min: 1.0.
+				Color h: 40 - (t * 40) s: 0.85 v: 0.70 + (t * 0.25)]]
 ]
 
 {
@@ -360,6 +410,16 @@ SWADataset >> name [
 }
 SWADataset >> name: aString [
 	name := aString
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
+}
+SWADataset >> operands [
+	"For a mask (operation) dataset: { baseDataset. overlayDataset }. Empty otherwise."
+	self isMaskOp ifFalse: [^ #()].
+	^ { source left. source right }
 ]
 
 {

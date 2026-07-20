@@ -227,7 +227,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:31'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -242,6 +242,7 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	id == #spaceTallySelf ifTrue: [^ dataset source bytesForKey: aCrossRefKey].
 	id == #spaceTallyTotal ifTrue: [^ dataset source totalBytesForKey: aCrossRefKey].
 	id == #sampleTallySelf ifTrue: [^ dataset source selfCountForKey: aCrossRefKey].
+	id == #maskHit ifTrue: [^ dataset source weightForKey: aCrossRefKey].
 	id == #peerWeight ifTrue: [^ dataset source weightForKey: aCrossRefKey].
 	^ nil
 ]
