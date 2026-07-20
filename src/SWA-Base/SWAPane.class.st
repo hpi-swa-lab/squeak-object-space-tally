@@ -525,6 +525,23 @@ SWAPane class >> unload [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
+}
+SWAPane >> abandonInvocationTally [
+	"Tear down a live invocation tally WITHOUT collecting or touching the treemap/UI.
+	Safe to call during window teardown (#delete) or from error recovery. Uninstalls
+	the wrappers, then sweeps ALL strays (layer-aware) as a belt-and-braces guarantee
+	that no instrumentation lingers to corrupt unrelated tools (the Git-tool DNU).
+	Idempotent."
+	liveTally ifNotNil: [
+		[liveTally uninstall] on: Error do: [:e | "swept below regardless"].
+		liveTally := nil].
+	SWAMethodWrapper uninstallAllStrayWrappers.
+	self updateTallyButton
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
 }
@@ -990,19 +1007,25 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, and either
 	(a) retain the result as a #call-metric DATASET when the tally was started from
 	the Data-menu 'Generate: call tally' entry (#tallyAsDataset), or (b) overlay the
 	legacy green tally ramp (Tally button). Either way the wrappers are UNINSTALLED
-	first so instrumentation never lingers. Resets the Tally button + live state."
+	first so instrumentation never lingers. Resets the Tally button + live state.
+
+	The collect+uninstall is wrapped in ensure: with a FULL layer-aware stray-sweep,
+	so even if the overlay/UI work fails -- or the tally had layered over an earlier
+	leaked run -- NOTHING is left instrumented (the Git-tool DNU came from orphaned
+	wrappers)."
 	| n tm cov |
 	liveTally ifNil: [^ self].
-	liveTally collectTally.
-	liveTally uninstall.
 	cov := liveTally.
+	[cov collectTally.
+	 cov uninstall]
+		ensure: [SWAMethodWrapper uninstallAllStrayWrappers].
 	n := cov resultMap size.
 	tm := self treemap.
 	tallyAsDataset == true
@@ -1183,6 +1206,20 @@ SWAPane >> datasetNameFor: aPath [
 SWAPane >> defaultMarksFileName [
 	"The suggested file name for Save/Load, in the image directory."
 	^ FileDirectory default fullNameFor: 'swa-marks.json'
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
+}
+SWAPane >> delete [
+	"Closing the pane/window MUST tear down any live invocation tally, otherwise the
+	installed wrappers are orphaned (their owning liveTally is dropped) and linger in
+	every method dictionary -- silently corrupting unrelated tools (seen as the Git
+	tool's ByteSymbol>>refTreeRoots DNU). Uninstall first, then proceed with normal
+	morph deletion."
+	liveTally ifNotNil: [self abandonInvocationTally].
+	super delete
 ]
 
 {
@@ -2926,14 +2963,22 @@ SWAPane >> sourceMorph [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
 }
 SWAPane >> startInvocationTally: aCodeRoot [
 	"Install live invocation-counting wrappers on the shown packages (Ingalls-style,
 	self-evicting on hot methods). They stay installed while you exercise the system.
 	Press Tally again -> #collectInvocationTally to read counts and uninstall.
-	The Tally button turns red; status shown in the meta line, no dialog."
+	The Tally button turns red; status shown in the meta line, no dialog.
+
+	CRITICAL: sweep any STRAY wrappers FIRST. If a prior run's wrappers are still
+	installed (crash + snapshot restore, abandoned run, GC'd owner), installing on top
+	LAYERS wrappers -- the new wrapper's originalMethod becomes the old wrapper, so
+	collecting the new layer restores the OLD wrapper and strands it forever (this is
+	the recurring Git-tool corruption). Starting from a clean slate makes each tally
+	self-contained."
 	liveTally ifNotNil: [^ self collectInvocationTally].
+	SWAMethodWrapper uninstallAllStrayWrappers.
 	liveTally := SWACoverage new
 		evictAt: 1000;
 		methodsForPackages: aCodeRoot packageNames.

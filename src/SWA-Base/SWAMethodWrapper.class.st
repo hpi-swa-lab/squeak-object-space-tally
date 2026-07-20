@@ -105,6 +105,39 @@ SWAMethodWrapper class >> resetGuard [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:22'
+}
+SWAMethodWrapper class >> uninstallAllStrayWrappers [
+	"SAFETY NET: scan EVERY class/trait method dictionary and, for any slot holding a
+	SWAMethodWrapper, restore the REAL underlying CompiledMethod -- peeling through
+	ANY number of stacked wrapper layers -- then flush the VM cache ONCE. Answers the
+	number of slots cleaned.
+
+	WHY LAYER-AWARE: pressing Tally while a prior run's wrappers are still installed
+	(after a crash/snapshot, or an abandoned run) installs a NEW wrapper OVER the old
+	one, so the new wrapper's originalMethod IS the old wrapper. A per-owner #uninstall
+	only restores its own originalMethod -- which puts the OLDER wrapper back, leaving
+	it stranded. Peeling to the first non-wrapper originalMethod fixes every layer at
+	once, regardless of which owner installed them (owner may be gone/GC'd).
+
+	Runs under #guardedDo: so nothing is captured/re-entered."
+	| cleaned |
+	cleaned := 0.
+	self guardedDo: [
+		Smalltalk allClassesAndTraits do: [:cls |
+			cls methodDictionary keysAndValuesDo: [:sel :entry |
+				(entry isKindOf: SWAMethodWrapper) ifTrue: [ | real |
+					real := entry.
+					[real isKindOf: SWAMethodWrapper] whileTrue: [
+						real := real instVarNamed: 'originalMethod'].
+					cls methodDictionary at: sel put: real.
+					cleaned := cleaned + 1]]]].
+	self flushSystemCache.
+	^ cleaned
+]
+
+{
 	#category : #'reentrancy guard',
 	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
 }
