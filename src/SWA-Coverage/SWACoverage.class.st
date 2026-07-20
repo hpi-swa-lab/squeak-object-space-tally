@@ -1128,13 +1128,19 @@ SWACoverage >> methodsForPackages: globCollection [
 
 {
 	#category : #selecting,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 17:42'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 19:00'
 }
 SWACoverage >> mustNotInstrument: aCompiledMethod [
 	"True if aCompiledMethod belongs to the coverage/test infrastructure (or a
 	subclass of it) -- a hard correctness guard independent of the user exclusion
 	list. Checks the instance side so metaclass methods are caught too."
 	| cls |
+	"#doesNotUnderstand: is on the VM's message-lookup fallback path. Wrapping it as an
+	object-as-method corrupts the synthetic DNU send the VM builds -- the reconstructed
+	message's receiver/selector shift, so a forwarded send lands on the selector SYMBOL
+	(seen as e.g. ByteSymbol>>commitColumns when a Git proxy forwards its list request).
+	NEVER instrument it, on any class."
+	aCompiledMethod selector == #doesNotUnderstand: ifTrue: [^ true].
 	cls := aCompiledMethod methodClass instanceSide.
 	^ SWACoverage infrastructureClasses anySatisfy: [:infra |
 		cls == infra or: [cls inheritsFrom: infra]]
