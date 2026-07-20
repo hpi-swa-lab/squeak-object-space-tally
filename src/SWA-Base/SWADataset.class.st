@@ -163,7 +163,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:48'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:37'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -177,7 +177,8 @@ SWADataset >> buildMetrics [
 			source hasInvocationData ifTrue: [
 				ms add: (SWADatasetMetric new
 					dataset: self; id: #call; label: 'By call';
-					axes: #(#color #size); rollup: #sum; yourself)]]].
+					axes: #(#color #size); rollup: #sum;
+					scale: (self spaceTallyScaleForMax: source maxInvocation); yourself)]]].
 	kind == #duplication ifTrue: [
 		ms add: (SWADatasetMetric new
 			dataset: self; id: #duplication; label: 'By duplication';

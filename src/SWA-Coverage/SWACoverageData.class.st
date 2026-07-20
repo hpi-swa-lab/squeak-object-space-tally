@@ -261,6 +261,21 @@ SWACoverageData >> markEvicted: aMethodName [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:37'
+}
+SWACoverageData >> maxInvocation [
+	"The largest recorded invocation count across all methods (0 if none). Used to
+	log-normalize the #call metric's colour ramp so call counts -- which span many
+	orders of magnitude -- get a proper cool->hot scale instead of the coverage
+	scale's 0-is-dark-red mapping."
+	| max |
+	max := 0.
+	self invocationMap valuesDo: [:n | n > max ifTrue: [max := n]].
+	^ max
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:44'
 }
 SWACoverageData >> maxTestsPerMethod: anInteger [

@@ -28,7 +28,7 @@ Class {
 		'savedWindowFrame',
 		'liveTally',
 		'coverageCancel',
-		'tallyButton',
+		'tallyStopPanel',
 		'sourceSplitter',
 		'coveringTestsColumn',
 		'coveringTestsWidth',
@@ -526,19 +526,19 @@ SWAPane class >> unload [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
 }
 SWAPane >> abandonInvocationTally [
 	"Tear down a live invocation tally WITHOUT collecting or touching the treemap/UI.
 	Safe to call during window teardown (#delete) or from error recovery. Uninstalls
-	the wrappers, then sweeps ALL strays (layer-aware) as a belt-and-braces guarantee
-	that no instrumentation lingers to corrupt unrelated tools (the Git-tool DNU).
-	Idempotent."
+	the wrappers, closes the STOP window, then sweeps ALL strays (layer-aware) as a
+	belt-and-braces guarantee that no instrumentation lingers to corrupt unrelated
+	tools (the Git-tool DNU). Idempotent."
 	liveTally ifNotNil: [
 		[liveTally uninstall] on: Error do: [:e | "swept below regardless"].
 		liveTally := nil].
-	SWAMethodWrapper uninstallAllStrayWrappers.
-	self updateTallyButton
+	self closeTallyStopWindow.
+	SWAMethodWrapper uninstallAllStrayWrappers
 ]
 
 {
@@ -759,17 +759,20 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:25'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
 	(far left; overflow home for growing actions like Export/Load), then Back/Browse/
 	optional Deselect, then the overlay-gated Data/Tree/Size/Color/Links, then
-	Code-Map Tally, then optional Depth and the name-search field. (Marks and Source
-	are NO LONGER header buttons -- each is a floating flap tab over the body: Marks
-	vertical on the LEFT, Source horizontal on the BOTTOM; see #buildBodyRow.) Each
-	optional control is gated on the view/overlay actually SUPPORTING it, so a view
-	opts into just the subset it implements. Answers headerRow."
+	optional Depth and the name-search field. (Marks and Source are NO LONGER header
+	buttons -- each is a floating flap tab over the body: Marks vertical on the LEFT,
+	Source horizontal on the BOTTOM; see #buildBodyRow.) Each optional control is
+	gated on the view/overlay actually SUPPORTING it, so a view opts into just the
+	subset it implements. Answers headerRow.
+
+	Call Tally is no longer a header button: it is a Data-menu generator that pops up
+	a STOP window (see #generateCallTallyDataset / #openTallyStopWindow)."
 	| menuButton ovl |
 	headerRow := self newChromeRow
 		wrapDirection: #topToBottom;
@@ -798,10 +801,6 @@ SWAPane >> buildHeaderRow [
 			headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu)].
 		(view respondsTo: #decorationMetric) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
-	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
-		tallyButton := self buttonLabelled: 'Tally' action: #coverageTally.
-		headerRow addMorphBack: tallyButton.
-		self updateTallyButton].
 	"Depth: cycle how deep tiles are drawn (only where the view supports leafKind:)."
 	(view respondsTo: #leafKind:) ifTrue: [
 		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
@@ -873,18 +872,19 @@ SWAPane >> chooseJsonFilePrompt: aPromptString [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:28'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
 }
 SWAPane >> cleanupAllWrappers [
 	"MANUAL SAFETY: forcibly remove EVERY instrumentation wrapper still installed in
 	the image (layer-aware -- peels stacked wrappers to the real method), drop any live
-	tally state, and report how many were swept. For recovering after a crash/snapshot
-	or an abandoned run left wrappers behind (which crash the image on the next tally)."
+	tally state, close the STOP window, and report how many were swept. For recovering
+	after a crash/snapshot or an abandoned run left wrappers behind (which crash the
+	image on the next tally)."
 	| n |
 	liveTally := nil.
 	tallyAsDataset := false.
+	self closeTallyStopWindow.
 	n := SWAMethodWrapper uninstallAllStrayWrappers.
-	self updateTallyButton.
 	self treemapCoverageStatus: 'Removed ', n printString, ' instrumentation wrapper(s)'.
 	self inform: 'Removed ', n printString, ' instrumentation wrapper(s).'
 ]
@@ -940,8 +940,21 @@ SWAPane >> clearMarks [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 13:17'
+}
+SWAPane >> closeTallyStopWindow [
+	"Close and forget the call-tally STOP window, if open. Clears onClose first so a
+	deliberate close after collecting does not re-fire the abandon path. Idempotent."
+	tallyStopPanel ifNotNil: [
+		tallyStopPanel onClose: nil.
+		tallyStopPanel closeWindow.
+		tallyStopPanel := nil]
+]
+
+{
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:49'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:57'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -950,17 +963,17 @@ SWAPane >> codeMapGeneratorEntries [
 	as a named SWADataset (so it then appears in the Color/Size menus like any loaded
 	file). Empty unless the wrapped view is a Code Map.
 
-	Call Tally is TWO-PHASE (instrument -> exercise -> collect): its label reflects
-	whether a tally is currently live, so a second pick collects."
+	Call Tally is TWO-PHASE (instrument -> exercise -> collect): picking it instruments
+	and pops up a STOP window; pressing STOP there collects. The label reflects whether
+	a tally is currently live."
 	| entries |
 	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ #()].
 	entries := OrderedCollection new.
 	entries add: { 'Generate: duplication (clone heat)'. #generateDuplicationDataset }.
 	entries add: { 'Generate: test coverage (run related tests)'. #generateCoverageDataset }.
-	(liveTally notNil and: [tallyAsDataset == true])
-		ifTrue: [entries add: { 'Generate: call tally -- COLLECT now'. #generateCallTallyDataset }]
-		ifFalse: [liveTally isNil ifTrue: [
-			entries add: { 'Generate: call tally (instrument + exercise)'. #generateCallTallyDataset }]].
+	liveTally isNil
+		ifTrue: [entries add: { 'Generate: call tally (instrument + exercise, then Stop)'. #generateCallTallyDataset }]
+		ifFalse: [entries add: { 'Generate: call tally -- COLLECT now'. #generateCallTallyDataset }].
 	entries add: { 'Generate: sample tally (', self class sampleTallyDuration printString, 's CPU heat)'. #generateSampleTallyDataset }.
 	entries add: { 'Generate: topic model (k=', self class topicK printString, ')'. #generateTopicDataset }.
 	^ entries
@@ -1025,14 +1038,14 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
 }
 SWAPane >> collectInvocationTally [
-	"Read invocation counts from the live tally, uninstall the wrappers, and either
-	(a) retain the result as a #call-metric DATASET when the tally was started from
-	the Data-menu 'Generate: call tally' entry (#tallyAsDataset), or (b) overlay the
-	legacy green tally ramp (Tally button). Either way the wrappers are UNINSTALLED
-	first so instrumentation never lingers. Resets the Tally button + live state.
+	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
+	window, and retain the result as a #call-metric DATASET (the normal Data-menu
+	path). A legacy fallback still overlays the green tally ramp directly if a tally
+	was somehow started with tallyAsDataset false. Either way the wrappers are
+	UNINSTALLED first so instrumentation never lingers.
 
 	The collect+uninstall is wrapped in ensure: with a FULL layer-aware stray-sweep,
 	so even if the overlay/UI work fails -- or the tally had layered over an earlier
@@ -1044,20 +1057,19 @@ SWAPane >> collectInvocationTally [
 	[cov collectTally.
 	 cov uninstall]
 		ensure: [SWAMethodWrapper uninstallAllStrayWrappers].
+	self closeTallyStopWindow.
 	n := cov resultMap size.
 	tm := self treemap.
 	tallyAsDataset == true
 		ifTrue: [
 			tallyAsDataset := false.
 			liveTally := nil.
-			self updateTallyButton.
 			^ self addCallTallyDataset: cov name: 'Call Tally (generated)'].
 	tm showCoverage: cov.
 	(tm respondsTo: #noteColorMode:) ifTrue: [tm noteColorMode: #tally].
 	self treemapCoverageStatus: 'Tally: ', n printString, ' methods invoked'.
 	self refresh.
-	liveTally := nil.
-	self updateTallyButton
+	liveTally := nil
 ]
 
 {
@@ -1085,17 +1097,15 @@ SWAPane >> copyMarks [
 ]
 
 {
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:16'
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:58'
 }
 SWAPane >> coverageTally [
-	"Button action: toggle the live invocation tally. First press instruments the
-	shown packages; second press collects counts and overlays them."
-	| root |
-	liveTally ifNotNil: [^ self collectInvocationTally].
-	root := self codeRoot.
-	root ifNil: [^ self treemapCoverageStatus: 'Coverage: only on a Code Map'].
-	self startInvocationTally: root
+	"BACKWARD COMPAT: the Tally header button was removed in favour of the Data-menu
+	'Generate: call tally' + STOP window. Old panels built before that change still
+	carry a Tally button wired here; route it to the new flow so it never DNUs
+	(#generateCallTallyDataset installs + opens the STOP window, or collects if live)."
+	^ self generateCallTallyDataset
 ]
 
 {
@@ -1357,25 +1367,26 @@ SWAPane >> focusSearchField: evt [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
 }
 SWAPane >> generateCallTallyDataset [
 	"Data-menu GENERATE (async twin of Load): a live CALL TALLY as a dataset. This is
 	inherently TWO-PHASE and must be driven carefully -- instrumenting every shown
 	method installs self-evicting wrappers that stay live until collected:
-	  1st pick -- instrument the shown packages (wrappers installed; Tally button red),
-	  2nd pick -- collect the counts, UNINSTALL the wrappers, and retain the result as
-	              a named SWADataset whose #call metric colors the map.
-	Between the two picks, EXERCISE the system so calls are counted. Reuses the same
-	liveTally state machine as the Tally button, so the two never install twice."
+	  1st pick -- instrument the shown packages (wrappers installed) AND pop up a small
+	              STOP window;
+	  2nd phase -- press STOP in that window to collect the counts, UNINSTALL the
+	               wrappers, and retain the result as a named SWADataset whose #call
+	               metric colours the map.
+	Between the two, EXERCISE the system so calls are counted. If a tally is already
+	live, this just collects (idempotent with the Stop button)."
 	| root |
 	liveTally ifNotNil: [^ self collectInvocationTally].
 	root := self codeRoot.
 	root ifNil: [^ self treemapCoverageStatus: 'Call Tally: only on a Code Map'].
 	tallyAsDataset := true.
 	self startInvocationTally: root.
-	self treemapCoverageStatus: 'Call Tally: instrumented ', liveTally methods size printString,
-		' methods -- EXERCISE the system, then pick ''Generate: call tally'' again (or press Tally) to collect'
+	self openTallyStopWindow
 ]
 
 {
@@ -1977,7 +1988,7 @@ SWAPane >> metaInfoContents [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:38'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
 }
 SWAPane >> morphViewInto: aViewMorph [
 	"Replace the panel's inner view with aViewMorph and rebuild the chrome around it,
@@ -1995,7 +2006,7 @@ SWAPane >> morphViewInto: aViewMorph [
 	headerRow := breadcrumbMorph := selectionPathMorph := metaInfoMorph := runInfoMorph := nil.
 	sourceMorph := detailsPane := detailsTitle := sourceRow := nil.
 	coveringTestsPane := coveringTestsTitle := sourceSplitter := nil.
-	depthButton := fullButton := tallyButton := nil.
+	depthButton := fullButton := nil.
 	bodyRow := marksPanel := marksList := marksButton := nil.
 	marksSplitter := commentField := nil.
 	self setView: aViewMorph.
@@ -2449,6 +2460,24 @@ SWAPane >> openSource [
 	self updateDetails.
 	self updateCoveringTests.
 	self layoutChanged
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 13:17'
+}
+SWAPane >> openTallyStopWindow [
+	"Pop up a small window with a single STOP button that collects the live call tally.
+	STOP -> #collectInvocationTally; closing without stopping -> #abandonInvocationTally.
+	Retained so #collectInvocationTally can close it."
+	liveTally ifNil: [^ self].
+	tallyStopPanel := SWACoverageRunPanel new
+		onStop: [self collectInvocationTally];
+		onClose: [self abandonInvocationTally];
+		openInWindowTitled: 'Call Tally -- exercise, then Stop';
+		yourself.
+	tallyStopPanel status: 'Tallying ', liveTally methods size printString,
+		' methods. Exercise the system, then press STOP to collect.'
 ]
 
 {
@@ -2984,13 +3013,12 @@ SWAPane >> sourceMorph [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
 }
 SWAPane >> startInvocationTally: aCodeRoot [
 	"Install live invocation-counting wrappers on the shown packages (Ingalls-style,
-	self-evicting on hot methods). They stay installed while you exercise the system.
-	Press Tally again -> #collectInvocationTally to read counts and uninstall.
-	The Tally button turns red; status shown in the meta line, no dialog.
+	self-evicting on hot methods). They stay installed while you exercise the system;
+	a STOP window (see #openTallyStopWindow) collects them.
 
 	CRITICAL: sweep any STRAY wrappers FIRST. If a prior run's wrappers are still
 	installed (crash + snapshot restore, abandoned run, GC'd owner), installing on top
@@ -3004,9 +3032,8 @@ SWAPane >> startInvocationTally: aCodeRoot [
 		evictAt: 1000;
 		methodsForPackages: aCodeRoot packageNames.
 	liveTally instrumentTally.
-	self updateTallyButton.
 	self treemapCoverageStatus: 'Tallying ', liveTally methods size printString,
-		' methods -- exercise, then press Tally to collect'
+		' methods -- exercise, then press STOP to collect'
 ]
 
 {
@@ -3269,19 +3296,6 @@ SWAPane >> updateStructureWindowLabel [
 		ifFalse: [| ds | ds := self structureDatasets detect: [:d | d modeSymbol == self activeStructureKey] ifNone: [nil].
 			'Space Tally: ', (ds ifNotNil: [:d | d name] ifNil: ['?'])].
 	win setLabel: label
-]
-
-{
-	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:14'
-}
-SWAPane >> updateTallyButton [
-	"Tint the Tally button red while a tally is live (next press collects), normal
-	grey when idle."
-	tallyButton ifNil: [^ self].
-	tallyButton color: (liveTally isNil
-		ifTrue: [Color gray: 0.3]
-		ifFalse: [Color r: 0.7 g: 0.15 b: 0.15])
 ]
 
 {
