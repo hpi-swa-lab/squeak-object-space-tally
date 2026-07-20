@@ -106,13 +106,19 @@ SWAMethodWrapper class >> resetGuard [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:29'
 }
 SWAMethodWrapper class >> uninstallAllStrayWrappers [
-	"SAFETY NET: scan EVERY class/trait method dictionary and, for any slot holding a
-	SWAMethodWrapper, restore the REAL underlying CompiledMethod -- peeling through
-	ANY number of stacked wrapper layers -- then flush the VM cache ONCE. Answers the
-	number of slots cleaned.
+	"SAFETY NET: scan EVERY method dictionary -- INSTANCE side AND METACLASS side -- and,
+	for any slot holding a SWAMethodWrapper, restore the REAL underlying CompiledMethod
+	(peeling through ANY number of stacked wrapper layers), then flush the VM cache
+	ONCE. Answers the number of slots cleaned.
+
+	CRITICAL: must cover metaclasses. `Smalltalk allClassesAndTraits` does NOT include
+	metaclasses, but #methodsForPackages: instruments CLASS-SIDE methods too. Scanning
+	only instance-side left class-side wrappers installed forever -- they survived every
+	cleanup and crashed the image on the NEXT tally (the '2nd run crashes' bug). We scan
+	both `cls` and `cls class` for each class/trait.
 
 	WHY LAYER-AWARE: pressing Tally while a prior run's wrappers are still installed
 	(after a crash/snapshot, or an abandoned run) installs a NEW wrapper OVER the old
@@ -122,17 +128,20 @@ SWAMethodWrapper class >> uninstallAllStrayWrappers [
 	once, regardless of which owner installed them (owner may be gone/GC'd).
 
 	Runs under #guardedDo: so nothing is captured/re-entered."
-	| cleaned |
+	| cleaned cleanDict |
 	cleaned := 0.
+	cleanDict := [:md |
+		md keysAndValuesDo: [:sel :entry |
+			(entry isKindOf: SWAMethodWrapper) ifTrue: [ | real |
+				real := entry.
+				[real isKindOf: SWAMethodWrapper] whileTrue: [
+					real := real instVarNamed: 'originalMethod'].
+				md at: sel put: real.
+				cleaned := cleaned + 1]]].
 	self guardedDo: [
 		Smalltalk allClassesAndTraits do: [:cls |
-			cls methodDictionary keysAndValuesDo: [:sel :entry |
-				(entry isKindOf: SWAMethodWrapper) ifTrue: [ | real |
-					real := entry.
-					[real isKindOf: SWAMethodWrapper] whileTrue: [
-						real := real instVarNamed: 'originalMethod'].
-					cls methodDictionary at: sel put: real.
-					cleaned := cleaned + 1]]]].
+			cleanDict value: cls methodDictionary.
+			cleanDict value: cls class methodDictionary]].
 	self flushSystemCache.
 	^ cleaned
 ]
@@ -326,7 +335,7 @@ SWAMethodWrapper >> objectAt: index put: value [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 6/26/2026 15:45'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:33'
 }
 SWAMethodWrapper >> onClass: aClass selector: aSelector [
 	"Base initialization shared by all wrappers. Captures the class, selector, and
@@ -334,13 +343,26 @@ SWAMethodWrapper >> onClass: aClass selector: aSelector [
 	after we replace it in the dict), precomputes the 'Class>>selector' name NOW
 	(never in the hot path), and initializes the base COUNT/EVICT state.
 
+	CRITICAL: originalMethod MUST be a real CompiledMethod, never another wrapper.
+	`aClass >> aSelector` returns the currently-installed dict ENTRY, which is a
+	SWAMethodWrapper if this method is ALREADY wrapped (a prior run's wrapper still
+	installed after a crash/snapshot or an abandoned run). Capturing a wrapper as
+	originalMethod is the LAYERING bug: forwarding then hands a non-CompiledMethod to
+	#withArgs:executeMethod:, whose primitive-188 fallback corrupts the in-flight send
+	(ByteSymbol>>lookupClass DNU on the world-menu path; Message>(nil) on the theme
+	path) AND per-owner uninstall restores the older wrapper instead of the real
+	method, stranding it. So peel through any installed wrapper layers here.
+
 	Eviction is ON BY DEFAULT (evictAt := self class defaultEvictAt). This is a
 	SURVIVAL valve: a hot method MUST drop out or it grinds the system to a halt.
 	Raise the threshold per-instance with #evictAt: if needed; pass nil only when you
 	are certain the watched methods are cold."
+	| m |
 	theClass := aClass.
 	selector := aSelector.
-	originalMethod := aClass >> aSelector.
+	m := aClass >> aSelector.
+	[m isKindOf: SWAMethodWrapper] whileTrue: [m := m instVarNamed: 'originalMethod'].
+	originalMethod := m.
 	methodNameString := aClass name asString, '>>', aSelector.
 	count := 0.
 	evictAt := self class defaultEvictAt.
@@ -348,8 +370,25 @@ SWAMethodWrapper >> onClass: aClass selector: aSelector [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:42'
+}
+SWAMethodWrapper >> realMethod [
+	"The real CompiledMethod this wrapper forwards to. originalMethod is guaranteed a
+	CompiledMethod by #onClass:selector: (which peels at install), so the common path
+	is: read the ivar, one #isKindOf: that is immediately false, return. The loop only
+	iterates in the pathological layered case (originalMethod is itself a wrapper),
+	peeling to the first non-wrapper so #withArgs:executeMethod: never gets a
+	non-method (which crashes the VM via the primitive-188 fallback)."
+	| m |
+	m := originalMethod.
+	[m isKindOf: SWAMethodWrapper] whileTrue: [m := m instVarNamed: 'originalMethod'].
+	^ m
+]
+
+{
 	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:48'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:42'
 }
 SWAMethodWrapper >> run: aSelector with: anArray in: aReceiver [
 	"THE shared template every wrapper runs. Every wrapped method dispatches here.
@@ -357,35 +396,30 @@ SWAMethodWrapper >> run: aSelector with: anArray in: aReceiver [
 	CONTEXT-ORIENTED GUARD (SWACapturingLayer): capturing is a process-specific LAYER.
 	The instrumentation's own machinery runs inside #withoutCapturing: (COP
 	`withoutLayers(Capturing)`), which deactivates the layer for its dynamic extent in
-	THAT process only. So:
+	THAT process only.
 
 	 0. COUNT FIRST, ALWAYS: count := count + 1 (Kernel-Numbers, never wrapped).
-	    Counting is independent of the layer, so every invocation is tallied.
+	 1. LAYER CHECK: if capturing is SUPPRESSED in this process, just forward.
+	 2. CAPTURE / EVICT (layer active) inside #withoutCapturing:.
+	 3. FORWARD with the layer left as-is so coverage sees the full subtree.
 
-	 1. LAYER CHECK: if capturing is SUPPRESSED in this process (we are inside our own
-	    machinery, or inside a capture hook), just forward -- no capture, no eviction,
-	    no recursion. Process-specific, so a concurrent redraw/stepping/XR process
-	    can't have its guard flipped by ours (the old global class-var stomped across
-	    processes and crashed as Message>(nil)/ByteSymbol DNU on the theme path).
-
-	 2. CAPTURE / EVICT (layer active): do the per-call work inside #withoutCapturing:
-	    so the hook's own sends fall through their wrappers. EVICTION restores the real
-	    method WITHOUT flushing the cache (#uninstallNoFlush); a mid-frame primitive-89
-	    flush corrupts the in-flight send. The stale cache entry still forwards to
-	    originalMethod and is cleared by the run's final bulk #flushSystemCache.
-
-	 3. FORWARD with the layer left as-is: capture stays ACTIVE across the forward so
-	    coverage attributes the FULL nested subtree a test exercises (each nested
-	    wrapped call re-enters here with the layer active and captures at its depth).
-
-	Forward via inline withArgs:executeMethod: (Kernel-Objects substrate)."
+	FORWARD SAFETY: #withArgs:executeMethod: REQUIRES a real CompiledMethod. If handed
+	a wrapper (the layering bug -- originalMethod is another wrapper) primitive 188
+	FAILS into the slow #executeMethod:forSelector:withArgs:receiver: fallback, which
+	corrupts the in-flight send and blows up recursively (seen as ByteSymbol>>lookupClass,
+	Message>(nil), Array>>jump -- crash to the emergency evaluator). #onClass:selector:
+	now peels originalMethod to a real method at install, but we also guarantee it HERE:
+	forwarding always uses #realMethod so a stale/layered wrapper can never reach the
+	primitive as a method. The check is one #isKindOf: on the (already substrate) hot
+	path; realMethod only loops when actually layered (normally originalMethod IS real,
+	so the whileTrue never iterates)."
 	count := count + 1.
 	SWACapturingLayer isActive ifFalse: [
-		^ aReceiver withArgs: anArray executeMethod: originalMethod].
+		^ aReceiver withArgs: anArray executeMethod: self realMethod].
 	(evictAt notNil and: [count >= evictAt])
 		ifTrue: [evicted := true. SWACapturingLayer withoutCapturing: [self uninstallNoFlush]]
 		ifFalse: [SWACapturingLayer withoutCapturing: [self captureIn: aReceiver]].
-	^ aReceiver withArgs: anArray executeMethod: originalMethod
+	^ aReceiver withArgs: anArray executeMethod: self realMethod
 ]
 
 {

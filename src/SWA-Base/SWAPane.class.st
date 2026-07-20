@@ -872,6 +872,24 @@ SWAPane >> chooseJsonFilePrompt: aPromptString [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:28'
+}
+SWAPane >> cleanupAllWrappers [
+	"MANUAL SAFETY: forcibly remove EVERY instrumentation wrapper still installed in
+	the image (layer-aware -- peels stacked wrappers to the real method), drop any live
+	tally state, and report how many were swept. For recovering after a crash/snapshot
+	or an abandoned run left wrappers behind (which crash the image on the next tally)."
+	| n |
+	liveTally := nil.
+	tallyAsDataset := false.
+	n := SWAMethodWrapper uninstallAllStrayWrappers.
+	self updateTallyButton.
+	self treemapCoverageStatus: 'Removed ', n printString, ' instrumentation wrapper(s)'.
+	self inform: 'Removed ', n printString, ' instrumentation wrapper(s).'
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
 }
@@ -2435,7 +2453,7 @@ SWAPane >> openSource [
 
 {
 	#category : #'pane menu',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:49'
+	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:28'
 }
 SWAPane >> paneMenu: aMenu [
 	"The generic per-pane overflow menu, opened from the hamburger icon at the FAR
@@ -2446,6 +2464,9 @@ SWAPane >> paneMenu: aMenu [
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
 		aMenu add: 'Export...' target: self selector: #exportCoverage.
 		aMenu add: 'Load...' target: self selector: #importData].
+	aMenu addLine.
+	aMenu add: 'Remove all instrumentation wrappers'
+		target: self selector: #cleanupAllWrappers.
 	^ aMenu
 ]
 
