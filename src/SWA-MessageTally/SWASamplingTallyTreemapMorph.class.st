@@ -77,6 +77,18 @@ SWASamplingTallyTreemapMorph >> metaInfoString [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 15:02'
+}
+SWASamplingTallyTreemapMorph >> overlayClass [
+	"The event/menu/hover overlay class this treemap uses -- a view-policy hook so the
+	SWAPane can (re)wire an interaction overlay when morphing structures (e.g. the
+	Tree-menu 'Grouped by class' projection of a call tally). Mirrors the manual wiring
+	in SWASamplingTally>>openTreemap; without it #wireOverlayFor: DNUs on #overlayClass."
+	^ SWASamplingTallyTreemapOverlay
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
 }

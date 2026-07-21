@@ -50,9 +50,11 @@ Class {
 		'marksCollapseTab',
 		'sourceTab',
 		'sourceCollapseTab',
-		'marksDetailsMorph'
+		'marksDetailsMorph',
+		'structureHistory'
 	],
 	#classVars : [
+		'CallTallyCounter',
 		'SampleTallyDuration',
 		'TopicK',
 		'TopicSweeps'
@@ -60,6 +62,26 @@ Class {
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:24'
+}
+SWAPane class >> autoJsonPathFor: aKind [
+	"Answer an auto-generated, timestamped JSON path in the default directory for a
+	generated dataset of the given kind, e.g. 'swa-coverage-squeak-20260721-122422.json'."
+	| t stamp |
+	t := DateAndTime now.
+	stamp := String streamContents: [:s |
+		s << t year printString
+		  << (t month printPaddedWith: $0 to: 2)
+		  << (t dayOfMonth printPaddedWith: $0 to: 2)
+		  << '-'
+		  << (t hour printPaddedWith: $0 to: 2)
+		  << (t minute printPaddedWith: $0 to: 2)
+		  << (t second truncated printPaddedWith: $0 to: 2)].
+	^ FileDirectory default fullNameFor: 'swa-', aKind, '-squeak-', stamp, '.json'
+]
 
 {
 	#category : #'instance creation',
@@ -86,6 +108,92 @@ SWAPane class >> enforceMinimumWidthOn: aWindow [
 		detect: [:m | m isKindOf: SWAPane]
 		ifFound: [:p | p enforceMinimumWindowWidth]
 		ifNone: []
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+}
+SWAPane class >> generateSqueakCoverageJson [
+	"Apps-menu command: generate SUnit coverage (WITH provenance) over the WHOLE
+	image -- instrument every package (glob '*') and run every test (glob '*') --
+	writing an auto-named JSON labelled 'squeak'.
+
+	Runs #generateInstrumenting:tests:toFile:forked: with forked: true, which spawns
+	a fresh throwaway HEADLESS image via OSProcess (a real OS subprocess): THIS image
+	is never touched, so tests that spawn processes / loop forever / pop dialogs
+	(DebuggerUnwindBug, InstallerTest, ...) blow up the child, not us. A live
+	SWACoverageLogTailer window follows progress. Requires the current image to have
+	been SAVED with this code (the child loads the same .image from disk).
+
+	When the child finishes, a standard whole-image Code Map is opened on the result
+	and the coverage dataset loaded into it (via the tailer's #onFinish: hook)."
+	| path tailer |
+	path := self autoJsonPathFor: 'coverage'.
+	tailer := SWACoverage
+		generateInstrumenting: #('*')
+		tests: #('*')
+		toFile: path
+		forked: true.
+	tailer ifNotNil: [
+		tailer onFinish: [:ok | ok ifTrue: [self openCodeMapAndLoad: path]]].
+	^ tailer
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:41'
+}
+SWAPane class >> generateSqueakDuplicationJson [
+	"Apps-menu command: generate a duplication scan over the WHOLE image (all
+	packages, glob '*'), writing an auto-named JSON labelled 'squeak'. Forked at
+	background priority behind a Stop window so the UI stays live; the panel's stop
+	flag aborts the scan and the partial data is still written. Returns the target
+	path."
+	| globs path panel |
+	globs := #('*').
+	path := self autoJsonPathFor: 'duplication'.
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'Duplication run -> ', path;
+		yourself.
+	[ | data |
+	  panel status: 'Scanning duplication over all packages...'.
+	  data := SWADuplicationData
+		generatePackages: globs
+		toFile: path
+		progress: [:msg | panel status: msg]
+		stopIf: [panel stopRequested].
+	  panel finishAndClose: 'Done. Wrote duplication -> ', path.
+	  "Back on the UI: open a standard whole-image Code Map and load the result."
+	  WorldState addDeferredUIMessage: [self openCodeMapAndLoad: path]
+	] forkAt: Processor userBackgroundPriority.
+	^ path
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:41'
+}
+SWAPane class >> generateSqueakTopicJson [
+	"Apps-menu command: fit a Biterm Topic Model over EVERY method in the image
+	(k = #topicK, sweeps = #topicSweeps), writing an auto-named JSON labelled
+	'squeak'.
+
+	Uses the shared background runner over #onAllMethods (every class/trait, instance
+	AND class side -- including unpackaged classes), exactly like
+	#generateWholeImageInBackgroundK:sweeps:toFile: but with a #thenDo: continuation:
+	it opens a SWACoverageRunPanel, forks the corpus build + Gibbs fit + JSON write
+	at userBackgroundPriority (STOP writes the partially-converged model), then on a
+	clean finish opens a standard whole-image Code Map and loads the topic dataset."
+	| path |
+	path := self autoJsonPathFor: 'topics'.
+	^ SWABitermTopicModel
+		generateInBackground: [SWABitermTopicModel onAllMethods]
+		label: 'squeak'
+		k: self topicK
+		sweeps: self topicSweeps
+		toFile: path
+		thenDo: [WorldState addDeferredUIMessage: [self openCodeMapAndLoad: path]]
 ]
 
 {
@@ -170,6 +278,25 @@ SWAPane class >> openByteCompositionOnPackageNamed: aPackageGlob leafKind: aKind
 		ifFound: [:tm | tm colorMode: #byteComposition]
 		ifNone: [].
 	window setLabel: 'Byte Composition Treemap: ', aPackageGlob, '  (sized by source bytes)'.
+	^ window
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+}
+SWAPane class >> openCodeMapAndLoad: aJsonPath [
+	"Open a standard whole-image Code Map (glob '*') and load the analysis JSON at
+	aJsonPath into it (dispatched by marker: coverage / duplication / topic), so the
+	freshly generated dataset shows up as the active color mode. Answers the window.
+
+	Must run on the UI process (opens morphs). Answers nil if the file is missing."
+	| window pane |
+	(FileDirectory default fileExists: aJsonPath) ifFalse: [^ nil].
+	window := self openOnPackageNamed: '*' leafKind: #class.
+	pane := window findDeepSubmorphThat: [:m | m isKindOf: SWAPane] ifAbsent: [nil].
+	pane ifNil: [^ window].
+	pane loadJsonFile: aJsonPath.
 	^ window
 ]
 
@@ -527,7 +654,7 @@ SWAPane class >> unload [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
 }
 SWAPane >> abandonInvocationTally [
 	"Tear down a live invocation tally WITHOUT collecting or touching the treemap/UI.
@@ -539,6 +666,7 @@ SWAPane >> abandonInvocationTally [
 		[liveTally uninstall] on: Error do: [:e | "swept below regardless"].
 		liveTally := nil].
 	self closeTallyStopWindow.
+	SWATallyWrapper resetCallTree.
 	SWAMethodWrapper uninstallAllStrayWrappers
 ]
 
@@ -597,19 +725,29 @@ SWAPane >> activeStructureKey [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:40'
 }
 SWAPane >> addCallTallyDataset: aSWACoverage name: aName [
 	"Turn a collected live tally (a SWACoverage whose resultMap is 'Class>>selector'
 	-> invocation count) into a retained, named SWADataset carrying invocation data,
 	make it active, and select its #call metric so the map colors by call count.
 	The shared tail of the Call-Tally generator; peer of #addCoverageDataset:name:."
-	| data tm ds callMetric |
+	| data tm ds callMetric callTreeRoot |
 	data := SWACoverageData new.
 	aSWACoverage resultMap keysAndValuesDo: [:key :count |
 		data recordInvocationCount: count for: key].
 	tm := self treemap.
 	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
+	"PRIMARY structure = the captured call tree (flamegraph); DERIVED = its code-map
+	grouping. The flat #call metric above still decorates the Code Map. Both structures
+	re-project the same call data, so the Tree button morphs freely between them."
+	callTreeRoot := aSWACoverage collectCallTree.
+	callTreeRoot ifNotNil: [
+		ds structures: {
+			SWAStructure key: #callTree label: 'Flamegraph (call tree)'
+				view: SWASamplingTallyFlamegraphMorph rootBlock: [callTreeRoot].
+			SWAStructure key: #grouping label: 'Grouped by class (treemap)'
+				view: SWASamplingTallyTreemapMorph rootBlock: [callTreeRoot asCodeGroupingRoot] }].
 	tm selectDataset: ds.
 	"Prefer the #call metric (invocation counts) over the default #coverage metric."
 	callMetric := ds metrics detect: [:m | m id == #call] ifNone: [nil].
@@ -840,7 +978,7 @@ SWAPane >> buildInfoLines [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:10'
 }
 SWAPane >> buildMaskFrom: aBaseDataset overlay: anOverlayDataset [
 	"Create the synthetic MASK dataset 'B \ A' (methods touched in overlay B but not
@@ -854,7 +992,9 @@ SWAPane >> buildMaskFrom: aBaseDataset overlay: anOverlayDataset [
 	ds := tm addDataset: (SWADataset maskFrom: aBaseDataset minus: anOverlayDataset named: name).
 	tm selectDataset: ds.
 	self treemapCoverageStatus: 'Mask ', ds source expressionString, ': ',
-		ds source survivorCount printString, ' new methods (in B, not A)'.
+		ds source survivorCount printString, ' methods in ',
+		(anOverlayDataset name ifNil: ['B']), ' not in ',
+		(aBaseDataset name ifNil: ['A']).
 	self refresh.
 	^ ds
 ]
@@ -997,7 +1137,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:57'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -1081,7 +1221,7 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
@@ -1107,7 +1247,7 @@ SWAPane >> collectInvocationTally [
 		ifTrue: [
 			tallyAsDataset := false.
 			liveTally := nil.
-			^ self addCallTallyDataset: cov name: 'Call Tally (generated)'].
+			^ self addCallTallyDataset: cov name: self nextCallTallyName].
 	tm showCoverage: cov.
 	(tm respondsTo: #noteColorMode:) ifTrue: [tm noteColorMode: #tally].
 	self treemapCoverageStatus: 'Tally: ', n printString, ' methods invoked'.
@@ -1681,7 +1821,7 @@ SWAPane >> importCoverage [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:50'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
 }
 SWAPane >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
@@ -1697,23 +1837,25 @@ SWAPane >> importData [
 
 	Every load is ALSO retained as a named SWADataset, so loading twice gives two
 	coexisting, switchable Color-menu entries."
-	| tm path contents json format |
-	tm := self treemap.
-	(tm isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
+	| path |
+	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
 	path := self chooseJsonFilePrompt: 'Load analysis JSON from:'.
 	path ifNil: [^ self].
-	[contents := (FileStream readOnlyFileNamed: path) contentsOfEntireFile.
-	 json := Json readFrom: contents readStream]
-		on: Error do: [:e | ^ self treemapCoverageStatus: 'Load failed: ', e messageText].
-	(SWASpaceTallyClassSummary isSpaceTallyJson: json)
-		ifTrue: [^ self loadSpaceTallyJson: json name: (self datasetNameFor: path)].
-	format := (json at: 'format' ifAbsent: ['']) asString.
-	(format beginsWith: 'SWADuplicationData')
-		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: path)].
-	(format beginsWith: 'SWATopicData')
-		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: path)].
-	"Default / 'SWACoverageData...' / legacy files with no marker -> coverage."
-	self loadCoverageJson: json name: (self datasetNameFor: path)
+	^ self loadJsonFile: path
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+}
+SWAPane >> labelForStructureKey: aKey [
+	"Human-readable window label for a namespaced structure key ('<dataset> -- <structure>'),
+	or a fallback."
+	self structureDatasets do: [:ds |
+		ds structures do: [:st |
+			(self structureKeyFor: ds structure: st) == aKey ifTrue: [
+				^ (ds name ifNil: ['?']), ' -- ', st label]]].
+	^ 'Structure'
 ]
 
 {
@@ -1781,6 +1923,33 @@ SWAPane >> loadDuplicationJson: json name: aName [
 	data := SWADuplicationData new.
 	data loadFromJson: json.
 	^ self addDuplicationDataset: data name: aName
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+}
+SWAPane >> loadJsonFile: aPath [
+	"Load the analysis JSON at aPath into this Code Map, dispatching by its format
+	marker exactly like the Load button (#importData) -- coverage / duplication /
+	topic / space-tally -- but WITHOUT the file chooser. Answers self.
+
+	Factored out of #importData so programmatic callers (e.g. the Apps-menu
+	generators that open a map on their freshly-written JSON) share one code path."
+	| tm contents json format |
+	tm := self treemap.
+	(tm isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
+	[contents := (FileStream readOnlyFileNamed: aPath) contentsOfEntireFile.
+	 json := Json readFrom: contents readStream]
+		on: Error do: [:e | ^ self treemapCoverageStatus: 'Load failed: ', e messageText].
+	(SWASpaceTallyClassSummary isSpaceTallyJson: json)
+		ifTrue: [^ self loadSpaceTallyJson: json name: (self datasetNameFor: aPath)].
+	format := (json at: 'format' ifAbsent: ['']) asString.
+	(format beginsWith: 'SWADuplicationData')
+		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: aPath)].
+	(format beginsWith: 'SWATopicData')
+		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: aPath)].
+	^ self loadCoverageJson: json name: (self datasetNameFor: aPath)
 ]
 
 {
@@ -2446,6 +2615,18 @@ SWAPane >> newVerticalMarksTabOn: anActionSelector balloon: aString [
 ]
 
 {
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:09'
+}
+SWAPane >> nextCallTallyName [
+	"Mint a unique name for a generated Call Tally, so two tallies collected in the
+	same session are distinguishable as mask operands (the mask label reads
+	'Call Tally 2 \ Call Tally 1' instead of two identical names)."
+	CallTallyCounter := (CallTallyCounter ifNil: [0]) + 1.
+	^ 'Call Tally ', CallTallyCounter printString
+]
+
+{
 	#category : #'marks - flap',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:09'
 }
@@ -2571,6 +2752,19 @@ SWAPane >> peerPanels [
 	"Other open nav panels whose view is a cross-referenceable treemap."
 	^ (SWAPane openPanels)
 		select: [:p | p ~~ self and: [p treemap notNil]]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:56'
+}
+SWAPane >> popStructureOrNothing [
+	"Back-button fallthrough when the current view has no zoom history of its own:
+	revert the last structure morph (return to the tree we came from, e.g. the Code
+	Map), keeping the window/chrome. If there is no structure history either, this is a
+	no-op (Back at the very root does nothing)."
+	(structureHistory notNil and: [structureHistory notEmpty]) ifFalse: [^ self].
+	self restoreStructure: structureHistory removeLast
 ]
 
 {
@@ -2824,6 +3018,25 @@ SWAPane >> removeSelectedMark [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:56'
+}
+SWAPane >> restoreStructure: aKey [
+	"Morph back to structure aKey WITHOUT recording history (the Back-button inverse of
+	#setStructureMode:, which is the forward move that pushes history). Same in-place
+	morph + relabel; no-op if already there or unresolvable."
+	| newView |
+	aKey == self activeStructureKey ifTrue: [^ self].
+	(self structureViews includesKey: #intrinsic)
+		ifFalse: [(view respondsTo: #datasets) ifTrue: [structureViews at: #intrinsic put: view]].
+	newView := self viewForStructureKey: aKey.
+	newView ifNil: [^ self].
+	activeStructureKey := aKey.
+	self morphViewInto: newView.
+	self updateStructureWindowLabel
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:47'
 }
@@ -2964,7 +3177,7 @@ SWAPane >> setDataMode: aSymbol [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:55'
 }
 SWAPane >> setStructureMode: aKey [
 	"Tree menu action: MORPH the panel's base view into the tree identified by aKey
@@ -2979,6 +3192,10 @@ SWAPane >> setStructureMode: aKey [
 		ifFalse: [(view respondsTo: #datasets) ifTrue: [structureViews at: #intrinsic put: view]].
 	newView := self viewForStructureKey: aKey.
 	newView ifNil: [^ self].
+	"Remember where we came from so the Back button can revert this morph once the
+	target view has no zoom history of its own left to unwind."
+	structureHistory ifNil: [structureHistory := OrderedCollection new].
+	structureHistory addLast: self activeStructureKey.
 	activeStructureKey := aKey.
 	self morphViewInto: newView.
 	self updateStructureWindowLabel
@@ -3099,7 +3316,7 @@ SWAPane >> sourceMorph [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:40'
 }
 SWAPane >> startInvocationTally: aCodeRoot [
 	"Install live invocation-counting wrappers on the shown packages (Ingalls-style,
@@ -3116,6 +3333,7 @@ SWAPane >> startInvocationTally: aCodeRoot [
 	SWAMethodWrapper uninstallAllStrayWrappers.
 	liveTally := SWACoverage new
 		evictAt: 1000;
+		captureCallTree: true;
 		methodsForPackages: aCodeRoot packageNames.
 	liveTally instrumentTally.
 	self treemapCoverageStatus: 'Tallying ', liveTally methods size printString,
@@ -3124,21 +3342,37 @@ SWAPane >> startInvocationTally: aCodeRoot [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:49'
 }
 SWAPane >> structureDatasets [
-	"The retained datasets that can BE a base structure (have their own tree).
-	Sourced from the intrinsic Code Map view, which owns the datasets regardless of
-	which structure is currently displayed."
-	| cm |
+	"The dataset(s) whose tree(s) can BE a base structure -- restricted to the ACTIVE
+	dataset only, so the Tree menu offers the transformations of the data you are
+	currently looking at, not every retained dataset. Sourced from the intrinsic Code
+	Map view, which owns the datasets regardless of which structure is displayed.
+	Answers #() when the active dataset provides no structure (e.g. #none / a flat
+	census)."
+	| cm active |
 	cm := self codeMapView.
 	(cm notNil and: [cm respondsTo: #datasets]) ifFalse: [^ #()].
-	^ cm datasets select: [:ds | ds providesStructure]
+	active := (cm respondsTo: #activeDataset) ifTrue: [cm activeDataset] ifFalse: [nil].
+	(active notNil and: [active providesStructure]) ifTrue: [^ { active }].
+	^ #()
 ]
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+}
+SWAPane >> structureKeyFor: aDataset structure: aStructure [
+	"A globally-unique Tree-menu key for one STRUCTURE of one dataset, namespaced by the
+	dataset's modeSymbol so several datasets (each with several structures) share the
+	Tree menu without collision. Symbol so it compares by identity like #intrinsic."
+	^ (aDataset modeSymbol asString, '/', aStructure key asString) asSymbol
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWAPane >> structureOptions [
 	"{ key. label } pairs for the Tree selector: the intrinsic Code Map, plus one
@@ -3148,7 +3382,10 @@ SWAPane >> structureOptions [
 	opts := OrderedCollection new.
 	opts add: (Array with: #intrinsic with: 'Code map').
 	self structureDatasets do: [:ds |
-		opts add: (Array with: ds modeSymbol with: 'Space tally: ', (ds name ifNil: ['?']))].
+		ds structures do: [:st |
+			opts add: (Array
+				with: (self structureKeyFor: ds structure: st)
+				with: (ds name ifNil: ['?']), ' -- ', st label)]].
 	^ opts asArray
 ]
 
@@ -3370,7 +3607,7 @@ SWAPane >> updateSource [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWAPane >> updateStructureWindowLabel [
 	"Reflect the active structure in the enclosing window title, if any."
@@ -3379,8 +3616,7 @@ SWAPane >> updateStructureWindowLabel [
 	win ifNil: [^ self].
 	label := self activeStructureKey == #intrinsic
 		ifTrue: ['Code Map']
-		ifFalse: [| ds | ds := self structureDatasets detect: [:d | d modeSymbol == self activeStructureKey] ifNone: [nil].
-			'Space Tally: ', (ds ifNotNil: [:d | d name] ifNil: ['?'])].
+		ifFalse: [self labelForStructureKey: self activeStructureKey].
 	win setLabel: label
 ]
 
@@ -3408,7 +3644,7 @@ SWAPane >> view [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWAPane >> viewForStructureKey: aKey [
 	"The (cached, fully-wired) view morph for a structure key. #intrinsic is the
@@ -3416,11 +3652,13 @@ SWAPane >> viewForStructureKey: aKey [
 	dataset's retained structureRoot. Answers nil if the key can't be resolved."
 	aKey == #intrinsic ifTrue: [^ self codeMapView].
 	^ self structureViews at: aKey ifAbsentPut: [
-		| ds tm |
-		ds := self structureDatasets detect: [:d | d modeSymbol == aKey] ifNone: [nil].
-		ds ifNil: [^ nil].
-		tm := SWASpaceTallyTreemapMorph on: ds structureRoot.
-		tm extent: view extent.
+		| tm |
+		tm := nil.
+		self structureDatasets do: [:ds |
+			ds structures do: [:st |
+				(self structureKeyFor: ds structure: st) == aKey ifTrue: [
+					tm := st buildViewExtent: view extent]]].
+		tm ifNil: [^ nil].
 		self wireOverlayFor: tm.
 		tm]
 ]
@@ -3446,10 +3684,16 @@ SWAPane >> wireOverlayFor: aTreemapMorph [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:55'
 }
 SWAPane >> zoomOut [
-	"Back button: ask the view to zoom out, then refresh the chrome."
-	(view respondsTo: #zoomOut) ifTrue: [view zoomOut].
-	self refresh
+	"Back button. Two-level unwind:
+	 1. If the current view still has zoom history, zoom IT out (normal in-view Back).
+	 2. Otherwise, if we morphed here from another structure (e.g. Code Map -> flamegraph
+	    via the Tree menu), revert that morph -- returning to the setup we came from.
+	This makes Back a complete way home even from a freshly-morphed flamegraph that has
+	no zoom history of its own yet."
+	((view respondsTo: #canZoomOut) and: [view canZoomOut])
+		ifTrue: [view zoomOut. ^ self refresh].
+	self popStructureOrNothing
 ]

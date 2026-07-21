@@ -35,11 +35,41 @@ Class {
 }
 
 {
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:09'
+}
+SWAChangeParser class >> chooseChangesFilePrompt: aPromptString [
+	"Open a *.changes file chooser and answer the chosen full path, or nil if
+	cancelled. Falls back to a text path prompt if no file chooser is available."
+	| result |
+	(Smalltalk includesKey: #StandardFileMenu) ifTrue: [
+		result := StandardFileMenu oldFileFrom: FileDirectory default withPattern: '*.changes'.
+		result ifNil: [^ nil].
+		^ result directory fullNameFor: result name].
+	^ (UIManager default request: aPromptString initialAnswer: '')
+		ifNil: [nil] ifNotNil: [:s | s isEmpty ifTrue: [nil] ifFalse: [s withBlanksTrimmed]]
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/9/2026 14:50'
 }
 SWAChangeParser class >> onFile: aFileName [
 	^ self new fileName: aFileName
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:05'
+}
+SWAChangeParser class >> openChangeMapLast7Days [
+	"Open a change treemap of the image's .changes file for the last 7 days.
+	Used as the Apps-menu open command."
+	| parser root |
+	parser := self new.
+	parser fileName: Smalltalk changesName.
+	root := parser treeForLastDays: 7.
+	^ parser openTreemapForRoot: root
 ]
 
 {
@@ -57,6 +87,25 @@ SWAChangeParser class >> openFrom: aStartTimeStamp to: anEndTimeStampOrNil onFil
 	root := parser buildTreeTailBytes: nil
 		rootLabel: 'Changes: ', aStartTimeStamp date mmddyyyy,
 			(anEndTimeStampOrNil ifNil: [' -> now'] ifNotNil: [:t | ' -> ', t date mmddyyyy]).
+	^ parser openTreemapForRoot: root
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:09'
+}
+SWAChangeParser class >> openInteractiveDiffChangeMap [
+	"Interactively diff two changes files. Ask the user to pick a NEWER (foreign)
+	changes file, then a BASELINE file, then open a treemap of the changes present
+	in the newer file but missing from the baseline (see buildRecoveryTreeAgainst:).
+	Answer the opened window, or nil if the user cancelled either prompt."
+	| newerFile baselineFile parser root |
+	newerFile := self chooseChangesFilePrompt: 'Path of the NEWER changes file'.
+	newerFile ifNil: [^ nil].
+	baselineFile := self chooseChangesFilePrompt: 'Path of the BASELINE changes file to diff against'.
+	baselineFile ifNil: [^ nil].
+	parser := self onFile: newerFile.
+	root := parser buildRecoveryTreeAgainst: baselineFile.
 	^ parser openTreemapForRoot: root
 ]
 
@@ -534,7 +583,7 @@ SWAChangeParser >> leafFor: aRecord at: aTimeStamp [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:04'
 }
 SWAChangeParser >> openTreemapForRoot: aRootNode [
 	"Open a SWAPane-wrapped treemap of a change tree, with the shared
@@ -542,7 +591,7 @@ SWAChangeParser >> openTreemapForRoot: aRootNode [
 	| treemap overlay panel window total done |
 	total := (aRootNode estimatedNodeCount max: 1) * 2.
 	treemap := SWAChangeTreemapMorph on: aRootNode.
-	treemap extent: (Display extent * 0.7) rounded - (0 @ 60).
+	treemap extent: 1000 @ 800.
 	('Change map: ', aRootNode name)
 		displayProgressFrom: 0 to: total during: [:bar |
 			bar value: 'Building nodes...'.
@@ -566,6 +615,7 @@ SWAChangeParser >> openTreemapForRoot: aRootNode [
 	window := panel openInWindow.
 	window setLabel: 'Change Treemap: ', aRootNode name.
 	panel enforceMinimumWindowWidth.
+	window extent: 1000 @ 800.
 	^ window
 ]
 

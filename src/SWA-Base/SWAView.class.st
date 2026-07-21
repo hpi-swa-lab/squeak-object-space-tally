@@ -189,6 +189,17 @@ SWAView >> bumpKey: aCoverageClass dim: aBoolean [
 ]
 
 {
+	#category : #navigation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:55'
+}
+SWAView >> canZoomOut [
+	"Whether #zoomOut would actually navigate to a previous focus, i.e. this view still
+	has zoom history to unwind. When false, the enclosing SWAPane's Back button falls
+	through to reverting a structure morph (returning to the tree we came from)."
+	^ history notNil and: [history notEmpty]
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }

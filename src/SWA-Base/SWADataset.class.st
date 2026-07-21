@@ -22,7 +22,8 @@ Class {
 		'source',
 		'scale',
 		'metrics',
-		'structureRoot'
+		'structureRoot',
+		'structures'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -364,6 +365,36 @@ SWADataset >> maskScale [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:50'
+}
+SWADataset >> maskStructures [
+	"Structures for a MASK dataset (B \\ A). When the overlay operand B carries a call
+	tree (it is a call-tally dataset with a #callTree structure), offer a FLAMEGRAPH of
+	the MASKED call tree: B's call tree pruned to the mask's survivor keys (methods in
+	B not in A). Plus a grouped-by-class treemap of the same masked tree. If B has no
+	call tree, a mask has no structure (stays decorate-only)."
+	| overlay overlayTree survivors |
+	overlay := source right.
+	overlay ifNil: [^ #()].
+	overlayTree := (overlay structureForKey: #callTree)
+		ifNotNil: [:st | st root] ifNil: [nil].
+	overlayTree ifNil: [^ #()].
+	survivors := source coveredMethodKeys asSet.
+	^ {
+		SWAStructure key: #callTree label: 'Flamegraph (masked call tree)'
+			view: SWASamplingTallyFlamegraphMorph
+			rootBlock: [(overlayTree prunedToKeys: survivors)
+				ifNil: [SWASamplingTallyNode new name: '(empty mask)'; yourself]
+				ifNotNil: [:r | r rollUpTotals. r]].
+		SWAStructure key: #grouping label: 'Grouped by class (treemap)'
+			view: SWASamplingTallyTreemapMorph
+			rootBlock: [((overlayTree prunedToKeys: survivors)
+				ifNil: [SWASamplingTallyNode new name: '(empty mask)'; yourself]
+				ifNotNil: [:r | r rollUpTotals. r]) asCodeGroupingRoot] }
+]
+
+{
 	#category : #metrics,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:55'
 }
@@ -435,12 +466,12 @@ SWADataset >> printOn: aStream [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:20'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWADataset >> providesStructure [
 	"Whether this dataset can BE a treemap's base structure (has its own tree),
 	as opposed to only decorating an existing one."
-	^ structureRoot notNil
+	^ self structures notEmpty
 ]
 
 {
@@ -483,6 +514,15 @@ SWADataset >> spaceTallyScaleForMax: aMax [
 
 {
 	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+}
+SWADataset >> structureForKey: aSymbol [
+	"The SWAStructure with this key, or nil."
+	^ self structures detect: [:s | s key == aSymbol] ifNone: [nil]
+]
+
+{
+	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:20'
 }
 SWADataset >> structureRoot [
@@ -500,4 +540,34 @@ SWADataset >> structureRoot [
 }
 SWADataset >> structureRoot: aNode [
 	structureRoot := aNode
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:50'
+}
+SWADataset >> structures [
+	"The ordered list of SWAStructure projections this dataset can supply as a base
+	structure: its PRIMARY (native) tree first, then any DERIVED projections of the
+	same data. Backward-compatible: a dataset that only set a legacy #structureRoot
+	(e.g. a space tally loaded from a node-tree JSON) is presented as a single
+	space-tally structure so the existing Tree machinery keeps working."
+	structures ifNotNil: [^ structures].
+	self isMaskOp ifTrue: [^ self maskStructures].
+	structureRoot ifNotNil: [
+		^ { SWAStructure
+			key: modeSymbol
+			label: (name ifNil: ['?'])
+			view: SWASpaceTallyTreemapMorph
+			rootBlock: [structureRoot] }].
+	^ #()
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:38'
+}
+SWADataset >> structures: aCollectionOfStructures [
+	"Set this dataset's explicit list of SWAStructure projections (primary first)."
+	structures := aCollectionOfStructures asArray
 ]

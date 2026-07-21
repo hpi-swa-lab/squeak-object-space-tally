@@ -40,7 +40,8 @@ Class {
 		'kind',
 		'exclusions',
 		'log',
-		'maxTestsPerMethod'
+		'maxTestsPerMethod',
+		'captureCallTree'
 	],
 	#classVars : [
 		'CurrentTestName',
@@ -179,7 +180,7 @@ SWACoverage class >> excludedTestCategoryPatterns [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:45'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:47'
 }
 SWACoverage class >> excludedTestClassPatterns [
 	"TestCase class-NAME globs whose tests must NEVER be EXECUTED during a coverage
@@ -856,6 +857,27 @@ SWACoverage class >> vmExecutablePath [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:26'
+}
+SWACoverage >> captureCallTree [
+	"Whether this tally run is building a flamegraph call tree (default false)."
+	^ captureCallTree ifNil: [false]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:26'
+}
+SWACoverage >> captureCallTree: aBoolean [
+	"Opt into building a flamegraph-style call tree during a TALLY run (see
+	SWATallyWrapper class>>beginCallTreeFor:). Off by default -- the plain counting
+	tally has no per-call stack-walk overhead; turning this on captures the nested
+	call structure so the result can be shown as a flamegraph."
+	captureCallTree := aBoolean
+]
+
+{
 	#category : #provenance,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:50'
 }
@@ -869,6 +891,18 @@ SWACoverage >> casesForTestClasses: testClasses [
 		SWACoverage log: '  TEST CLASS: ', tc name, ' (', tc testSelectors size printString, ' tests)'.
 		tc suite tests do: [:testCase | cases add: testCase]].
 	^ cases asArray
+]
+
+{
+	#category : #'invocation tally',
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:27'
+}
+SWACoverage >> collectCallTree [
+	"Answer the finished flamegraph call tree (a SWASamplingTallyNode rooted at 'root',
+	weighted by invocation counts) captured during this tally run, or nil if capture
+	was off / nothing was recorded. Roll-up is done by SWATallyWrapper."
+	self captureCallTree ifFalse: [^ nil].
+	^ SWATallyWrapper finishCallTree
 ]
 
 {
@@ -990,7 +1024,7 @@ SWACoverage >> installTestCoverage [
 
 {
 	#category : #'invocation tally',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:33'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:26'
 }
 SWACoverage >> instrumentTally [
 	"TALLY mode: install a live counting SWATallyWrapper on every watched method.
@@ -1003,6 +1037,9 @@ SWACoverage >> instrumentTally [
 	over tens of thousands of methods re-flushes the whole VM cache tens of thousands
 	of times -- the '*' whole-image hang/crash. Same lesson as coverage's
 	#installTestCoverage / #runProvenanceCases:panel:."
+	self captureCallTree
+		ifTrue: [SWATallyWrapper beginCallTreeFor: methods]
+		ifFalse: [SWATallyWrapper resetCallTree].
 	wrappers := methods collect: [:m |
 		(SWATallyWrapper new
 			onClass: m methodClass selector: m selector evictAt: evictAt)

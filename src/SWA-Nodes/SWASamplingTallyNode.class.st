@@ -23,12 +23,55 @@ Class {
 
 {
 	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:50'
+}
+SWASamplingTallyNode >> addChildNode: aNode [
+	"Attach an already-built child frame (used by tree projections that copy/prune an
+	existing tree rather than growing it name-by-name). Allocates the children
+	collection lazily, sets the back-pointer."
+	children ifNil: [children := OrderedCollection new].
+	aNode parent: self.
+	children add: aNode.
+	^ aNode
+]
+
+{
+	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:00'
 }
 SWASamplingTallyNode >> addSelfTime: micros [
 	"Add `micros` microseconds of time during which this frame was the innermost
 	(leaf) frame on the stack."
 	selfCount := selfCount + micros
+]
+
+{
+	#category : #projections,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:40'
+}
+SWASamplingTallyNode >> asCodeGroupingRoot [
+	"DERIVED structure: re-project this call tree into a CODE-MAP-style grouping --
+	class -> method -- of the SAME call data, discarding caller/callee nesting. Every
+	frame's selfCount is summed per 'Class>>selector' (its crossRefKey), then bucketed
+	under its class. The result is a fresh two-level SWASamplingTallyNode tree (class
+	nodes over method leaves), weighted by total invocations, rendered by the same
+	treemap as the sampling tally. The inverse projection of a flamegraph: same data,
+	structural grouping instead of dynamic nesting."
+	| perMethod root classNodes |
+	perMethod := Dictionary new.
+	self withAllChildrenDo: [:n |
+		(n crossRefKey notNil and: [n selfCount > 0]) ifTrue: [
+			perMethod at: n crossRefKey put: (n selfCount + (perMethod at: n crossRefKey ifAbsent: [0]))]].
+	root := SWASamplingTallyNode new name: 'methods'; yourself.
+	classNodes := Dictionary new.
+	perMethod keysAndValuesDo: [:key :count | | className methodSel classNode leaf |
+		className := (key copyUpToLast: $>) allButLast.  "'Class>>sel' -> 'Class'"
+		methodSel := key.
+		classNode := classNodes at: className ifAbsentPut: [root childNamed: className].
+		leaf := classNode childNamed: methodSel.
+		leaf addSelfTime: count].
+	root rollUpTotals.
+	^ root
 ]
 
 {
@@ -293,6 +336,33 @@ SWASamplingTallyNode >> printOn: aStream [
 		nextPutAll: ' kids=';
 		print: self children size;
 		nextPut: $)
+]
+
+{
+	#category : #projections,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:50'
+}
+SWASamplingTallyNode >> prunedToKeys: aKeySet [
+	"DERIVED structure for a MASK: a copy of this call tree keeping only frames whose
+	crossRefKey survives (is in aKeySet), plus the ancestor frames on the path to a
+	survivor (kept for context, their own selfCount zeroed so they do not inflate
+	totals). A branch with no surviving frame is dropped entirely. Answers a fresh
+	SWASamplingTallyNode root (or nil if nothing survives), rolled up. The call-tree
+	analogue of the flat mask survivor set: B's flamegraph, masked to 'B \\ A'."
+	| copy anySurvivor |
+	copy := SWASamplingTallyNode new.
+	copy name: name.
+	copy filename: self filename.
+	anySurvivor := (self crossRefKey notNil and: [aKeySet includes: self crossRefKey]).
+	"Recurse into children, keeping only branches that contain a survivor."
+	self children ifNotNil: [:kids | kids do: [:c | | pc |
+		pc := c prunedToKeys: aKeySet.
+		pc ifNotNil: [copy addChildNode: pc. anySurvivor := true]]].
+	anySurvivor ifFalse: [^ nil].
+	"Credit self time only to surviving frames; context ancestors contribute 0."
+	(self crossRefKey notNil and: [aKeySet includes: self crossRefKey])
+		ifTrue: [copy addSelfTime: selfCount].
+	^ copy
 ]
 
 {
