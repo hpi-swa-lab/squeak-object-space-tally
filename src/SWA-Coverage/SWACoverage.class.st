@@ -179,7 +179,7 @@ SWACoverage class >> excludedTestCategoryPatterns [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:45'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:47'
 }
 SWACoverage class >> excludedTestClassPatterns [
 	"TestCase class-NAME globs whose tests must NEVER be EXECUTED during a coverage

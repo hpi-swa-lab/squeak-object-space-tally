@@ -53,6 +53,7 @@ Class {
 		'marksDetailsMorph'
 	],
 	#classVars : [
+		'CallTallyCounter',
 		'SampleTallyDuration',
 		'TopicK',
 		'TopicSweeps'
@@ -60,6 +61,26 @@ Class {
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:24'
+}
+SWAPane class >> autoJsonPathFor: aKind [
+	"Answer an auto-generated, timestamped JSON path in the default directory for a
+	generated dataset of the given kind, e.g. 'swa-coverage-squeak-20260721-122422.json'."
+	| t stamp |
+	t := DateAndTime now.
+	stamp := String streamContents: [:s |
+		s << t year printString
+		  << (t month printPaddedWith: $0 to: 2)
+		  << (t dayOfMonth printPaddedWith: $0 to: 2)
+		  << '-'
+		  << (t hour printPaddedWith: $0 to: 2)
+		  << (t minute printPaddedWith: $0 to: 2)
+		  << (t second truncated printPaddedWith: $0 to: 2)].
+	^ FileDirectory default fullNameFor: 'swa-', aKind, '-squeak-', stamp, '.json'
+]
 
 {
 	#category : #'instance creation',
@@ -86,6 +107,92 @@ SWAPane class >> enforceMinimumWidthOn: aWindow [
 		detect: [:m | m isKindOf: SWAPane]
 		ifFound: [:p | p enforceMinimumWindowWidth]
 		ifNone: []
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+}
+SWAPane class >> generateSqueakCoverageJson [
+	"Apps-menu command: generate SUnit coverage (WITH provenance) over the WHOLE
+	image -- instrument every package (glob '*') and run every test (glob '*') --
+	writing an auto-named JSON labelled 'squeak'.
+
+	Runs #generateInstrumenting:tests:toFile:forked: with forked: true, which spawns
+	a fresh throwaway HEADLESS image via OSProcess (a real OS subprocess): THIS image
+	is never touched, so tests that spawn processes / loop forever / pop dialogs
+	(DebuggerUnwindBug, InstallerTest, ...) blow up the child, not us. A live
+	SWACoverageLogTailer window follows progress. Requires the current image to have
+	been SAVED with this code (the child loads the same .image from disk).
+
+	When the child finishes, a standard whole-image Code Map is opened on the result
+	and the coverage dataset loaded into it (via the tailer's #onFinish: hook)."
+	| path tailer |
+	path := self autoJsonPathFor: 'coverage'.
+	tailer := SWACoverage
+		generateInstrumenting: #('*')
+		tests: #('*')
+		toFile: path
+		forked: true.
+	tailer ifNotNil: [
+		tailer onFinish: [:ok | ok ifTrue: [self openCodeMapAndLoad: path]]].
+	^ tailer
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:41'
+}
+SWAPane class >> generateSqueakDuplicationJson [
+	"Apps-menu command: generate a duplication scan over the WHOLE image (all
+	packages, glob '*'), writing an auto-named JSON labelled 'squeak'. Forked at
+	background priority behind a Stop window so the UI stays live; the panel's stop
+	flag aborts the scan and the partial data is still written. Returns the target
+	path."
+	| globs path panel |
+	globs := #('*').
+	path := self autoJsonPathFor: 'duplication'.
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'Duplication run -> ', path;
+		yourself.
+	[ | data |
+	  panel status: 'Scanning duplication over all packages...'.
+	  data := SWADuplicationData
+		generatePackages: globs
+		toFile: path
+		progress: [:msg | panel status: msg]
+		stopIf: [panel stopRequested].
+	  panel finishAndClose: 'Done. Wrote duplication -> ', path.
+	  "Back on the UI: open a standard whole-image Code Map and load the result."
+	  WorldState addDeferredUIMessage: [self openCodeMapAndLoad: path]
+	] forkAt: Processor userBackgroundPriority.
+	^ path
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:41'
+}
+SWAPane class >> generateSqueakTopicJson [
+	"Apps-menu command: fit a Biterm Topic Model over EVERY method in the image
+	(k = #topicK, sweeps = #topicSweeps), writing an auto-named JSON labelled
+	'squeak'.
+
+	Uses the shared background runner over #onAllMethods (every class/trait, instance
+	AND class side -- including unpackaged classes), exactly like
+	#generateWholeImageInBackgroundK:sweeps:toFile: but with a #thenDo: continuation:
+	it opens a SWACoverageRunPanel, forks the corpus build + Gibbs fit + JSON write
+	at userBackgroundPriority (STOP writes the partially-converged model), then on a
+	clean finish opens a standard whole-image Code Map and loads the topic dataset."
+	| path |
+	path := self autoJsonPathFor: 'topics'.
+	^ SWABitermTopicModel
+		generateInBackground: [SWABitermTopicModel onAllMethods]
+		label: 'squeak'
+		k: self topicK
+		sweeps: self topicSweeps
+		toFile: path
+		thenDo: [WorldState addDeferredUIMessage: [self openCodeMapAndLoad: path]]
 ]
 
 {
@@ -170,6 +277,25 @@ SWAPane class >> openByteCompositionOnPackageNamed: aPackageGlob leafKind: aKind
 		ifFound: [:tm | tm colorMode: #byteComposition]
 		ifNone: [].
 	window setLabel: 'Byte Composition Treemap: ', aPackageGlob, '  (sized by source bytes)'.
+	^ window
+]
+
+{
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+}
+SWAPane class >> openCodeMapAndLoad: aJsonPath [
+	"Open a standard whole-image Code Map (glob '*') and load the analysis JSON at
+	aJsonPath into it (dispatched by marker: coverage / duplication / topic), so the
+	freshly generated dataset shows up as the active color mode. Answers the window.
+
+	Must run on the UI process (opens morphs). Answers nil if the file is missing."
+	| window pane |
+	(FileDirectory default fileExists: aJsonPath) ifFalse: [^ nil].
+	window := self openOnPackageNamed: '*' leafKind: #class.
+	pane := window findDeepSubmorphThat: [:m | m isKindOf: SWAPane] ifAbsent: [nil].
+	pane ifNil: [^ window].
+	pane loadJsonFile: aJsonPath.
 	^ window
 ]
 
@@ -840,7 +966,7 @@ SWAPane >> buildInfoLines [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:10'
 }
 SWAPane >> buildMaskFrom: aBaseDataset overlay: anOverlayDataset [
 	"Create the synthetic MASK dataset 'B \ A' (methods touched in overlay B but not
@@ -854,7 +980,9 @@ SWAPane >> buildMaskFrom: aBaseDataset overlay: anOverlayDataset [
 	ds := tm addDataset: (SWADataset maskFrom: aBaseDataset minus: anOverlayDataset named: name).
 	tm selectDataset: ds.
 	self treemapCoverageStatus: 'Mask ', ds source expressionString, ': ',
-		ds source survivorCount printString, ' new methods (in B, not A)'.
+		ds source survivorCount printString, ' methods in ',
+		(anOverlayDataset name ifNil: ['B']), ' not in ',
+		(aBaseDataset name ifNil: ['A']).
 	self refresh.
 	^ ds
 ]
@@ -1081,7 +1209,7 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:10'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
@@ -1107,7 +1235,7 @@ SWAPane >> collectInvocationTally [
 		ifTrue: [
 			tallyAsDataset := false.
 			liveTally := nil.
-			^ self addCallTallyDataset: cov name: 'Call Tally (generated)'].
+			^ self addCallTallyDataset: cov name: self nextCallTallyName].
 	tm showCoverage: cov.
 	(tm respondsTo: #noteColorMode:) ifTrue: [tm noteColorMode: #tally].
 	self treemapCoverageStatus: 'Tally: ', n printString, ' methods invoked'.
@@ -1681,7 +1809,7 @@ SWAPane >> importCoverage [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:50'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
 }
 SWAPane >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
@@ -1697,23 +1825,11 @@ SWAPane >> importData [
 
 	Every load is ALSO retained as a named SWADataset, so loading twice gives two
 	coexisting, switchable Color-menu entries."
-	| tm path contents json format |
-	tm := self treemap.
-	(tm isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
+	| path |
+	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
 	path := self chooseJsonFilePrompt: 'Load analysis JSON from:'.
 	path ifNil: [^ self].
-	[contents := (FileStream readOnlyFileNamed: path) contentsOfEntireFile.
-	 json := Json readFrom: contents readStream]
-		on: Error do: [:e | ^ self treemapCoverageStatus: 'Load failed: ', e messageText].
-	(SWASpaceTallyClassSummary isSpaceTallyJson: json)
-		ifTrue: [^ self loadSpaceTallyJson: json name: (self datasetNameFor: path)].
-	format := (json at: 'format' ifAbsent: ['']) asString.
-	(format beginsWith: 'SWADuplicationData')
-		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: path)].
-	(format beginsWith: 'SWATopicData')
-		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: path)].
-	"Default / 'SWACoverageData...' / legacy files with no marker -> coverage."
-	self loadCoverageJson: json name: (self datasetNameFor: path)
+	^ self loadJsonFile: path
 ]
 
 {
@@ -1781,6 +1897,33 @@ SWAPane >> loadDuplicationJson: json name: aName [
 	data := SWADuplicationData new.
 	data loadFromJson: json.
 	^ self addDuplicationDataset: data name: aName
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+}
+SWAPane >> loadJsonFile: aPath [
+	"Load the analysis JSON at aPath into this Code Map, dispatching by its format
+	marker exactly like the Load button (#importData) -- coverage / duplication /
+	topic / space-tally -- but WITHOUT the file chooser. Answers self.
+
+	Factored out of #importData so programmatic callers (e.g. the Apps-menu
+	generators that open a map on their freshly-written JSON) share one code path."
+	| tm contents json format |
+	tm := self treemap.
+	(tm isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
+	[contents := (FileStream readOnlyFileNamed: aPath) contentsOfEntireFile.
+	 json := Json readFrom: contents readStream]
+		on: Error do: [:e | ^ self treemapCoverageStatus: 'Load failed: ', e messageText].
+	(SWASpaceTallyClassSummary isSpaceTallyJson: json)
+		ifTrue: [^ self loadSpaceTallyJson: json name: (self datasetNameFor: aPath)].
+	format := (json at: 'format' ifAbsent: ['']) asString.
+	(format beginsWith: 'SWADuplicationData')
+		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: aPath)].
+	(format beginsWith: 'SWATopicData')
+		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: aPath)].
+	^ self loadCoverageJson: json name: (self datasetNameFor: aPath)
 ]
 
 {
@@ -2443,6 +2586,18 @@ SWAPane >> newVerticalMarksTabOn: anActionSelector balloon: aString [
 	(#newMarksTab -> #openMarks) and the OPEN panel's collapse tab
 	(#newMarksCollapseButton -> #collapseMarks) so both read identically."
 	^ self newFlapTabLabelled: 'Marks' on: anActionSelector balloon: aString edge: #left
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:09'
+}
+SWAPane >> nextCallTallyName [
+	"Mint a unique name for a generated Call Tally, so two tallies collected in the
+	same session are distinguishable as mask operands (the mask label reads
+	'Call Tally 2 \ Call Tally 1' instead of two identical names)."
+	CallTallyCounter := (CallTallyCounter ifNil: [0]) + 1.
+	^ 'Call Tally ', CallTallyCounter printString
 ]
 
 {

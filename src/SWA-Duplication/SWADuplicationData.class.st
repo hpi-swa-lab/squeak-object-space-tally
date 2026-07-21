@@ -139,6 +139,33 @@ SWADuplicationData class >> generatePackages: aGlobArray toFile: aFilePath [
 ]
 
 {
+	#category : #generation,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:25'
+}
+SWADuplicationData class >> generatePackages: aGlobArray toFile: aFilePath progress: aProgressBlock stopIf: aStopBlock [
+	"Stop-aware, panel-friendly twin of #generatePackages:toFile:. Runs the same
+	inverted-shingle Jaccard scan but routes progress messages to aProgressBlock and
+	polls aStopBlock (via the build's own progress cadence); if it answers true the
+	scan is abandoned early and the PARTIAL data collected so far is still written to
+	aFilePath. Returns the data."
+	| data nodes |
+	data := self new.
+	nodes := self methodNodesForPackages: aGlobArray.
+	[data
+		buildFromMethodNodes: nodes
+		similarity: self defaultSimilarity
+		floor: self defaultListFloor
+		minLoc: self defaultMinLoc
+		progress: [:msg |
+			aProgressBlock value: msg.
+			(aStopBlock value) ifTrue: [Error signal: 'stopped']]]
+		on: Error
+		do: [:e | e messageText = 'stopped' ifFalse: [e pass]].
+	data writeToFile: aFilePath.
+	^ data
+]
+
+{
 	#category : #generating,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:41'
 }
