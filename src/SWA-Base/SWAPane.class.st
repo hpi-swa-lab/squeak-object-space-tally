@@ -50,7 +50,8 @@ Class {
 		'marksCollapseTab',
 		'sourceTab',
 		'sourceCollapseTab',
-		'marksDetailsMorph'
+		'marksDetailsMorph',
+		'structureHistory'
 	],
 	#classVars : [
 		'CallTallyCounter',
@@ -653,7 +654,7 @@ SWAPane class >> unload [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
 }
 SWAPane >> abandonInvocationTally [
 	"Tear down a live invocation tally WITHOUT collecting or touching the treemap/UI.
@@ -665,6 +666,7 @@ SWAPane >> abandonInvocationTally [
 		[liveTally uninstall] on: Error do: [:e | "swept below regardless"].
 		liveTally := nil].
 	self closeTallyStopWindow.
+	SWATallyWrapper resetCallTree.
 	SWAMethodWrapper uninstallAllStrayWrappers
 ]
 
@@ -723,19 +725,29 @@ SWAPane >> activeStructureKey [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:40'
 }
 SWAPane >> addCallTallyDataset: aSWACoverage name: aName [
 	"Turn a collected live tally (a SWACoverage whose resultMap is 'Class>>selector'
 	-> invocation count) into a retained, named SWADataset carrying invocation data,
 	make it active, and select its #call metric so the map colors by call count.
 	The shared tail of the Call-Tally generator; peer of #addCoverageDataset:name:."
-	| data tm ds callMetric |
+	| data tm ds callMetric callTreeRoot |
 	data := SWACoverageData new.
 	aSWACoverage resultMap keysAndValuesDo: [:key :count |
 		data recordInvocationCount: count for: key].
 	tm := self treemap.
 	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
+	"PRIMARY structure = the captured call tree (flamegraph); DERIVED = its code-map
+	grouping. The flat #call metric above still decorates the Code Map. Both structures
+	re-project the same call data, so the Tree button morphs freely between them."
+	callTreeRoot := aSWACoverage collectCallTree.
+	callTreeRoot ifNotNil: [
+		ds structures: {
+			SWAStructure key: #callTree label: 'Flamegraph (call tree)'
+				view: SWASamplingTallyFlamegraphMorph rootBlock: [callTreeRoot].
+			SWAStructure key: #grouping label: 'Grouped by class (treemap)'
+				view: SWASamplingTallyTreemapMorph rootBlock: [callTreeRoot asCodeGroupingRoot] }].
 	tm selectDataset: ds.
 	"Prefer the #call metric (invocation counts) over the default #coverage metric."
 	callMetric := ds metrics detect: [:m | m id == #call] ifNone: [nil].
@@ -1125,7 +1137,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:57'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -1209,7 +1221,7 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:10'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
@@ -1830,6 +1842,20 @@ SWAPane >> importData [
 	path := self chooseJsonFilePrompt: 'Load analysis JSON from:'.
 	path ifNil: [^ self].
 	^ self loadJsonFile: path
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+}
+SWAPane >> labelForStructureKey: aKey [
+	"Human-readable window label for a namespaced structure key ('<dataset> -- <structure>'),
+	or a fallback."
+	self structureDatasets do: [:ds |
+		ds structures do: [:st |
+			(self structureKeyFor: ds structure: st) == aKey ifTrue: [
+				^ (ds name ifNil: ['?']), ' -- ', st label]]].
+	^ 'Structure'
 ]
 
 {
@@ -2729,6 +2755,19 @@ SWAPane >> peerPanels [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:56'
+}
+SWAPane >> popStructureOrNothing [
+	"Back-button fallthrough when the current view has no zoom history of its own:
+	revert the last structure morph (return to the tree we came from, e.g. the Code
+	Map), keeping the window/chrome. If there is no structure history either, this is a
+	no-op (Back at the very root does nothing)."
+	(structureHistory notNil and: [structureHistory notEmpty]) ifFalse: [^ self].
+	self restoreStructure: structureHistory removeLast
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:38'
 }
@@ -2979,6 +3018,25 @@ SWAPane >> removeSelectedMark [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:56'
+}
+SWAPane >> restoreStructure: aKey [
+	"Morph back to structure aKey WITHOUT recording history (the Back-button inverse of
+	#setStructureMode:, which is the forward move that pushes history). Same in-place
+	morph + relabel; no-op if already there or unresolvable."
+	| newView |
+	aKey == self activeStructureKey ifTrue: [^ self].
+	(self structureViews includesKey: #intrinsic)
+		ifFalse: [(view respondsTo: #datasets) ifTrue: [structureViews at: #intrinsic put: view]].
+	newView := self viewForStructureKey: aKey.
+	newView ifNil: [^ self].
+	activeStructureKey := aKey.
+	self morphViewInto: newView.
+	self updateStructureWindowLabel
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:47'
 }
@@ -3119,7 +3177,7 @@ SWAPane >> setDataMode: aSymbol [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:55'
 }
 SWAPane >> setStructureMode: aKey [
 	"Tree menu action: MORPH the panel's base view into the tree identified by aKey
@@ -3134,6 +3192,10 @@ SWAPane >> setStructureMode: aKey [
 		ifFalse: [(view respondsTo: #datasets) ifTrue: [structureViews at: #intrinsic put: view]].
 	newView := self viewForStructureKey: aKey.
 	newView ifNil: [^ self].
+	"Remember where we came from so the Back button can revert this morph once the
+	target view has no zoom history of its own left to unwind."
+	structureHistory ifNil: [structureHistory := OrderedCollection new].
+	structureHistory addLast: self activeStructureKey.
 	activeStructureKey := aKey.
 	self morphViewInto: newView.
 	self updateStructureWindowLabel
@@ -3254,7 +3316,7 @@ SWAPane >> sourceMorph [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:55'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:40'
 }
 SWAPane >> startInvocationTally: aCodeRoot [
 	"Install live invocation-counting wrappers on the shown packages (Ingalls-style,
@@ -3271,6 +3333,7 @@ SWAPane >> startInvocationTally: aCodeRoot [
 	SWAMethodWrapper uninstallAllStrayWrappers.
 	liveTally := SWACoverage new
 		evictAt: 1000;
+		captureCallTree: true;
 		methodsForPackages: aCodeRoot packageNames.
 	liveTally instrumentTally.
 	self treemapCoverageStatus: 'Tallying ', liveTally methods size printString,
@@ -3279,21 +3342,37 @@ SWAPane >> startInvocationTally: aCodeRoot [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:49'
 }
 SWAPane >> structureDatasets [
-	"The retained datasets that can BE a base structure (have their own tree).
-	Sourced from the intrinsic Code Map view, which owns the datasets regardless of
-	which structure is currently displayed."
-	| cm |
+	"The dataset(s) whose tree(s) can BE a base structure -- restricted to the ACTIVE
+	dataset only, so the Tree menu offers the transformations of the data you are
+	currently looking at, not every retained dataset. Sourced from the intrinsic Code
+	Map view, which owns the datasets regardless of which structure is displayed.
+	Answers #() when the active dataset provides no structure (e.g. #none / a flat
+	census)."
+	| cm active |
 	cm := self codeMapView.
 	(cm notNil and: [cm respondsTo: #datasets]) ifFalse: [^ #()].
-	^ cm datasets select: [:ds | ds providesStructure]
+	active := (cm respondsTo: #activeDataset) ifTrue: [cm activeDataset] ifFalse: [nil].
+	(active notNil and: [active providesStructure]) ifTrue: [^ { active }].
+	^ #()
 ]
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+}
+SWAPane >> structureKeyFor: aDataset structure: aStructure [
+	"A globally-unique Tree-menu key for one STRUCTURE of one dataset, namespaced by the
+	dataset's modeSymbol so several datasets (each with several structures) share the
+	Tree menu without collision. Symbol so it compares by identity like #intrinsic."
+	^ (aDataset modeSymbol asString, '/', aStructure key asString) asSymbol
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWAPane >> structureOptions [
 	"{ key. label } pairs for the Tree selector: the intrinsic Code Map, plus one
@@ -3303,7 +3382,10 @@ SWAPane >> structureOptions [
 	opts := OrderedCollection new.
 	opts add: (Array with: #intrinsic with: 'Code map').
 	self structureDatasets do: [:ds |
-		opts add: (Array with: ds modeSymbol with: 'Space tally: ', (ds name ifNil: ['?']))].
+		ds structures do: [:st |
+			opts add: (Array
+				with: (self structureKeyFor: ds structure: st)
+				with: (ds name ifNil: ['?']), ' -- ', st label)]].
 	^ opts asArray
 ]
 
@@ -3525,7 +3607,7 @@ SWAPane >> updateSource [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWAPane >> updateStructureWindowLabel [
 	"Reflect the active structure in the enclosing window title, if any."
@@ -3534,8 +3616,7 @@ SWAPane >> updateStructureWindowLabel [
 	win ifNil: [^ self].
 	label := self activeStructureKey == #intrinsic
 		ifTrue: ['Code Map']
-		ifFalse: [| ds | ds := self structureDatasets detect: [:d | d modeSymbol == self activeStructureKey] ifNone: [nil].
-			'Space Tally: ', (ds ifNotNil: [:d | d name] ifNil: ['?'])].
+		ifFalse: [self labelForStructureKey: self activeStructureKey].
 	win setLabel: label
 ]
 
@@ -3563,7 +3644,7 @@ SWAPane >> view [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
 }
 SWAPane >> viewForStructureKey: aKey [
 	"The (cached, fully-wired) view morph for a structure key. #intrinsic is the
@@ -3571,11 +3652,13 @@ SWAPane >> viewForStructureKey: aKey [
 	dataset's retained structureRoot. Answers nil if the key can't be resolved."
 	aKey == #intrinsic ifTrue: [^ self codeMapView].
 	^ self structureViews at: aKey ifAbsentPut: [
-		| ds tm |
-		ds := self structureDatasets detect: [:d | d modeSymbol == aKey] ifNone: [nil].
-		ds ifNil: [^ nil].
-		tm := SWASpaceTallyTreemapMorph on: ds structureRoot.
-		tm extent: view extent.
+		| tm |
+		tm := nil.
+		self structureDatasets do: [:ds |
+			ds structures do: [:st |
+				(self structureKeyFor: ds structure: st) == aKey ifTrue: [
+					tm := st buildViewExtent: view extent]]].
+		tm ifNil: [^ nil].
 		self wireOverlayFor: tm.
 		tm]
 ]
@@ -3601,10 +3684,16 @@ SWAPane >> wireOverlayFor: aTreemapMorph [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:55'
 }
 SWAPane >> zoomOut [
-	"Back button: ask the view to zoom out, then refresh the chrome."
-	(view respondsTo: #zoomOut) ifTrue: [view zoomOut].
-	self refresh
+	"Back button. Two-level unwind:
+	 1. If the current view still has zoom history, zoom IT out (normal in-view Back).
+	 2. Otherwise, if we morphed here from another structure (e.g. Code Map -> flamegraph
+	    via the Tree menu), revert that morph -- returning to the setup we came from.
+	This makes Back a complete way home even from a freshly-morphed flamegraph that has
+	no zoom history of its own yet."
+	((view respondsTo: #canZoomOut) and: [view canZoomOut])
+		ifTrue: [view zoomOut. ^ self refresh].
+	self popStructureOrNothing
 ]
