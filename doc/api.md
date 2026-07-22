@@ -3,7 +3,8 @@
 ![](_navigation.html)
 
 
-Convention: `Class>>selector` = instance side, `<br>Class class>>selector` = class side.
+Convention:<br>
+`Class>>selector` = instance side, `<br>Class class>>selector` = class side.
 {style="padding:10px; background-color:gray;color:white; width:50%"}
 
 ---
