@@ -1,11 +1,6 @@
 # SWASpaceTally -- Structural Memory Analysis for Squeak
 
-> **Doc-drift note (as of the architecture pass):** the *Performance* section below
-> and any mention of `deadlineMs` / `#timeout` describe the pre-rewrite walker. The
-> current walker uses the **closed-universe** guarantee (snapshot the heap up front),
-> so there is no wall-clock deadline -- only an optional, testing-only `maxVisits`
-> (see the *Termination* section, which is current). For the engineering view see
-> [architecture.md](architecture.md) §8 and [smells.md](smells.md) §6.7.
+![](_navigation.html)
 
 ## Motivation
 
