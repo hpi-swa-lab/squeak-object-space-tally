@@ -26,7 +26,7 @@ studying -- and it happens to be interesting for us specifically as **Software
 Architecture / Programming Experience / Explorative & Live Programming** researchers,
 because it is a live, in-image, composable analysis loop rather than a batch report.
 
-## Future Work 
+## Ideas
 
 1. **Agent-run diff as a first-class view.** Snapshot datasets before/after an agent
    turn; the default view is the *difference*, algebra-composed, not the whole map.
