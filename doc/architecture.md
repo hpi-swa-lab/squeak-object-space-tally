@@ -224,7 +224,7 @@ Binding is orthogonal to kind: any dataset can **decorate** (colour/size/link an
 existing tree) or **structure** (become the tree). This "decorate vs structure"
 axis is the conceptual core to keep in mind when evolving the design.
 
-## 7. Instrumentation substrate (coverage + tally)
+## 7. Instrumentation substrate
 
 `SWAMethodWrapper` is installed *in place of* a `CompiledMethod` in a method dict;
 sends dispatch to `run:with:in:`, which does minimal bookkeeping then forwards to
