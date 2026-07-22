@@ -4,19 +4,20 @@
 
 ## Software Cartography / Code-as-Terrain
 
-- **Codemap / Software Cartography** (Kuhn, Loretan, Nierstrasz -- Bern) -- spatial map
-  with a stable coordinate system; concerns (search, bugs, authors) project onto it.
-- **CodeCity** (Wettel, Lanza -- Lugano) -- classes as buildings, packages as
-  districts, metrics as height/colour. 3D antecedent of our size=metric/colour=metric.
+- **Codemap / Software Cartography** (Kuhn, Loretan, Nierstrasz -- Bern)
+  - spatial map with a stable coordinate system; concerns (search, bugs, authors) project onto it.
+- **CodeCity** (Wettel, Lanza -- Lugano) 
+  - classes as buildings, packages as districts, metrics as height/colour
 - **Software maps** (Bohnet, Döllner) and the **HPI** line (Limberger, Scheibel, Trapp,
-  Döllner) -- treemap-based, multi-metric, evolution-aware maps; attribute layering;
-  level-of-detail. 
+  Döllner)
+  - treemap-based, multi-metric, evolution-aware maps; attribute layering
+  - level-of-detail. 
 
 ## Treemap-based Software Visualization
 
 - **Treemaps** (Shneiderman)
 - **Squarified treemaps** (Bruls, Huijsen, van Wijk) 
-  (`squarify:scales:into:`).
+ - `squarify:scales:into:`
 
 ## Software Visualization Frameworks in Smalltalk
 
