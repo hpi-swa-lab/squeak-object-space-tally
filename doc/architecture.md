@@ -73,7 +73,7 @@ Two independent inheritance spines meet at the view:
 > `SWA-Tmp`, `SWA-TopicModel`(shared), `SWA-MessageTally`(shared) show as categories
 > but their classes physically live in the packages above.
 
-## 3. The tree contract (`SWANode`)
+## 3. `SWANode`
 
 `SWANode` (2 ivars: `parent`, `children`) is the minimal shared tree protocol.
 Everything a view walks goes through it:
