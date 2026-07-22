@@ -116,7 +116,7 @@ Everything a view walks goes through it:
   diff size against the prior version, provenance status (`#current`/`#superseded`/
   `#inHistory`/`#gone`/`#other`), author, and inline-diff sources.
 
-## 4. The view (`SWAView`) -- the busy hub
+## 4. The view (`SWAView`)
 
 `SWAView` (23 ivars) is where nearly every cross-cutting concern lives. Its
 responsibilities, by subsystem:
@@ -144,7 +144,7 @@ Concrete `baseColorForNode:` overrides plus a small set of `viewKind`/`overlayCl
 hooks are essentially all a concrete view *must* supply; everything else is
 inherited.
 
-### `SWATreemapMorph` -- the squarified engine
+### `SWATreemapMorph` 
 
 Adds the Bruls/Huijsen/van Wijk **squarified layout** (`squarify:scales:into:`,
 `worstAspectRatio:...`, `emitRow:...`), **Form-cached static rendering**
@@ -159,7 +159,7 @@ coverage bars, topic bars, duplication links).
 size change invalidates the layout and reflows (keeping zoom + selection). This is
 the "recolour is instant, resize reflows" behaviour.
 
-### `SWATreemapOverlay` -- interaction
+### `SWATreemapOverlay` 
 
 A transparent sibling morph over the treemap. Handles hover highlight + canvas-drawn
 tooltip (Morphic balloons never worked over these views), click-select /
@@ -190,7 +190,7 @@ you morph one tool into another):
   window, and (critically) `delete` tears down any live instrumentation so wrappers
   never linger.
 
-## 6. Datasets -- the unifying data path
+## 6. Datasets 
 
 The single most important architectural idea (journal 2026-06-30 onward). A
 **`SWADataset`** is a named, retained, image-independent overlay wrapping an analysis
