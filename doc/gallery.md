@@ -1,6 +1,8 @@
 # SWA Tools -- Gallery
 
-A one-look overview of the SWA tool suite. Each tool visualises a tree of
+![](_navigation.html)
+
+In overview of the SWA Maps, each tool visualises a tree of
 `SWANode`s through the shared view layer (`SWAView` + `SWAPane`) as a
 navigable squarified treemap, flamegraph, or diagram, and any tool can colour
 itself by another's data because they all speak the same `crossRefKey`
