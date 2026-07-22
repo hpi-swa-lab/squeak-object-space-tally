@@ -2,9 +2,9 @@
 
 ![](_navigation.html)
 
-## 1. What this is
+## 1. SWA Maps
 
-SWA is a suite of **interactive structural-analysis visualizations** for Squeak.
+SWA Maps is a suite of **interactive structural-analysis visualizations** for Squeak.
 Every tool renders a tree of nodes as a navigable **squarified treemap** (or a
 flamegraph, or a Graphviz diagram), and any tool can be coloured/sized by another
 tool's data because they all share one identity vocabulary: the **`crossRefKey`**
