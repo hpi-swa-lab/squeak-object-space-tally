@@ -1,11 +1,7 @@
 # SWA API Reference -- As-Is
 
-> **Status: static snapshot** of the important public protocols, read from source.
-> This is a *reference*, not a tutorial -- it names the methods that matter for
-> understanding and extending the suite, grouped by class, with the signature and a
-> one-line contract. Trivial accessors are omitted. Companion docs:
-> [architecture.md](architecture.md), [smells.md](smells.md).
->
+![](_navigation.html)
+
 > Convention: `Class>>selector` = instance side, `Class class>>selector` = class side.
 
 ---
