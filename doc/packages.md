@@ -2,10 +2,11 @@
 
 ![](_navigation.html)
 
-The suite ships as 14 `SWA-*` packages (13 code + 1 test). They layer cleanly:
-a shared **Base** view/tree/dataset substrate, a shared **Nodes** tree-model
-layer, and then one package per user-facing **tool**, plus a few supporting
-packages (Graphviz backend, small widgets, analysis data models).
+The `SWA-*` packages: 
+- a **Base** view/tree/dataset substrate
+- a **Nodes** tree-model layer
+- one package per user-facing **tool**
+- supporting packages (Graphviz backend, small widgets, analysis data models)
 
 ## Packages at a glance
 
