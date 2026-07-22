@@ -2,9 +2,13 @@
 
 ![](_navigation.html)
 
-Legend: **[dup]** duplication · **[open]** unfinished / TODO-shaped · **[risk]**
-correctness/robustness · **[naming]** clarity · **[design]** structural ·
-**[dead]** likely-dead/legacy.
+*Legend:* <br>
+**[dup]** duplication <br>
+**[open]** unfinished / TODO-shaped <br>
+**[risk]** correctness/robustness<br>
+**[naming]** clarity<br>
+**[design]** structural<br>
+**[dead]** likely-dead/legacy
 {style="padding:10px; background-color:gray;color:white; width:50%"}
 
 ---
