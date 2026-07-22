@@ -5,7 +5,7 @@
 
 ```
 Convention: `Class>>selector` = instance side, `Class class>>selector` = class side.
-``` {style:color=blue}
+``` {style="color:blue"}
 
 ---
 
