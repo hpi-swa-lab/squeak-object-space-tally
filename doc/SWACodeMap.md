@@ -1,11 +1,6 @@
 # SWACodeMap -- Static Code-Structure Treemap for Squeak
 
-> **Engineering cross-refs:** this is the user-facing tour. For the as-is
-> architecture (dataset layer, node rollup caches, the coverage-overlay-vs-dataset
-> split) see [architecture.md](architecture.md) §3/§4/§6, the protocols in
-> [api.md](api.md), and known debt -- notably the *legacy coverage overlay running in
-> parallel with datasets* -- in [smells.md](smells.md) §3.2. Undocumented-here but
-> shipped: duplication links, topic coloring, Marks, and the Mask (B\A) combinator.
+![](_navigation.html)
 
 ## Motivation
 
@@ -286,6 +281,157 @@ w delete.
 -->
 
 
+## Datasets: the Data menu
+
+Coverage is one instance of a general mechanism. The **Data** header button (and
+the right-click **Data** submenu) is the Code Map's primary overlay entry point: it
+lists **None (intrinsic)**, one entry per **retained, named dataset**, then -- below
+separators -- the **Mask** combinator, the async **Generate** entries, and any open
+**peer** views. Picking a dataset makes it active and applies its *fitting defaults*
+across the axes (colour / size / decoration); each axis can still be overridden
+afterward from its own menu, and the override sticks until the next Data pick.
+
+A dataset is a named, retained, image-independent (`crossRefKey`-keyed) overlay. Each
+carries one or more **metrics** bindable to colour, size, or links -- so one loaded
+coverage file yields *both* a *By coverage* and a *By call* metric, and loading the
+same kind twice gives two coexisting, instantly-switchable entries (`coverage_1`,
+`coverage_2`). See [architecture.md](architecture.md) §6 for the full model.
+
+Datasets arrive four ways:
+
+- **Load** (a file) -- the `Load` button / `importData` opens a `*.json` chooser and
+  dispatches by content marker: coverage, duplication, topic, or space-tally JSON.
+- **Generate** (compute on the fly) -- the italic entries under Data, the async twins
+  of Load (below).
+- **Mask** (combine two datasets) -- the `B \ A` combinator (below).
+- **Peer** (another open view) -- every open treemap/flamegraph appears as
+  "X-ref: `<window>`"; picking it colours this map by that peer's live per-key weight
+  (`SWAPeerViewSource`). This replaced the former X-ref/Clear buttons.
+
+### Generate: compute a dataset without leaving the map
+
+The italic **Generate** entries compute analysis data for the *shown packages* and
+retain the result as a dataset (so it then behaves like a loaded file):
+
+| Entry | What it runs | Sync/async |
+|---|---|---|
+| **Generate: duplication (clone heat)** | inverted-shingle Jaccard scan | forked at background priority |
+| **Generate: test coverage (run related tests)** | SUnit-with-provenance run, Stop-able | forked behind a Stop window |
+| **Generate: call tally (instrument + exercise, then Stop)** | live invocation counting | two-phase: instrument -> exercise -> STOP collects |
+| **Generate: sample tally (Ns CPU heat)** | external st-spy sampler on this image | async; `whenReadyDo:` installs it |
+| **Generate: topic model (k=N)** | Biterm Topic Model over the methods | forked at background priority |
+
+**Call Tally is two-phase.** Picking it instruments every shown method with
+self-evicting wrappers and pops a small **STOP** window; you exercise the system so
+calls are counted, then STOP collects the counts, uninstalls the wrappers, and
+retains the result as a `#call`-metric dataset (which can additionally carry a
+captured flamegraph call tree -- see
+[SWAMessageTally.md](SWAMessageTally.md#deterministic-call-tree-capture-swatallywrapper)).
+Closing the pane or the STOP window abandons the tally and sweeps *all* stray
+wrappers, so instrumentation never lingers to corrupt unrelated tools.
+
+The whole-image class-side generators write JSON to auto-named files and re-open a
+Code Map on the result: `SWAPane generateSqueakCoverageJson` (forks a throwaway
+**headless child image** so this image is never touched by broken/looping tests),
+`generateSqueakDuplicationJson`, `generateSqueakTopicJson`. The sample-tally
+duration and topic `k`/sweeps are Preferences-configurable
+(`SWAPane class>>sampleTallyDuration`, `topicK`, `topicSweeps`).
+
+### Mask: `B \ A` -- what's new in one run vs another
+
+With two mask-eligible datasets loaded (call tally / coverage / other masks), the
+**Mask (B \ A)** entry set-subtracts them: pick a baseline **A**, then an overlay
+**B**, and the mask highlights the method keys touched in **B but not A** -- the Code
+Map analog of the Space Tally's "Diff from this". Crucially the mask **mirrors B's
+metrics gated to the survivor set**, so you keep *By call* / *By coverage* / *By
+bytes* and choose which drives colour (survivors carry B's *real* values, not a flat
+boolean). The algebra closes: a mask can itself be an operand of another mask.
+Currently the only operator is `#minus` (intersection/union are open ends --
+[smells.md](smells.md) §6.3).
+
+## Duplication: near-clone detection
+
+Load a duplication JSON (or **Generate: duplication**) to surface copy-paste /
+near-clone clusters. The engine (`SWACodeSimilarity`) represents each method's source
+as a **set of k-gram shingles** (k=4) and scores a pair by the **Jaccard
+coefficient** `|A∩B| / |A∪B|`: a verbatim copy scores 1.0, a copy with one changed
+line still scores high, paraphrase/renaming defeats it (the known set-method
+weakness). The live scan (`computeDuplicationScores`) uses an **inverted shingle
+index** so only candidate pairs sharing ≥1 k-gram are compared -- *exact* results
+(two methods with no shared shingle have Jaccard 0), ~13x faster than brute force.
+Trivial methods (< `dupMinLoc`, default 4) are skipped as noise.
+
+### Colour, bars, and links
+
+- **Colour by duplication** -- method leaves get a heat ramp on their max Jaccard
+  score (cool slate when unique; yellow -> orange -> red as a match approaches an
+  exact copy). Aggregate tiles get a proportional **"% of methods duplicated" bar**,
+  tinted by the average clone strength of the affected methods.
+- **Clone links** (the **Links** / decoration axis) -- lines drawn between duplicated
+  method tiles. **Colour** encodes the Jaccard score (yellow weak -> red exact);
+  **width** encodes the *shared-LOC impact* (score × the smaller method's LOC, log-
+  scaled) -- so a genuinely copied 40-line method draws a heavy line while dozens of
+  near-identical one-line accessors stay thin. Each line gets a dark casing so it
+  stays visible over any tile colour. Links are filtered to the current selection's
+  subtree (a method shows its own partners; a container shows links with one endpoint
+  inside it; nothing selected shows the whole-map overview). Off-screen partners
+  resolve to their nearest visible ancestor, or (via `SWADuplicationPartnerStub`) are
+  listed but not drawn.
+
+### Diff side-pane
+
+Under a duplication dataset the **Covered by** side-pane becomes a **duplicates**
+pane. Selecting a *method* lists its near-duplicates (`NN%  partner`); selecting a
+*container* aggregates the near-duplicate **pairs** under it (`NN%  a <-> b`, best-
+first, top 50). Clicking an entry shows the **inline diff** of the two methods
+(styled removed/inserted lines via `TextDiffBuilder`) in the Source pane -- and for a
+container browse it does so **without changing the primary selection**, so the list
+survives and you can step through it; the partner tile gets a red secondary-selection
+border.
+
+## Topic model: what each method is *about*
+
+Load a topic JSON (or **Generate: topic model**) to tint methods by their inferred
+**topic**. The model (`SWABitermTopicModel`) is a **Biterm Topic Model** (Yan et al.
+2013) fit in-image: it tokenises each method's source (camelCase-split, Smalltalk
+stopwords dropped), forms the corpus as a bag of **biterms** (co-occurring word
+pairs -- robust for short texts, which method bodies are), runs collapsed Gibbs
+sampling, then collapses the `k` topics into a smaller number of **hue families** by
+top-word overlap. The result (`SWATopicData`) is image-independent
+(`Class>>selector`-keyed) JSON. Topics can optionally be given short **LLM labels**
+(`labelTopicsWithLlm...`, via a local Ollama endpoint).
+
+- **Colour by topic** -- each method leaf takes its dominant topic's **hue family**
+  colour, brightness = confidence; aggregate tiles get a proportional **topic-mixture
+  bar** (one segment per topic in the subtree, widest = dominant).
+- **Focus a single topic** -- clicking a topic in the side-pane recolours the *whole
+  map* by that one topic's **weight heat** (one hue, faded by each node's share of
+  it) and shows the topic's top raw words in the Details box; clicking again clears
+  the focus.
+- The side-pane lists the selection's topic mixture (or, with nothing selected, the
+  overall topics by prevalence); the title shows the dominant topic's label.
+
+Generate a file directly:
+```smalltalk
+((SWABitermTopicModel onPackageNamed: 'Morphic') buildAndRun: 200)
+    writeToFile: 'morphic-topics.json'.
+```
+
+## Marks: cross-view bookmarks
+
+Any tile can be **bookmarked** (shift-click, or the context menu). Marks are stored
+as cross-view `markKey`s (package name / class name / `'Class>>selector'`) in a
+process-wide singleton `SWAMarkSet`, so a mark set in *any* SWA view lights up (green
+border) in *every* open view that contains it. The left **Marks** flap lists them
+with a per-mark **comment** editor and an **origin** panel (where the mark was made:
+view kind, dataset, package scope). Marks persist to a JSON sidecar
+(Save/Load in the flap's burger menu) and survive window open/close.
+
+From the marks burger menu, **Class diagram of marks (live)** opens a
+[Class Diagram](gallery.md#class-diagram--inheritance-diagram) scoped to exactly the
+marked classes, in the `+Selected` granularity (each box shows only its *marked*
+ivars and methods), staying **live-synced** as you mark/unmark elsewhere.
+
 ## Architecture
 
 ### The node tree (`SWANode` / `SWACodeNode`)
@@ -297,20 +443,33 @@ Sampling Tally node types.
 ```
 SWANode
   SWACodeNode
-    SWACodeRootNode       -- aggregates one or many packages (glob-matched)
-    SWACodePackageNode    -- a package
-    SWACodeClassNode      -- a class (builds a comment node + category children)
-    SWACodeCategoryNode   -- a method category (instance- or class-side)
-    SWACodeMethodNode     -- a method leaf (source/LOC/byte metrics, all cached)
-      SWACodeCommentNode  -- the class comment as a leaf (100% documentation)
+    SWACodeRootNode           -- aggregates one or many packages (glob-matched)
+      SWACodeMarkSetRootNode  -- children = the currently-marked classes (live diagram)
+    SWACodePackageNode        -- a package (nests sub-packages; resolves category ownership)
+    SWACodeClassNode          -- a class (builds a comment node + category children;
+                                 owns the Graphviz record-box / UML compartment emission)
+    SWACodeCategoryNode       -- a method category (instance- or class-side / static)
+    SWACodeMethodNode         -- a method leaf (source/LOC/byte metrics, all cached)
+      SWACodeCommentNode      -- the class comment as a leaf (100% documentation)
+    SWACodeInstVarNode        -- an instance variable, keyed 'Class>>#ivar' (markable;
+                                 composition/type EDGES to other nodes are a stubbed,
+                                 not-yet-built future overlay -- see smells.md §6.5)
 ```
 
-Children are built lazily; metrics (`loc`, `byteSize`, `byteComposition`,
-`changeCount`, ...) are cached per node, and each size metric has its own rolled-up
-cache (`rollupLoc`, `rollupBytes`, `rollupCoverage`, `rollupMethodCount`) so
-switching size metrics is a fast relayout, never a re-walk. `SWACodeNode>>totalSize`
-is the single dispatch point that maps the active `weightMetric` to the right
-rolled-up weight.
+Children are built lazily; per-method metrics (`loc`, `byteSize`, `byteComposition`,
+`changeCount`, `lastAuthor`, ...) are cached on the node.
+
+**Parent-chain inherited attributes.** Five separate settings resolve *up the parent
+chain*, so they need only be set on the **root** and every lazily-built descendant
+sees them: `weightMetric` (intrinsic size), `sizeMetric` (a dataset-driven size),
+`coverageData` + `coverageWeightMode`, and `topicData`. Each also keeps its own
+rolled-up cache (`rollupLoc`, `rollupBytes`, `rollupCoverage`, `rollupDataset`,
+`rollupMethodCount`, `rollupTopic`) with its own flush, so switching size metrics is
+a fast relayout, never a re-walk. `SWACodeNode>>totalSize` is the single dispatch
+point that maps whichever size setting is active to the right rolled-up weight
+(`sizeMetric` dataset weight > `#invocations`/`#tests` coverage weight >
+`#methods`/`#bytes`/`#loc`). (These five near-identical inheritance mechanisms are a
+noted dedup candidate -- [smells.md](smells.md) §4.6.)
 
 Reading source from the `.changes`/`.sources` file is the one genuinely expensive
 step, so each method's source string is read once and held on the node; LOC and the
@@ -325,9 +484,19 @@ colour palettes and overrides `drawTileContent:` to paint the byte-composition a
 coverage bars.
 
 **Size vs colour are deliberately decoupled.** Changing the colour mode flushes only
-the cached Form (instant redraw); changing the size metric invalidates the layout
-and re-lays-out, keeping the current zoom and selection. This is why "recolouring is
+the cached Form (instant redraw); changing the size metric invalidates the layout and
+re-lays-out, keeping the current zoom and selection. This is why "recolouring is
 instant" while "resizing reflows".
+
+**Two coverage paths coexist (editor beware).** The `SWADataset`-based coverage path
+(described above) is *additive*: it was layered on top of an older single-ivar
+coverage overlay (`showCoverage:`, `showCoverageData:weightMode:`, the legacy
+`#coverage` / `#tally` colour modes, `enterCoverageColorMode` /
+`enterTallyColorMode`, and the `coverageData` / `coverageKind` ivars on the view).
+Both are live and interact in `intrinsicColorForNode:` -- so any change to coverage
+colouring must keep them consistent. Retiring the legacy overlay in favour of pure
+datasets is the single largest piece of structural debt
+([smells.md](smells.md) §3.2).
 
 ### The chrome (`SWAPane`) and the menus
 
