@@ -8,7 +8,7 @@ The `SWA-*` packages:
 - one package per user-facing **tool**
 - supporting packages (Graphviz backend, small widgets, analysis data models)
 
-## Packages at a glance
+## Packages
 
 | Package | Classes | Methods | Role |
 |---|---:|---:|---|
