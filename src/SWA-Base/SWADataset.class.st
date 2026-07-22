@@ -180,7 +180,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:04'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 18:10'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -215,10 +215,22 @@ SWADataset >> buildMetrics [
 			axes: #(#color #size); rollup: #sum;
 			scale: (self spaceTallyScaleForMax: source maxSelf); yourself)].
 	kind == #masked ifTrue: [
-		ms add: (SWADatasetMetric new
-			dataset: self; id: #maskHit; label: 'By mask (B \ A: new only)';
-			axes: #(#color); rollup: #sum;
-			scale: self maskScale; yourself)].
+		"Mirror EVERY metric the overlay B exposes, gated to the mask's survivor
+		set: same id / label / axes / rollup / scale, but dispatched through this
+		#masked dataset's SWAMaskSource, which returns B's real value for a
+		surviving key and nil otherwise. So you keep 'By call', 'By coverage', etc.
+		and pick which drives color -- calls, not just coverage."
+		source overlayDataset metrics do: [:bm |
+			ms add: (SWADatasetMetric new
+				dataset: self; id: bm id; label: 'B\A: ', bm label;
+				axes: bm axes; rollup: bm rollup;
+				scale: bm scale; yourself)].
+		ms isEmpty ifTrue: [
+			"Overlay had no metrics: fall back to a boolean hit highlight."
+			ms add: (SWADatasetMetric new
+				dataset: self; id: #maskHit; label: 'By mask (B \ A hit)';
+				axes: #(#color); rollup: #sum;
+				scale: self maskScale; yourself)]].
 	kind == #topic ifTrue: [
 		ms add: ((SWADatasetMetric new
 			dataset: self; id: #topic; label: 'By topic (hue families)';
@@ -252,7 +264,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 18:17'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -275,7 +287,7 @@ SWADataset >> defaultBindings [
 	| d |
 	d := Dictionary new.
 	kind == #coverage ifTrue: [
-		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+		self preferredColorMetric ifNotNil: [:m | d at: #color put: m]].
 	kind == #duplication ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m].
 		(self metrics detect: [:x | x supportsLinks] ifNone: [nil]) ifNotNil: [:m | d at: #decoration put: m]].
@@ -284,7 +296,7 @@ SWADataset >> defaultBindings [
 	kind == #sampleTally ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	kind == #masked ifTrue: [
-		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+		self preferredColorMetric ifNotNil: [:m | d at: #color put: m]].
 	kind == #topic ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	kind == #peer ifTrue: [
@@ -451,6 +463,19 @@ SWADataset >> operands [
 	"For a mask (operation) dataset: { baseDataset. overlayDataset }. Empty otherwise."
 	self isMaskOp ifFalse: [^ #()].
 	^ { source left. source right }
+]
+
+{
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer 7/21/2026 18:17'
+}
+SWADataset >> preferredColorMetric [
+	"The color metric to default to. Call-count (#call) is the more useful signal than
+	covering-test count for call-tally datasets (and their B\A masks), so prefer it
+	when present; otherwise fall back to the first color-capable metric. For a mask,
+	the mirrored ids are #call / #coverage too, so the same preference applies."
+	^ (self metrics detect: [:m | m id == #call and: [m supportsColor]] ifNone: [nil])
+		ifNil: [self metrics detect: [:m | m supportsColor] ifNone: [nil]]
 ]
 
 {
