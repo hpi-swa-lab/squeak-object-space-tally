@@ -20,7 +20,7 @@ Five user-facing tools, plus a shared substrate and supporting data models:
 | **Change Map** | when code changed, how much | `.changes` time buckets | diff lines |
 | **Class Diagram** | inheritance shape | class/inheritance graph (Graphviz) | -- (diagram) |
 
-## 2. The layering
+## 2. Architecture
 
 ```
                  SWAPane            (window chrome, ~130 methods, 43 ivars)
