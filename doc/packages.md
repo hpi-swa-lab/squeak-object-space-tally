@@ -88,7 +88,7 @@ Solid arrows are structural (subclassing / direct use); dotted arrows are
 runtime data flow -- e.g. the Code Map does not statically depend on
 `SWA-Coverage`; it *loads* a `SWACoverageData` as a dataset at runtime.
 
-## The shared substrate (`SWA-Base` + `SWA-Nodes`)
+## `SWA-Base` + `SWA-Nodes`
 
 Everything else is built on three abstractions in `SWA-Base`, with the concrete
 per-tool node models split out into `SWA-Nodes`.
