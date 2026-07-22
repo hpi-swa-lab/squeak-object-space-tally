@@ -11,7 +11,7 @@
 
 ---
 
-## Opening the tools (entry points)
+## Opening the tools
 
 ```smalltalk
 "Code Map"
@@ -45,7 +45,7 @@ SWAClassDiagram openOnMarks.   "live diagram of the marked classes"
 
 ---
 
-## `SWANode` (SWA-Base) -- the tree contract
+## `SWANode` (SWA-Base)
 
 Every model node answers these; a view depends only on this protocol.
 
@@ -62,17 +62,17 @@ Every model node answers these; a view depends only on this protocol.
 
 ---
 
-## `SWAView` (SWA-Base) -- the abstract view
+## `SWAView` (SWA-Base) 
 
 The hub. Subclass hooks in **bold**.
 
-### Structure / lifecycle
+### Structure
 - `setRoot: aNode` -- set root, rebuild `keyIndex`, flush marks (subclasses extend).
 - `rootNode`, `selectedNode`, `secondarySelection` / `secondarySelection:`.
 - `keyIndex` -- `crossRefKey -> node` map (lazy rebuild); how peers cross-reference.
 - `rebuildKeyIndex`, `selectNodeForKey:`, `canZoomOut`.
 
-### Datasets (the overlay layer)
+### Datasets 
 - `addDataset: aSWADataset` -- retain + mint a unique modeSymbol per metric.
 - `selectDataset: aSWADatasetOrNil` -- exclusive pick; applies default bindings
   (base version handles the colour axis; Code Map overrides for size/decoration).
@@ -102,7 +102,7 @@ The hub. Subclass hooks in **bold**.
 
 ---
 
-## `SWATreemapMorph` (SWA-Base) -- squarified engine
+## `SWATreemapMorph` (SWA-Base)
 
 - `on: aNode` (class) / `setRoot:` -- create rooted on a node.
 - **`baseColorForNode:`**, **`labelFor:inWidth:`**, **`balloonStringFor:`**,
@@ -122,7 +122,7 @@ The hub. Subclass hooks in **bold**.
 
 ---
 
-## `SWAPane` (SWA-Base) -- window chrome
+## `SWAPane` (SWA-Base) 
 
 - `SWAPane on: aViewMorph` -- wrap a view (builds header + flaps).
 - `SWAPane class>>openPanels` / `openPanes` -- live panes (for peer discovery).
@@ -181,7 +181,7 @@ The hub. Subclass hooks in **bold**.
 
 ---
 
-## `SWAMarkSet` (SWA-Base) -- global bookmarks
+## `SWAMarkSet` (SWA-Base) 
 
 - `SWAMarkSet default` -- process-wide singleton.
 - `add:` / `remove:` / `toggle:` / `removeAll:` / `clear`, `includes:`, `keys`.
@@ -280,7 +280,7 @@ The hub. Subclass hooks in **bold**.
 
 ---
 
-## `SWACodeTreemapMorph` (SWA-CodeMap) -- concrete Code Map
+## `SWACodeTreemapMorph` (SWA-CodeMap) 
 
 Adds on top of `SWATreemapMorph`:
 - Colour modes: `colorByKind:`, `colorByLoc:`, `colorByAvgLoc:`, `colorByVersions:`,
