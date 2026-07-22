@@ -2,24 +2,23 @@
 
 [motivation](motivation) | [ideas](ideas.md) | [architecture](architecture.md)
 
-## Software cartography / code-as-terrain
+## Software Cartography / Code-as-Terrain
 
 - **Codemap / Software Cartography** (Kuhn, Loretan, Nierstrasz -- Bern) -- spatial map
   with a stable coordinate system; concerns (search, bugs, authors) project onto it.
-  Our `crossRefKey` plays that shared-coordinate role.
 - **CodeCity** (Wettel, Lanza -- Lugano) -- classes as buildings, packages as
   districts, metrics as height/colour. 3D antecedent of our size=metric/colour=metric.
 - **Software maps** (Bohnet, Döllner) and the **HPI** line (Limberger, Scheibel, Trapp,
   Döllner) -- treemap-based, multi-metric, evolution-aware maps; attribute layering;
   level-of-detail. 
 
-## Treemap lineage
+## Treemap-based Software Visualization
 
-- **Treemaps** (Shneiderman) -- original.
-- **Squarified treemaps** (Bruls, Huijsen, van Wijk) -- the layout we implement
+- **Treemaps** (Shneiderman)
+- **Squarified treemaps** (Bruls, Huijsen, van Wijk) 
   (`squarify:scales:into:`).
 
-## Smalltalk-family analysis ("why not just use these?")
+## Software Visualization Frameworks in Smalltalk
 
 - **Moose** (Nierstrasz, Ducasse) -- model-driven analysis on the **FAMIX** meta-model;
   Pharo; language-agnostic. Broader and model-first.
@@ -27,7 +26,7 @@
   to a domain.
 - **Glamorous Toolkit** (feenk) -- moldable development; live per-object custom views.
 
-## Where we diverge
+## Discussion
 
 - **In-image:** runs inside the running Squeak image it inspects (not Pharo/batch).
 - **Live instrumentation substrate:** `SWAMethodWrapper` / `SWACapturingLayer` feed
@@ -37,7 +36,7 @@
   `crossRefKey`-keyed datasets with *operations* -- Moose/Roassal overlay/bind metrics
   but do not subtract, mask, and re-project as a closing operation.
 
-## The one axis we claim: dataset algebra
+## Dataset Algebra
 
 - **project** -- read any open view live as a `#peer` dataset; colour/size/structure
   another view by it (`SWAPeerViewSource`).
