@@ -2,8 +2,10 @@
 
 ![](_navigation.html)
 
-{style:color=blue}
+
+```
 Convention: `Class>>selector` = instance side, `Class class>>selector` = class side.
+``` {style:color=blue}
 
 ---
 
