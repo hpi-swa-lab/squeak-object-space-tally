@@ -293,7 +293,7 @@ mint-on-first-sight ids.
   `SWACoverageRunPanel` Stop window, streaming results back on the UI process via
   `WorldState addDeferredUIMessage:`.
 
-## 10. Rendering pipeline (treemap)
+## 10. Rendering pipeline
 
 ```
 setRoot: aNode
