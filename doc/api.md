@@ -2,7 +2,7 @@
 
 ![](_navigation.html)
 
-```{style="padding:10px; background-color:gray;color:white; width:50%"}
+``` {style="padding:10px; background-color:gray;color:white; width:50%"}
 Convention:
 `Class>>selector` = instance side, 
 Class class>>selector` = class side.
