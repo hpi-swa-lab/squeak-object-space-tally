@@ -2,6 +2,8 @@
 
 [motivation](motivation) | [ideas](ideas.md) | [architecture](architecture.md)
 
+![](_navigation.html)
+
 ## Software Cartography / Code-as-Terrain
 
 - **Codemap / Software Cartography** (Kuhn, Loretan, Nierstrasz -- Bern) -- spatial map
