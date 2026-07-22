@@ -1,11 +1,6 @@
 # SWA Architecture -- As-Is Overview
 
-> **Status: static snapshot.** This document describes the SWA package suite *as it
-> currently stands in the image*, read end-to-end from source (~24,650 lines across
-> the 13 `SWA-*` categories). It is deliberately descriptive, not aspirational: it
-> records the structure we have, so later refactoring discussions have a fixed base
-> to reason from. For a companion catalogue of duplication / rough edges / open ends
-> see [smells.md](smells.md); for the key public protocols see [api.md](api.md).
+![](_navigation.html)
 
 ## 1. What this is
 
