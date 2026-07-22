@@ -313,7 +313,7 @@ overlay drawOn:
 
 Colour changes flush only the Form; size/zoom/root changes invalidate the layout.
 
-## 11. Extension points (how a new view/metric/dataset plugs in)
+## 11. Extension points
 
 - **New tool view:** subclass `SWATreemapMorph` (or `SWAView` for a non-treemap),
   override `baseColorForNode:`, `viewKind`, `overlayClass`, and a node family under
