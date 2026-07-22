@@ -2,7 +2,7 @@
 
 ![](_navigation.html)
 
-> Convention: `Class>>selector` = instance side, `Class class>>selector` = class side.
+Convention: `Class>>selector` = instance side, `Class class>>selector` = class side.
 
 ---
 
