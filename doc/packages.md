@@ -190,7 +190,7 @@ subclasses (the treemap/flamegraph/diagram) plus its overlay.
   `SWASearchFieldMorph`, `SWASelectionPainter`) shared by the panes.
 - **SWA-Tests** -- SUnit coverage for the parsers and datasets.
 
-<!--
+<!-- META
  
 Regenerating the inventory
 
