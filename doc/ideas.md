@@ -47,5 +47,3 @@ because it is a live, in-image, composable analysis loop rather than a batch rep
 6. **Legibility as the eval question.** The open empirical question is whether *any* of
    this actually helps a human cope with agent-speed code. That is a
    programming-experience study waiting to be designed, not a claim we can make yet.
-
-Caveats and stance: see [motivation.md](motivation.md).
