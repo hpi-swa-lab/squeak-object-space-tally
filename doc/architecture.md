@@ -167,7 +167,7 @@ click-again-zoom / shift-mark, right-click context menu, and the shared Size/Col
 menu construction. Draws mark borders (green), secondary selection (red), and
 selection (yellow) via the stateless `SWASelectionPainter`.
 
-## 5. SWAPane
+## 5. `SWAPane`
 
 The single largest class (43 ivars, ~130 methods). Wraps any `SWAView` and supplies
 **all** window UI, rebuilt per-view and capability-gated (so the header changes as
