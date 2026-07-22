@@ -11,7 +11,7 @@
   districts, metrics as height/colour. 3D antecedent of our size=metric/colour=metric.
 - **Software maps** (Bohnet, Döllner) and the **HPI** line (Limberger, Scheibel, Trapp,
   Döllner) -- treemap-based, multi-metric, evolution-aware maps; attribute layering;
-  level-of-detail. Our own institute's line and nearest method neighbour.
+  level-of-detail. 
 
 ## Treemap lineage
 
