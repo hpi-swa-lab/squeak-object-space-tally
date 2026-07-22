@@ -116,7 +116,7 @@ Everything a view walks goes through it:
   diff size against the prior version, provenance status (`#current`/`#superseded`/
   `#inHistory`/`#gone`/`#other`), author, and inline-diff sources.
 
-## 4. The view (`SWAView`)
+## 4. `SWAView`
 
 `SWAView` (23 ivars) is where nearly every cross-cutting concern lives. Its
 responsibilities, by subsystem:
