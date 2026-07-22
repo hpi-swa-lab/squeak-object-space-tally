@@ -1,5 +1,12 @@
 # SWACodeMap -- Static Code-Structure Treemap for Squeak
 
+> **Engineering cross-refs:** this is the user-facing tour. For the as-is
+> architecture (dataset layer, node rollup caches, the coverage-overlay-vs-dataset
+> split) see [architecture.md](architecture.md) §3/§4/§6, the protocols in
+> [api.md](api.md), and known debt -- notably the *legacy coverage overlay running in
+> parallel with datasets* -- in [smells.md](smells.md) §3.2. Undocumented-here but
+> shipped: duplication links, topic coloring, Marks, and the Mask (B\A) combinator.
+
 ## Motivation
 
 Where **SWASpaceTally** answers *"where does the memory go?"* by walking the live

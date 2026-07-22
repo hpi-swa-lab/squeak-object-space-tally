@@ -5,7 +5,11 @@
 > `SWASamplingTallyFlamegraphMorph`, `SWASamplingTallyTreemapMorph`) but the full
 > write-up is pending. See the journal entry
 > [2026-06-19 (flamegraph)](../../journal/2026-06-19-swastspy-flamegraph.md) and the
-> note [st-spy](../../notes/st-spy.md) for current details.
+> note [st-spy](../../notes/st-spy.md) for current details. The **engineering** view
+> (recording pipeline, call-tree model, `SWATallyWrapper`, projections) is covered in
+> [architecture.md](architecture.md) §3/§7 and [api.md](api.md); the still-unbuilt
+> *deterministic* ("full") tally as a first-class tool is tracked in
+> [smells.md](smells.md) §6.2.
 
 ## Three flavours of message tally
 

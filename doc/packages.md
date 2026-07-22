@@ -1,5 +1,13 @@
 # SWA Code Maps -- Package Overview
 
+> For the engineering-level layering (view/data/dataset spines, instrumentation
+> substrate, extension points) see **[architecture.md](architecture.md)**; for the
+> protocols **[api.md](api.md)**; for debt/open-ends **[smells.md](smells.md)**.
+> Note: the class-hierarchy diagram below omits several later additions --
+> `SWACodeInstVarNode`, `SWACodeMarkSetRootNode`, `SWAMaskSource`, `SWAStructure`, and
+> the marks/instrumentation family (`SWAMarkSet`, `SWAMethodWrapper`,
+> `SWACapturingLayer`, the wrappers). architecture.md covers these.
+
 The suite ships as 14 `SWA-*` packages (13 code + 1 test). They layer cleanly:
 a shared **Base** view/tree/dataset substrate, a shared **Nodes** tree-model
 layer, and then one package per user-facing **tool**, plus a few supporting
