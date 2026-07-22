@@ -4,7 +4,7 @@
 
 
 Convention: `Class>>selector` = instance side, `Class class>>selector` = class side.
-{style="background-color:lightgray, color:blue"}
+{style="background-color:lightgray;color:blue"}
 
 ---
 
