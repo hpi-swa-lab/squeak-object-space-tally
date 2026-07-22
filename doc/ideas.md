@@ -3,7 +3,7 @@
 ![](_navigation.html)
 
 
-## Why the algebra is the interesting part
+## An Algebra 
 
 Static maps under-serve this. What the agent-authorship setting demands is
 **difference and composition over time and over concerns**:
@@ -26,7 +26,7 @@ studying -- and it happens to be interesting for us specifically as **Software
 Architecture / Programming Experience / Explorative & Live Programming** researchers,
 because it is a live, in-image, composable analysis loop rather than a batch report.
 
-## Concrete directions this opens (unranked, speculative)
+## Future Work 
 
 1. **Agent-run diff as a first-class view.** Snapshot datasets before/after an agent
    turn; the default view is the *difference*, algebra-composed, not the whole map.
