@@ -46,8 +46,3 @@
 - **decorate vs structure** -- any dataset either colours an existing tree or *becomes*
   the tree (`SWAStructure`).
 
-## Not claiming
-
-- Not a new rendering technique (squarified treemaps 2000; software maps mature).
-- Not a Moose / GT competitor (platforms vs. focused instrument).
-- Not an evaluated tool -- a live probe to *ask* the [motivation.md](motivation.md) question.
