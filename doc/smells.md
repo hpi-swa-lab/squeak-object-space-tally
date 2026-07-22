@@ -5,6 +5,7 @@
 Legend: **[dup]** duplication · **[open]** unfinished / TODO-shaped · **[risk]**
 correctness/robustness · **[naming]** clarity · **[design]** structural ·
 **[dead]** likely-dead/legacy.
+{style="padding:10px; background-color:gray;color:white; width:50%"}
 
 ---
 
