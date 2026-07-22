@@ -190,7 +190,9 @@ subclasses (the treemap/flamegraph/diagram) plus its overlay.
   `SWASearchFieldMorph`, `SWASelectionPainter`) shared by the panes.
 - **SWA-Tests** -- SUnit coverage for the parsers and datasets.
 
-## Regenerating the inventory
+<!--
+ 
+Regenerating the inventory
 
 The tables above are read from the image. To refresh them:
 
@@ -205,3 +207,5 @@ The tables above are read from the image. To refresh them:
       cl isNil ifTrue: [sum] ifFalse: [sum + cl selectors size + cl class selectors size]].
     { c. names size. methods }]
 ```
+
+-->
