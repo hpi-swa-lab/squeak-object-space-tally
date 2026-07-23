@@ -38,6 +38,48 @@ SWATerminalMorph class >> debugEvents: aBoolean [
 ]
 
 {
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph class >> defaultFont [
+	"The preferred terminal font: bundled DejaVu Sans Mono (full box-drawing/block
+	 glyph coverage), falling back to the system fixed font if it can't be installed."
+	| name |
+	name := self ensureDefaultFontInstalled.
+	name ifNil: [ ^ TextStyle defaultFixedFont ].
+	^ TTCFont familyName: name pointSize: 11
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph class >> ensureDefaultFontInstalled [
+	"Install the bundled DejaVu Sans Mono if not already present. Idempotent.
+	 Returns the family name on success, or nil if the file is missing/unreadable."
+	| name |
+	name := 'DejaVuSansMono'.
+	(TextStyle named: name) ifNotNil: [ ^ name ].
+	^ [ | dir files |
+		dir := self fontDirectory.
+		files := (dir fileNamesMatching: '*.ttf') collect: [ :f | dir fullNameFor: f ].
+		files isEmpty ifTrue: [ nil ]
+			ifFalse: [ (TTCFont installFromFileNames: files) ifEmpty: [ nil ] ifNotEmpty: [ name ] ]
+	] on: Error do: [ :e | nil ]
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph class >> fontDirectory [
+	"Directory holding the bundled terminal .ttf files (ships with the repo).
+	 Resolved relative to the running image's directory so it works wherever
+	 the repo lives -- no hardcoded absolute path."
+	^ (FileDirectory on: Smalltalk imagePath) / 'fonts'
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:11'
 }
@@ -164,6 +206,48 @@ SWATerminalMorph >> feed: bytesOrString [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:31'
+}
+SWATerminalMorph >> font [
+	^ font
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:31'
+}
+SWATerminalMorph >> font: aFont [
+	"Set the rendering font and recompute the cell metrics. The font should be
+	 fixed-width; cell size is taken from the width of $m and the font height."
+	font := aFont.
+	cellWidth := font widthOf: $m.
+	cellHeight := font height.
+	self extent: self preferredExtent.
+	self changed.
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph >> fontFamily: familyName [
+	"Switch to a different font family, keeping the current point size."
+	self font: (TTCFont familyName: familyName pointSize: font pointSize)
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph >> fontSize: points [
+	"Switch to the same family at a new point size."
+	| family |
+	family := font familyName.
+	self font: (TTCFont familyName: family pointSize: points)
+]
+
+{
 	#category : #'event handling',
 	#'squeak_changestamp' : 'MCPServer 7/23/2026 12:54'
 }
@@ -172,6 +256,14 @@ SWATerminalMorph >> forwardInput [
 	| reply |
 	reply := terminal drainOutput.
 	reply isEmpty ifFalse: [ pty write: reply ].
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph >> growFont [
+	self fontSize: (font pointSize + 1 min: 48)
 ]
 
 {
@@ -200,11 +292,11 @@ SWATerminalMorph >> hasFocus [
 
 {
 	#category : #'initialize-release',
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
 }
 SWATerminalMorph >> initialize [
 	super initialize.
-	font := TextStyle defaultFixedFont.
+	font := self class defaultFont.
 	cellWidth := font widthOf: $m.
 	cellHeight := font height.
 	defaultFg := Color white.
@@ -353,6 +445,14 @@ SWATerminalMorph >> shellEnded [
 	pty ifNotNil: [ pty close. pty := nil ].
 	pumpProcess := nil.
 	self changed.
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+}
+SWATerminalMorph >> shrinkFont [
+	self fontSize: (font pointSize - 1 max: 6)
 ]
 
 {

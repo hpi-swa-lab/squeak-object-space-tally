@@ -92,14 +92,20 @@ SWATerminal >> drainOutput [
 
 {
 	#category : #emulation,
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:32'
 }
 SWATerminal >> feed: aByteArrayOrString [
 	"Feed raw PTY output bytes into the emulator, then flush pending damage
 	 so the screen grid reflects the new state."
 	| bytes |
 	bytes := aByteArrayOrString isString
-		ifTrue: [ aByteArrayOrString asByteArray ]
+		ifTrue: [
+			"Raw PTY output is already UTF-8 bytes (a ByteString): pass through
+			 untouched. A WideString of Smalltalk text must be UTF-8 encoded so
+			 codepoints > 255 (box-drawing, arrows, emoji) reach libvterm correctly."
+			aByteArrayOrString isByteString
+				ifTrue: [ aByteArrayOrString asByteArray ]
+				ifFalse: [ aByteArrayOrString utf8Encoded ] ]
 		ifFalse: [ aByteArrayOrString ].
 	bytes isEmpty ifTrue: [ ^ 0 ].
 	lib vterm_input: vt write: bytes size: bytes size.
