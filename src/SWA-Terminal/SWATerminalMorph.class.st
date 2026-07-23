@@ -159,6 +159,19 @@ SWATerminalMorph >> cellAtPoint: aPoint [
 
 {
 	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:17'
+}
+SWATerminalMorph >> clampSelection [
+	"Keep selection endpoints inside the (possibly shrunk) grid, or drop them."
+	| clamp |
+	self hasSelection ifFalse: [ ^ self ].
+	clamp := [ :p | ((p x max: 0) min: terminal cols - 1) @ ((p y max: 0) min: terminal rows - 1) ].
+	selectionStart := clamp value: selectionStart.
+	selectionEnd := clamp value: selectionEnd.
+]
+
+{
+	#category : #selection,
 	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
 }
 SWATerminalMorph >> clearSelection [
@@ -269,6 +282,17 @@ SWATerminalMorph >> drawOn: aCanvas [
 				row: row col: col
 				origin: origin on: aCanvas ] ].
 	self drawCursorOn: aCanvas origin: origin.
+]
+
+{
+	#category : #geometry,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:17'
+}
+SWATerminalMorph >> extent: aPoint [
+	"When the morph is resized (e.g. by dragging the window edge), recompute the
+	 grid dimensions from the new pixel size and resize the emulator + PTY."
+	super extent: aPoint.
+	self updateGridForExtent
 ]
 
 {
@@ -418,7 +442,7 @@ SWATerminalMorph >> hasSelection [
 
 {
 	#category : #'initialize-release',
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:10'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:17'
 }
 SWATerminalMorph >> initialize [
 	super initialize.
@@ -429,7 +453,8 @@ SWATerminalMorph >> initialize [
 	defaultBg := Color black.
 	blinkState := true.
 	terminal := SWATerminal rows: 24 cols: 80.
-	self extent: self preferredExtent.
+	self hResizing: #spaceFill; vResizing: #spaceFill.
+	self bounds: (0@0 extent: self preferredExtent).
 	self color: defaultBg.
 ]
 
@@ -564,7 +589,7 @@ SWATerminalMorph >> openInWindow [
 
 {
 	#category : #'initialize-release',
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:11'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:18'
 }
 SWATerminalMorph >> openInWindowLabeled: aString inWorld: aWorld [
 	"Open in a SystemWindow and register myself as its model so the title-bar
@@ -574,6 +599,8 @@ SWATerminalMorph >> openInWindowLabeled: aString inWorld: aWorld [
 	window model: self.
 	"Size the window so the grid fits exactly, accounting for the title bar/borders."
 	window extent: self preferredExtent + (window extent - window layoutBounds extent).
+	"Prevent collapsing to an unusable size (roughly a 20x4 grid)."
+	window minimumExtent: (20 * cellWidth) @ (4 * cellHeight + 24).
 	^ window
 ]
 
@@ -810,6 +837,26 @@ SWATerminalMorph >> terminal [
 }
 SWATerminalMorph >> toggleDebugEvents [
 	self class debugEvents: self class debugEvents not
+]
+
+{
+	#category : #geometry,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:17'
+}
+SWATerminalMorph >> updateGridForExtent [
+	"Derive cols/rows from the current pixel extent and, if they changed, resize
+	 the terminal model and the PTY (which signals the child via SIGWINCH)."
+	| newCols newRows |
+	terminal ifNil: [ ^ self ].
+	cellWidth isNil ifTrue: [ ^ self ].
+	newCols := (self width // cellWidth) max: 1.
+	newRows := (self height // cellHeight) max: 1.
+	(newCols = terminal cols and: [ newRows = terminal rows ]) ifTrue: [ ^ self ].
+	terminal resizeRows: newRows cols: newCols.
+	pty ifNotNil: [ pty resizeRows: newRows cols: newCols ].
+	"Clamp any selection to the new bounds."
+	self clampSelection.
+	self changed.
 ]
 
 {
