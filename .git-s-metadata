@@ -142,15 +142,6 @@ GSMetadata {
 				#name : 'SWA-Base'
 			},
 			#path : @38
-		},
-		GSTonelMapper {
-			#version : 1,
-			#package : MCPackage {
-				#name : 'SWA-Terminal'
-			},
-			#path : FSAbsolutePath [
-				'src'
-			]
 		}
 	],
 	#name : 'squeak-object-space-tally'
