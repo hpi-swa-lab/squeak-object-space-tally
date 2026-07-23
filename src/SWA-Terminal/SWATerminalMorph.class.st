@@ -10,7 +10,10 @@ Class {
 		'defaultBg',
 		'pty',
 		'pumpProcess',
-		'blinkState'
+		'blinkState',
+		'selectionStart',
+		'selectionEnd',
+		'selecting'
 	],
 	#classVars : [
 		'DebugEvents'
@@ -94,15 +97,72 @@ SWATerminalMorph class >> open [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:11'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
 }
 SWATerminalMorph >> addModelItemsToWindowMenu: aMenu [
 	"Extend the SystemWindow title-bar menu with terminal options."
+	aMenu addLine.
+	self addTerminalItemsToMenu: aMenu.
 	aMenu addLine.
 	aMenu add: 'restart shell' translated target: self selector: #restartShell.
 	aMenu add: 'stop shell' translated target: self selector: #stopShell.
 	aMenu addLine.
 	aMenu addUpdating: #debugEventsMenuLabel target: self selector: #toggleDebugEvents argumentList: #().
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
+}
+SWATerminalMorph >> addTerminalItemsToMenu: aMenu [
+	"Shared copy/paste/select items used by both the right-click menu and the
+	 SystemWindow title-bar menu."
+	aMenu add: 'copy' translated target: self selector: #copySelection.
+	aMenu add: 'paste' translated target: self selector: #paste.
+	aMenu addLine.
+	aMenu add: 'select all' translated target: self selector: #selectAll.
+	aMenu add: 'clear selection' translated target: self selector: #clearSelection.
+	"disable copy when nothing is selected"
+	self hasSelection ifFalse: [
+		(aMenu items detect: [ :it | it contents asString = 'copy' ] ifNone: [ nil ])
+			ifNotNil: [ :it | it isEnabled: false ] ].
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> cellAtPoint: aPoint [
+	"Map a world pixel position to a grid cell as col@row (0-based), clamped to the grid."
+	| local col row |
+	local := aPoint - self topLeft.
+	col := (local x // cellWidth) max: 0.
+	row := (local y // cellHeight) max: 0.
+	col := col min: terminal cols - 1.
+	row := row min: terminal rows - 1.
+	^ col @ row
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> clearSelection [
+	selectionStart := selectionEnd := nil.
+	self changed.
+]
+
+{
+	#category : #clipboard,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
+}
+SWATerminalMorph >> copySelection [
+	"Copy the selected text to the system clipboard."
+	| text |
+	self hasSelection ifFalse: [ ^ self ].
+	text := self selectedText.
+	Clipboard clipboardText: text.
+	self logEvent: [ 'copy ', text size printString, ' chars' ].
 ]
 
 {
@@ -128,17 +188,19 @@ SWATerminalMorph >> delete [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
 }
 SWATerminalMorph >> drawCell: cell row: row col: col origin: origin on: aCanvas [
 	"Draw one cell: background fill (if non-default) then the glyph."
-	| x y fg bg ch cellBounds |
+	| x y fg bg ch cellBounds selected |
 	cell ifNil: [ ^ self ].
 	x := origin x + (col * cellWidth).
 	y := origin y + (row * cellHeight).
 	fg := cell fgColor ifNil: [ defaultFg ].
 	bg := cell bgColor ifNil: [ defaultBg ].
 	cell reverse ifTrue: [ | t | t := fg. fg := bg. bg := t ].
+	selected := self isCellSelectedRow: row col: col.
+	selected ifTrue: [ | t | t := fg. fg := bg. bg := t ].
 	cellBounds := (x @ y) extent: (cellWidth @ cellHeight).
 	bg = defaultBg ifFalse: [ aCanvas fillRectangle: cellBounds color: bg ].
 	ch := cell character.
@@ -268,6 +330,38 @@ SWATerminalMorph >> growFont [
 
 {
 	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:04'
+}
+SWATerminalMorph >> handleClipboardShortcut: evt [
+	"Intercept Ctrl+C / Ctrl+V for clipboard, following the common terminal convention:
+	  - Ctrl+V always pastes.
+	  - Ctrl+C copies when there is a selection, otherwise falls through so the shell
+	    receives the interrupt (SIGINT).
+	 Returns true if the event was consumed (caller should stop), false to continue
+	 normal keystroke processing.
+	 Ctrl-letter may arrive EITHER as a raw control code (Ctrl+C = 3, Ctrl+V = 22)
+	 OR as the plain letter (c = 99, v = 118) with the control bit set -- depends on
+	 the VM/keymap (on X11/WSL it is the plain letter). Normalize to the base letter."
+	| code letter |
+	evt controlKeyPressed ifFalse: [ ^ false ].
+	code := evt keyCharacter asInteger.
+	"Recover the base letter: raw control codes 1-26 -> a..z, else the char as-is."
+	letter := (code between: 1 and: 26)
+		ifTrue: [ Character value: code + 96 ]
+		ifFalse: [ evt keyCharacter asLowercase ].
+	"Ctrl+V: always paste."
+	letter = $v ifTrue: [ self paste. ^ true ].
+	"Ctrl+C: copy only if something is selected; else let SIGINT through."
+	letter = $c ifTrue: [
+		self hasSelection ifTrue: [
+			self copySelection.
+			self clearSelection.
+			^ true ] ].
+	^ false
+]
+
+{
+	#category : #'event handling',
 	#'squeak_changestamp' : 'MCPServer 7/23/2026 12:54'
 }
 SWATerminalMorph >> handlesKeyboard: evt [
@@ -283,11 +377,29 @@ SWATerminalMorph >> handlesMouseDown: evt [
 ]
 
 {
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> handlesMouseMove: evt [
+	"Track drags while selecting."
+	^ selecting == true
+]
+
+{
 	#category : #testing,
 	#'squeak_changestamp' : 'MCPServer 7/23/2026 12:49'
 }
 SWATerminalMorph >> hasFocus [
 	^ self hasKeyboardFocus
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> hasSelection [
+	^ selectionStart notNil and: [ selectionEnd notNil
+		and: [ selectionStart ~= selectionEnd ] ]
 ]
 
 {
@@ -308,14 +420,36 @@ SWATerminalMorph >> initialize [
 ]
 
 {
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> isCellSelectedRow: row col: col [
+	"True if the cell (0-based) falls within the current selection, using
+	 linear (stream) selection semantics like a normal terminal: everything
+	 from the start cell to the end cell in reading order."
+	| sel first last cellPos startPos endPos |
+	sel := self orderedSelection.
+	sel ifNil: [ ^ false ].
+	first := sel first.
+	last := sel second.
+	"linear index = row * cols + col"
+	cellPos := row * terminal cols + col.
+	startPos := first y * terminal cols + first x.
+	endPos := last y * terminal cols + last x.
+	^ cellPos >= startPos and: [ cellPos <= endPos ]
+]
+
+{
 	#category : #'event handling',
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:17'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:01'
 }
 SWATerminalMorph >> keyStroke: evt [
 	"Translate a Squeak keystroke into libvterm keyboard input, then forward the
 	 encoded bytes to the PTY. VTermModifier: shift=1, alt=2, ctrl=4."
 	| char code mod special |
 	pty ifNil: [ ^ self ].
+	"Clipboard shortcuts take priority (Ctrl+V paste; Ctrl+C copy when selected)."
+	(self handleClipboardShortcut: evt) ifTrue: [ ^ evt wasHandled: true ].
 	char := evt keyCharacter.
 	code := char asInteger.
 	mod := 0.
@@ -364,13 +498,43 @@ SWATerminalMorph >> logEvent: aStringBlock [
 
 {
 	#category : #'event handling',
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:06'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
 }
 SWATerminalMorph >> mouseDown: evt [
 	"Grab keyboard focus so typing goes to the shell."
 	self logEvent: [ 'mouseDown: at ', evt position printString,
 		' yellow=', evt yellowButtonChanged printString ].
 	evt hand newKeyboardFocus: self.
+	evt yellowButtonChanged
+		ifTrue: [ ^ self yellowButtonActivity: evt shiftPressed ].
+	"Left button: begin a text selection."
+	selecting := true.
+	selectionStart := self cellAtPoint: evt position.
+	selectionEnd := selectionStart.
+	self changed.
+]
+
+{
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> mouseMove: evt [
+	"Extend the selection to the current cell while dragging."
+	selecting == true ifFalse: [ ^ self ].
+	selectionEnd := self cellAtPoint: evt position.
+	self changed.
+]
+
+{
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
+}
+SWATerminalMorph >> mouseUp: evt [
+	"Finish a selection drag. A click without movement clears the selection."
+	selecting == true ifFalse: [ ^ self ].
+	selecting := false.
+	selectionEnd := self cellAtPoint: evt position.
+	self hasSelection ifFalse: [ selectionStart := selectionEnd := nil ].
 	self changed.
 ]
 
@@ -387,6 +551,39 @@ SWATerminalMorph >> openInWindowLabeled: aString inWorld: aWorld [
 	"Size the window so the grid fits exactly, accounting for the title bar/borders."
 	window extent: self preferredExtent + (window extent - window layoutBounds extent).
 	^ window
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> orderedSelection [
+	"Return {topLeftCell. bottomRightCell} in reading order (row-major),
+	 or nil if there is no selection. Cells are col@row (0-based)."
+	| a b |
+	self hasSelection ifFalse: [ ^ nil ].
+	a := selectionStart.
+	b := selectionEnd.
+	"reading order: earlier row first; same row -> earlier col first"
+	(a y < b y or: [ a y = b y and: [ a x <= b x ] ])
+		ifTrue: [ ^ { a. b } ]
+		ifFalse: [ ^ { b. a } ]
+]
+
+{
+	#category : #clipboard,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
+}
+SWATerminalMorph >> paste [
+	"Send the clipboard contents to the shell as if typed."
+	| text |
+	pty ifNil: [ ^ self ].
+	text := Clipboard clipboardText.
+	text isEmptyOrNil ifTrue: [ ^ self ].
+	self logEvent: [ 'paste ', text size printString, ' chars' ].
+	"Normalize line endings to CR (what a terminal expects for Enter)."
+	text := text asString copyReplaceAll: (String with: Character lf) with: (String with: Character cr).
+	pty write: text utf8Encoded.
 ]
 
 {
@@ -434,6 +631,58 @@ SWATerminalMorph >> pumpOnce [
 SWATerminalMorph >> restartShell [
 	"Stop any running shell and start a fresh bash."
 	self startShell
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> rightTrim: aString [
+	"Remove trailing spaces from aString."
+	| i |
+	i := aString size.
+	[ i > 0 and: [ (aString at: i) = $  ] ] whileTrue: [ i := i - 1 ].
+	^ aString copyFrom: 1 to: i
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
+}
+SWATerminalMorph >> selectAll [
+	"Select the entire visible grid."
+	selectionStart := 0 @ 0.
+	selectionEnd := (terminal cols - 1) @ (terminal rows - 1).
+	self changed.
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:55'
+}
+SWATerminalMorph >> selectedText [
+	"Extract the selected text as a String. Linear (stream) selection: from the
+	 start cell through the end cell in reading order. Trailing blanks on each
+	 spanned row are trimmed and a newline is inserted at row boundaries."
+	| sel first last |
+	sel := self orderedSelection.
+	sel ifNil: [ ^ '' ].
+	first := sel first.
+	last := sel second.
+	^ String streamContents: [ :s |
+		first y to: last y do: [ :row |
+			| startCol endCol lineStream line |
+			startCol := row = first y ifTrue: [ first x ] ifFalse: [ 0 ].
+			endCol := row = last y ifTrue: [ last x ] ifFalse: [ terminal cols - 1 ].
+			lineStream := WriteStream on: (WideString new: 0).
+			startCol to: endCol do: [ :col |
+				lineStream nextPut: (terminal cellAt: row at: col) character ].
+			line := lineStream contents.
+			"trim trailing spaces on full-width row spans (typical terminal copy behavior)"
+			row < last y ifTrue: [ line := line withBlanksTrimmed = '' 
+				ifTrue: [ '' ] ifFalse: [ self rightTrim: line ] ].
+			s nextPutAll: line.
+			row < last y ifTrue: [ s nextPut: Character lf ] ] ]
 ]
 
 {
@@ -548,4 +797,16 @@ SWATerminalMorph >> windowIsClosing [
 	 and release libvterm."
 	self stopShell.
 	terminal ifNotNil: [ terminal free. terminal := nil ].
+]
+
+{
+	#category : #'event handling',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 14:56'
+}
+SWATerminalMorph >> yellowButtonActivity: shiftPressed [
+	"Pop up the terminal context menu (copy/paste)."
+	| menu |
+	menu := MenuMorph new.
+	self addTerminalItemsToMenu: menu.
+	menu popUpInWorld: self world
 ]
