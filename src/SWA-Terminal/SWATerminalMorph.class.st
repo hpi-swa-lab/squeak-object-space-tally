@@ -83,16 +83,30 @@ SWATerminalMorph class >> fontDirectory [
 ]
 
 {
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:07'
+}
+SWATerminalMorph class >> initialize [
+	"Register the 'Terminal' entry in the world's Apps menu. Idempotent:
+	 removes any prior entry for this receiver first."
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [ ^ self ].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'Terminal'.
+		{ self. #open } }
+]
+
+{
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/23/2026 13:11'
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:07'
 }
 SWATerminalMorph class >> open [
 	"Open a terminal in a SystemWindow and start a bash shell."
-	| term window |
-	term := self new.
-	window := term openInWindowLabeled: 'Terminal' inWorld: self currentWorld.
-	term startShell.
-	^ window
+	| m |
+	m := SWATerminalMorph new.
+	m openInWindow.
+	m startShell.
+	^ m
 ]
 
 {
@@ -536,6 +550,16 @@ SWATerminalMorph >> mouseUp: evt [
 	selectionEnd := self cellAtPoint: evt position.
 	self hasSelection ifFalse: [ selectionStart := selectionEnd := nil ].
 	self changed.
+]
+
+{
+	#category : #'initialize-release',
+	#'squeak_changestamp' : 'MCPServer 7/23/2026 15:07'
+}
+SWATerminalMorph >> openInWindow [
+	"Open this terminal in a SystemWindow labeled 'Terminal', wired as the window's
+	 model so the title-bar menu shows the terminal options. Returns the window."
+	^ self openInWindowLabeled: 'Terminal' inWorld: self currentWorld
 ]
 
 {
