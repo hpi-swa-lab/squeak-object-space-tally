@@ -31,6 +31,37 @@ Class {
 
 {
 	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
+}
+SWADataset class >> callTallyFrom: aSWACoverage named: aString [
+	"Turn a COLLECTED live tally (a SWACoverage whose resultMap maps
+	'Class>>selector' -> invocation count) into a retained, named dataset carrying
+	invocation data. Its #call metric colours a Code Map by call count.
+
+	Two structures come along when the tally captured a call tree: PRIMARY = the
+	captured call tree (flamegraph), DERIVED = its code-map grouping. Both re-project
+	the same data, so the Tree button morphs freely between them.
+
+	Pure construction -- no treemap, no UI. Shared by the pane's Call-Tally generator
+	(#addCallTallyDataset:name:) and the workspace entry point
+	(#fromCallTally:packages:)."
+	| data ds callTreeRoot |
+	data := SWACoverageData new.
+	aSWACoverage resultMap keysAndValuesDo: [:key :count |
+		data recordInvocationCount: count for: key].
+	ds := self coverageFrom: data named: aString.
+	callTreeRoot := aSWACoverage collectCallTree.
+	callTreeRoot ifNotNil: [
+		ds structures: {
+			SWAStructure key: #callTree label: 'Flamegraph (call tree)'
+				view: SWASamplingTallyFlamegraphMorph rootBlock: [callTreeRoot].
+			SWAStructure key: #grouping label: 'Grouped by class (treemap)'
+				view: SWASamplingTallyTreemapMorph rootBlock: [callTreeRoot asCodeGroupingRoot] }].
+	^ ds
+]
+
+{
+	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
 }
 SWADataset class >> coverageFrom: aSWACoverageData named: aString [
@@ -54,6 +85,27 @@ SWADataset class >> duplicationFrom: aSWADuplicationData named: aString [
 		source: aSWADuplicationData;
 		name: aString;
 		yourself
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
+}
+SWADataset class >> fromCallTally: aBlock packages: packageNames [
+	"WORKSPACE entry point: instrument packageNames, run aBlock, collect when it
+	returns, and answer the resulting call-tally dataset -- ready to be handed to a
+	Code Map with
+
+		| ds |
+		ds := SWADataset fromCallTally: [self doSomething] packages: #('SWA-Base').
+		SWAPane openPanes first treemap addDataset: ds.
+
+	Scope matters: only methods in packageNames are counted, so pick the packages you
+	actually want to see coloured. The pane's Data menu offers the same thing with the
+	scope taken from the shown Code Map."
+	| cov |
+	cov := SWACoverage tallyPackages: packageNames while: aBlock.
+	^ self callTallyFrom: cov named: 'Call Tally (doit)'
 ]
 
 {

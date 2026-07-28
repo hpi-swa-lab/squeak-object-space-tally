@@ -754,6 +754,35 @@ SWACoverage class >> substratePackagePatterns [
 
 {
 	#category : #generating,
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
+}
+SWACoverage class >> tallyPackages: packageNames while: aBlock [
+	"SYNCHRONOUS call tally: instrument every method of packageNames, evaluate
+	aBlock, and collect the counts the moment the block RETURNS -- no STOP window,
+	no exercising by hand. Answers the collected SWACoverage (its #resultMap maps
+	'Class>>selector' -> count, #collectCallTree gives the captured tree).
+
+	The wrappers are uninstalled in an ensure: -- an error or non-local exit inside
+	aBlock leaves NOTHING instrumented -- and a layer-aware stray sweep runs before
+	installing and after collecting (see SWAPane>>startInvocationTally:).
+
+	Caveat: the block runs INSIDE the instrumented world, so the calls made by the
+	caller itself (menu, compiler, UI) are counted too if they live in packageNames."
+	| cov |
+	SWAMethodWrapper uninstallAllStrayWrappers.
+	cov := self new
+		evictAt: 1000;
+		captureCallTree: true;
+		methodsForPackages: packageNames.
+	cov instrumentTally.
+	[aBlock value] ensure: [
+		[cov collectTally.
+		 cov uninstall] ensure: [SWAMethodWrapper uninstallAllStrayWrappers]].
+	^ cov
+]
+
+{
+	#category : #generating,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 12:49'
 }
 SWACoverage class >> testCasesFromSpecs: specCollection [

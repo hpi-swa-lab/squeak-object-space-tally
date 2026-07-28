@@ -55,6 +55,7 @@ Class {
 	],
 	#classVars : [
 		'CallTallyCounter',
+		'LastTallyDoit',
 		'SampleTallyDuration',
 		'TopicK',
 		'TopicSweeps'
@@ -725,35 +726,25 @@ SWAPane >> activeStructureKey [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:40'
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
 }
 SWAPane >> addCallTallyDataset: aSWACoverage name: aName [
 	"Turn a collected live tally (a SWACoverage whose resultMap is 'Class>>selector'
 	-> invocation count) into a retained, named SWADataset carrying invocation data,
 	make it active, and select its #call metric so the map colors by call count.
-	The shared tail of the Call-Tally generator; peer of #addCoverageDataset:name:."
-	| data tm ds callMetric callTreeRoot |
-	data := SWACoverageData new.
-	aSWACoverage resultMap keysAndValuesDo: [:key :count |
-		data recordInvocationCount: count for: key].
+	The shared tail of BOTH Call-Tally generators (Stop-window and doit); peer of
+	#addCoverageDataset:name:. The dataset itself -- including the flamegraph and
+	grouping structures -- is built by SWADataset class>>callTallyFrom:named:, so a
+	workspace can make the very same dataset without a pane."
+	| tm ds callMetric |
 	tm := self treemap.
-	ds := tm addDataset: (SWADataset coverageFrom: data named: aName).
-	"PRIMARY structure = the captured call tree (flamegraph); DERIVED = its code-map
-	grouping. The flat #call metric above still decorates the Code Map. Both structures
-	re-project the same call data, so the Tree button morphs freely between them."
-	callTreeRoot := aSWACoverage collectCallTree.
-	callTreeRoot ifNotNil: [
-		ds structures: {
-			SWAStructure key: #callTree label: 'Flamegraph (call tree)'
-				view: SWASamplingTallyFlamegraphMorph rootBlock: [callTreeRoot].
-			SWAStructure key: #grouping label: 'Grouped by class (treemap)'
-				view: SWASamplingTallyTreemapMorph rootBlock: [callTreeRoot asCodeGroupingRoot] }].
+	ds := tm addDataset: (SWADataset callTallyFrom: aSWACoverage named: aName).
 	tm selectDataset: ds.
 	"Prefer the #call metric (invocation counts) over the default #coverage metric."
 	callMetric := ds metrics detect: [:m | m id == #call] ifNone: [nil].
 	callMetric ifNotNil: [tm colorMode: callMetric modeSymbol].
 	self treemapCoverageStatus: 'Call Tally (', ds name, '): ',
-		data invocationMap size printString, ' methods invoked'.
+		ds source invocationMap size printString, ' methods invoked'.
 	self refresh.
 	^ ds
 ]
@@ -1137,7 +1128,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:59'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -1148,7 +1139,8 @@ SWAPane >> codeMapGeneratorEntries [
 
 	Call Tally is TWO-PHASE (instrument -> exercise -> collect): picking it instruments
 	and pops up a STOP window; pressing STOP there collects. The label reflects whether
-	a tally is currently live."
+	a tally is currently live. Its ONE-SHOT twin '(instrument + doit)' asks for an
+	expression instead and collects the moment that expression returns."
 	| entries |
 	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ #()].
 	entries := OrderedCollection new.
@@ -1157,6 +1149,8 @@ SWAPane >> codeMapGeneratorEntries [
 	liveTally isNil
 		ifTrue: [entries add: { 'Generate: call tally (instrument + exercise, then Stop)'. #generateCallTallyDataset }]
 		ifFalse: [entries add: { 'Generate: call tally -- COLLECT now'. #generateCallTallyDataset }].
+	liveTally isNil ifTrue: [
+		entries add: { 'Generate: call tally (instrument + doit)'. #generateCallTallyDoitDataset }].
 	entries add: { 'Generate: sample tally (', self class sampleTallyDuration printString, 's CPU heat)'. #generateSampleTallyDataset }.
 	entries add: { 'Generate: topic model (k=', self class topicK printString, ')'. #generateTopicDataset }.
 	^ entries
@@ -1576,6 +1570,51 @@ SWAPane >> generateCallTallyDataset [
 	tallyAsDataset := true.
 	self startInvocationTally: root.
 	self openTallyStopWindow
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 17:01'
+}
+SWAPane >> generateCallTallyDoitDataset [
+	"Data-menu GENERATE: the ONE-SHOT twin of #generateCallTallyDataset. Instead of
+	instrument -> exercise by hand -> press STOP, it asks for an EXPRESSION, then
+
+	  1. instruments every method of the packages this Code Map shows,
+	  2. evaluates the expression,
+	  3. collects and uninstalls THE MOMENT the expression returns,
+
+	and retains the counts as a named SWADataset coloured by its #call metric --
+	the same shape the STOP path produces, so the two are mask-comparable.
+
+	The scope comes from the map, which is the whole point: you see what will be
+	instrumented before you run it. The expression is remembered for the next run.
+
+	Errors in the doit are CAUGHT rather than opening a debugger: a debugger sitting
+	open on a fully instrumented image is how wrappers get stranded. Whatever the
+	doit managed to call before failing is still tallied, and the error goes to the
+	status line. Refuses while another tally is live -- collect that one first."
+	| root src cov failure |
+	liveTally ifNotNil: [
+		^ self treemapCoverageStatus: 'Call Tally: a tally is already live -- COLLECT it first'].
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Call Tally: only on a Code Map'].
+	src := FillInTheBlank
+		multiLineRequest: 'Expression to tally (', root packageNames size printString,
+			' package(s) instrumented; collected when it returns):'
+		centerAt: self world center
+		initialAnswer: (LastTallyDoit ifNil: ['Smalltalk garbageCollect'])
+		answerHeight: 120.
+	(src isNil or: [src asString withBlanksTrimmed isEmpty]) ifTrue: [^ self].
+	LastTallyDoit := src asString.
+	self treemapCoverageStatus: 'Call Tally: instrumenting, then running the doit...'.
+	cov := SWACoverage tallyPackages: root packageNames while: [
+		[Compiler evaluate: LastTallyDoit for: nil logged: false]
+			on: Error, Halt
+			do: [:e | failure := e description. e return: nil]].
+	self addCallTallyDataset: cov name: self nextCallTallyName.
+	failure ifNotNil: [
+		self treemapCoverageStatus: 'Call Tally (doit FAILED: ', failure, ') -- partial counts kept']
 ]
 
 {
