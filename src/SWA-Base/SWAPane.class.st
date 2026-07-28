@@ -3670,19 +3670,6 @@ SWAPane >> updateStructureWindowLabel [
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:14'
-}
-SWAPane >> updateTallyButton [
-	"Tint the Tally button red while a tally is live (next press collects), normal
-	grey when idle."
-	tallyButton ifNil: [^ self].
-	tallyButton color: (liveTally isNil
-		ifTrue: [Color gray: 0.3]
-		ifFalse: [Color r: 0.7 g: 0.15 b: 0.15])
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
