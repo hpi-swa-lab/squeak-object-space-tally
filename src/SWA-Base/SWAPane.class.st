@@ -1215,7 +1215,7 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 18:01'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
@@ -1227,13 +1227,23 @@ SWAPane >> collectInvocationTally [
 	The collect+uninstall is wrapped in ensure: with a FULL layer-aware stray-sweep,
 	so even if the overlay/UI work fails -- or the tally had layered over an earlier
 	leaked run -- NOTHING is left instrumented (the Git-tool DNU came from orphaned
-	wrappers)."
+	wrappers).
+
+	That same ensure: also DROPS the shared call-tree capture state
+	(SWATallyWrapper resetCallTree). #collectTally has just moved the finished tree
+	into the SWACoverage, so nothing is lost -- but CallTreeWatched strongly holds
+	every instrumented CompiledMethod (~70k, ~6 MB of bytecode, pinning ~5k classes
+	and every method recompiled since), and it used to survive until the NEXT tally.
+	Cleanup belongs in the ensure:, not after the early ^, precisely because the
+	dataset branch below returns non-locally."
 	| n tm cov |
 	liveTally ifNil: [^ self].
 	cov := liveTally.
 	[cov collectTally.
 	 cov uninstall]
-		ensure: [SWAMethodWrapper uninstallAllStrayWrappers].
+		ensure: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			SWATallyWrapper resetCallTree].
 	self closeTallyStopWindow.
 	n := cov resultMap size.
 	tm := self treemap.

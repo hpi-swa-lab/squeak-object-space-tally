@@ -41,7 +41,8 @@ Class {
 		'exclusions',
 		'log',
 		'maxTestsPerMethod',
-		'captureCallTree'
+		'captureCallTree',
+		'callTreeRoot'
 	],
 	#classVars : [
 		'CurrentTestName',
@@ -754,7 +755,7 @@ SWACoverage class >> substratePackagePatterns [
 
 {
 	#category : #generating,
-	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 18:02'
 }
 SWACoverage class >> tallyPackages: packageNames while: aBlock [
 	"SYNCHRONOUS call tally: instrument every method of packageNames, evaluate
@@ -764,7 +765,11 @@ SWACoverage class >> tallyPackages: packageNames while: aBlock [
 
 	The wrappers are uninstalled in an ensure: -- an error or non-local exit inside
 	aBlock leaves NOTHING instrumented -- and a layer-aware stray sweep runs before
-	installing and after collecting (see SWAPane>>startInvocationTally:).
+	installing and after collecting (see SWAPane>>startInvocationTally:). The same
+	ensure: drops the shared call-tree capture state, which #collectTally has just
+	moved into cov: CallTreeWatched otherwise keeps every instrumented
+	CompiledMethod alive until the next tally. The answered cov still carries the
+	tree (#collectCallTree is a plain accessor).
 
 	Caveat: the block runs INSIDE the instrumented world, so the calls made by the
 	caller itself (menu, compiler, UI) are counted too if they live in packageNames."
@@ -777,7 +782,9 @@ SWACoverage class >> tallyPackages: packageNames while: aBlock [
 	cov instrumentTally.
 	[aBlock value] ensure: [
 		[cov collectTally.
-		 cov uninstall] ensure: [SWAMethodWrapper uninstallAllStrayWrappers]].
+		 cov uninstall] ensure: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			SWATallyWrapper resetCallTree]].
 	^ cov
 ]
 
@@ -924,28 +931,43 @@ SWACoverage >> casesForTestClasses: testClasses [
 
 {
 	#category : #'invocation tally',
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:27'
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 18:01'
 }
 SWACoverage >> collectCallTree [
 	"Answer the finished flamegraph call tree (a SWASamplingTallyNode rooted at 'root',
 	weighted by invocation counts) captured during this tally run, or nil if capture
-	was off / nothing was recorded. Roll-up is done by SWATallyWrapper."
+	was off / nothing was recorded. Roll-up is done by SWATallyWrapper.
+
+	A pure ACCESSOR, and therefore idempotent and safe to send long after the run:
+	the tree was moved out of SWATallyWrapper class variables into this instance by
+	#collectTally, so the shared CallTreeRoot / CallTreeWatched can be dropped in the
+	collecting ensure: without taking the tree with them. Answers nil if the run was
+	never collected."
 	self captureCallTree ifFalse: [^ nil].
-	^ SWATallyWrapper finishCallTree
+	^ callTreeRoot
 ]
 
 {
 	#category : #'invocation tally',
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:11'
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 18:01'
 }
 SWACoverage >> collectTally [
 	"Read the current invocation counts from the live tally wrappers into resultMap
 	('Class>>selector' -> count). Only methods called at least once are recorded.
-	Does not uninstall -- call #uninstall when done."
+	Does not uninstall -- call #uninstall when done.
+
+	Also TAKES OWNERSHIP of the captured call tree: SWATallyWrapper's CallTreeRoot /
+	CallTreeWatched are transient scratch for the LIVE capture only, so the finished,
+	rolled-up tree is moved into this instance here, at collection time. From this
+	moment the class variables are dead weight and the caller's ensure: is free to
+	send #resetCallTree -- which it MUST, because CallTreeWatched strongly holds EVERY
+	instrumented CompiledMethod (~70k for a whole-image run, pinning their classes and
+	keeping recompiled-away methods alive). #collectCallTree then answers the ivar."
 	kind := #tally.
 	resultMap := Dictionary new.
 	wrappers do: [:w | w count > 0 ifTrue: [
 		resultMap at: w crossRefKey put: w count]].
+	self captureCallTree ifTrue: [callTreeRoot := SWATallyWrapper finishCallTree].
 	^ resultMap
 ]
 
