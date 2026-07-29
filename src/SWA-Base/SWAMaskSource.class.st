@@ -128,6 +128,15 @@ SWAMaskSource >> maxWeight [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:22'
+}
+SWAMaskSource >> microsFor: aKey [
+	"Mirror of #invocationCountFor: for the #totalTime metric."
+	^ self overlaySourceValue: #microsFor: for: aKey
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:03'
 }
@@ -210,6 +219,16 @@ SWAMaskSource >> right [
 }
 SWAMaskSource >> selfCountForKey: aKey [
 	^ self overlaySourceValue: #selfCountForKey: for: aKey
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:22'
+}
+SWAMaskSource >> selfMicrosFor: aKey [
+	"Mirror of #invocationCountFor: for the #selfTime metric, so a mask over two
+	TIMING runs can be coloured by measured self time and not just by call count."
+	^ self overlaySourceValue: #selfMicrosFor: for: aKey
 ]
 
 {

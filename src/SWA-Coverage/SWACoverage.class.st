@@ -42,7 +42,10 @@ Class {
 		'log',
 		'maxTestsPerMethod',
 		'captureCallTree',
-		'callTreeRoot'
+		'callTreeRoot',
+		'timeMap',
+		'selfTimeMap',
+		'wallMicros'
 	],
 	#classVars : [
 		'CurrentTestName',
@@ -471,7 +474,7 @@ SWACoverage class >> inMetaMode: aBoolean [
 
 {
 	#category : #exclusions,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:55'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:18'
 }
 SWACoverage class >> infrastructureClasses [
 	"Classes that must NEVER be instrumented, regardless of package selection: the
@@ -493,9 +496,20 @@ SWACoverage class >> infrastructureClasses [
 	which reads the guard again -> infinite recursion -> HANG (the '*' tally hang
 	after the COP-guard refactor). It MUST be here too.
 
+	CRITICAL: SWASamplingTallyNode is the call-tree NODE the capture hooks build into
+	while wrapped methods are running -- SWATallyWrapper>>captureIn: walks it and
+	SWATimingWrapper>>run:with:in: sends #childNamed: / #addSelfTime: to it on EVERY
+	wrapped call. Wrapping it makes recording a call call a wrapped method, which
+	records a call -> infinite recursion. The counting tally used to get away with it
+	only because #captureIn: runs inside #withoutCapturing:; the timing wrapper works
+	on the raw path (that is what makes it affordable), so the exclusion has to be
+	structural. Same rationale as SWACoverageData: it is the tool's own data
+	structure, not something you can meaningfully profile from inside itself.
+
 	Always on, even with #exclusions: #()."
 	^ { SWAMethodWrapper. SWACapturingLayer. SWACoverage. SWACoverageData.
 		SWACoverageWrapper. SWATallyWrapper. SWACoverageRunPanel.
+		SWASamplingTallyNode.
 		TestCase. TestSuite. TestResult. TestCoverage }
 ]
 
@@ -882,6 +896,40 @@ SWACoverage class >> testCoverageForPackages: globCollection [
 ]
 
 {
+	#category : #'invocation tally',
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:19'
+}
+SWACoverage class >> timePackages: packageNames while: aBlock [
+	"SYNCHRONOUS call TIMING: the stopwatch twin of #tallyPackages:while:. Instrument
+	every method of packageNames with SWATimingWrapper, evaluate aBlock, and collect
+	the moment it RETURNS. Answers the collected SWACoverage, whose #resultMap holds
+	call counts, #timeMap inclusive microseconds, #selfTimeMap exclusive microseconds,
+	#wallMicros the elapsed time of the block, and #collectCallTree a flamegraph
+	weighted in microseconds rather than calls.
+
+	Same safety contract as the counting twin: the wrappers come off in an ensure: --
+	an error or non-local exit inside aBlock leaves NOTHING instrumented -- with a
+	layer-aware stray sweep before installing and after collecting, and the shared
+	call-tree capture state is dropped (it strongly holds every instrumented
+	CompiledMethod).
+
+	Caveat, also inherited: the block runs INSIDE the instrumented world, so calls
+	made by the caller itself are timed too if they live in packageNames."
+	| cov |
+	SWAMethodWrapper uninstallAllStrayWrappers.
+	cov := self new
+		captureCallTree: true;
+		methodsForPackages: packageNames.
+	cov instrumentTiming.
+	[aBlock value] ensure: [
+		[cov collectTiming.
+		 cov uninstall] ensure: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			SWATallyWrapper resetCallTree]].
+	^ cov
+]
+
+{
 	#category : #'forked child',
 	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:50'
 }
@@ -968,6 +1016,43 @@ SWACoverage >> collectTally [
 	wrappers do: [:w | w count > 0 ifTrue: [
 		resultMap at: w crossRefKey put: w count]].
 	self captureCallTree ifTrue: [callTreeRoot := SWATallyWrapper finishCallTree].
+	^ resultMap
+]
+
+{
+	#category : #'invocation tally',
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:19'
+}
+SWACoverage >> collectTiming [
+	"Read the live timing wrappers into THREE maps, all keyed 'Class>>selector':
+	resultMap (call count, so a timing run is a superset of a call tally), timeMap
+	(inclusive microseconds) and selfTimeMap (exclusive microseconds). Only methods
+	called at least once are recorded. Does not uninstall -- send #uninstall after.
+
+	Also freezes #wallMicros into the elapsed wall time of the whole exercise (the
+	performance.now() delta around the run), and takes ownership of the captured call
+	tree exactly as #collectTally does -- from here on SWATallyWrapper's class
+	variables are dead weight and the caller's ensure: must send #resetCallTree,
+	which strongly holds every instrumented CompiledMethod.
+
+	Note the two totals do NOT add up to the wall time and are not meant to: the
+	tree's self times sum to the instrumented part of the run only. Everything spent
+	in substrate, in packages outside the scope, or waiting is simply not attributed
+	to any method here."
+	kind := #timing.
+	wallMicros := wallMicros
+		ifNil: [0]
+		ifNotNil: [:startMicros | Time utcMicrosecondClock - startMicros].
+	resultMap := Dictionary new.
+	timeMap := Dictionary new.
+	selfTimeMap := Dictionary new.
+	wrappers do: [:w | w count > 0 ifTrue: [ | key |
+		key := w crossRefKey.
+		resultMap at: key put: w count.
+		timeMap at: key put: w totalMicros.
+		selfTimeMap at: key put: w selfMicros]].
+	self captureCallTree ifTrue: [callTreeRoot := SWATallyWrapper finishCallTree].
+	SWATimingWrapper resetFrames.
 	^ resultMap
 ]
 
@@ -1075,7 +1160,7 @@ SWACoverage >> installTestCoverage [
 
 {
 	#category : #'invocation tally',
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:26'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:25'
 }
 SWACoverage >> instrumentTally [
 	"TALLY mode: install a live counting SWATallyWrapper on every watched method.
@@ -1088,6 +1173,9 @@ SWACoverage >> instrumentTally [
 	over tens of thousands of methods re-flushes the whole VM cache tens of thousands
 	of times -- the '*' whole-image hang/crash. Same lesson as coverage's
 	#installTestCoverage / #runProvenanceCases:panel:."
+	"Stamp the kind NOW, not only at collect time: SWAPane holds one ivar for either
+	flavour of live run and asks #isTimingRun to decide how to harvest it."
+	kind := #tally.
 	self captureCallTree
 		ifTrue: [SWATallyWrapper beginCallTreeFor: methods]
 		ifFalse: [SWATallyWrapper resetCallTree].
@@ -1096,6 +1184,45 @@ SWACoverage >> instrumentTally [
 			onClass: m methodClass selector: m selector evictAt: evictAt)
 			installNoFlush; yourself].
 	SWAMethodWrapper flushSystemCache.
+	^ self
+]
+
+{
+	#category : #'invocation tally',
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:25'
+}
+SWACoverage >> instrumentTiming [
+	"TIMING mode: the stopwatch twin of #instrumentTally. Install a live
+	SWATimingWrapper on every watched method, so each call is bracketed with
+	Time utcMicrosecondClock and charged to inclusive/self microsecond totals as well
+	as counted. Exercise the system, then send #collectTiming and #uninstall.
+
+	NO EVICTION (evictAt: nil), unlike the counting tally: a wrapper that uninstalls
+	itself after evictAt calls would stop timing exactly the hot methods you are
+	looking for, and would leave a total that silently covers only part of the run.
+	The price is that the overhead stays for the whole run instead of decaying, so
+	prefer a bounded doit or a short exercise -- see the class comment of
+	SWATimingWrapper on what tracing costs.
+
+	Also clears this process's timing frame record, so a run can never start halfway
+	up a stale frame stack.
+
+	BULK install as in #instrumentTally: #installNoFlush per wrapper, #flushSystemCache
+	ONCE at the end (per-method flushing of the global VM cache is the whole-image
+	hang)."
+	kind := #timing.
+	SWATimingWrapper resetFrames.
+	self captureCallTree
+		ifTrue: [SWATallyWrapper beginCallTreeFor: methods]
+		ifFalse: [SWATallyWrapper resetCallTree].
+	wrappers := methods collect: [:m |
+		(SWATimingWrapper new
+			onClass: m methodClass selector: m selector evictAt: nil)
+			installNoFlush; yourself].
+	SWAMethodWrapper flushSystemCache.
+	"Start the wall clock AFTER installing: instrumenting tens of thousands of
+	methods takes seconds, and that is setup, not part of what was exercised."
+	wallMicros := Time utcMicrosecondClock.
 	^ self
 ]
 
@@ -1116,6 +1243,24 @@ SWACoverage >> isSubstrate: aPackageName [
 	"True if aPackageName is a foundation package that must never be instrumented
 	under any setting (see SWACoverage class>>substratePackagePatterns)."
 	^ SWACoverage substratePackagePatterns anySatisfy: [:g | g match: aPackageName]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:25'
+}
+SWACoverage >> isTimingRun [
+	"True if this run was instrumented with SWATimingWrapper, so #collectTiming (not
+	#collectTally) is the right way to harvest it. Asked by SWAPane when the STOP
+	button fires, since one ivar holds either kind of live run.
+
+	#kind is authoritative and is set at INSTRUMENT time by both modes, precisely so
+	the answer survives #uninstall -- which empties #wrappers, leaving the fallback
+	probe below with nothing to look at. That fallback only covers a run built by
+	hand without going through #instrumentTiming."
+	#tally == kind ifTrue: [^ false].
+	#timing == kind ifTrue: [^ true].
+	^ wrappers notNil and: [wrappers notEmpty and: [wrappers first isKindOf: SWATimingWrapper]]
 ]
 
 {
@@ -1437,6 +1582,26 @@ SWACoverage >> runWithProvenanceTestCases: testCases panel: aPanelOrNil [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:19'
+}
+SWACoverage >> selfTimeMap [
+	"'Class>>selector' -> EXCLUSIVE microseconds, filled by #collectTiming. Empty
+	Dictionary for a run that was not a timing run."
+	^ selfTimeMap ifNil: [selfTimeMap := Dictionary new]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:19'
+}
+SWACoverage >> timeMap [
+	"'Class>>selector' -> INCLUSIVE microseconds, filled by #collectTiming. Empty
+	Dictionary for a run that was not a timing run."
+	^ timeMap ifNil: [timeMap := Dictionary new]
+]
+
+{
 	#category : #'invocation tally',
 	#'squeak_changestamp' : 'MCPServer 7/20/2026 10:33'
 }
@@ -1462,6 +1627,19 @@ SWACoverage >> uninstallTestCoverage [
 	#refreshBooleanResult after uninstall still works."
 	wrappers do: [:c | c uninstall].
 	^ self
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:19'
+}
+SWACoverage >> wallMicros [
+	"Wall time of the exercise in microseconds -- the clock delta between the end of
+	instrumenting (#instrumentTiming) and #collectTiming, instrumentation overhead
+	INCLUDED. This is 'how long the run actually took', the number a stopwatch in the
+	room would show; the per-method totals are the compensated ones. 0 outside a
+	timing run."
+	^ wallMicros ifNil: [0]
 ]
 
 {

@@ -227,7 +227,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:22'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -235,6 +235,8 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	aCrossRefKey ifNil: [^ nil].
 	id == #coverage ifTrue: [^ dataset source coveringTestCountFor: aCrossRefKey].
 	id == #call ifTrue: [^ dataset source invocationCountFor: aCrossRefKey].
+	id == #selfTime ifTrue: [^ dataset source selfMicrosFor: aCrossRefKey].
+	id == #totalTime ifTrue: [^ dataset source microsFor: aCrossRefKey].
 	id == #duplication ifTrue: [
 		| ms |
 		ms := dataset source matchesForKey: aCrossRefKey.

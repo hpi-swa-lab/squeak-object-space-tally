@@ -75,7 +75,7 @@ SWACoverageData class >> fromJsonString: aJsonString [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
 }
 SWACoverageData >> asJsonString [
 	"Serialise to the reusable, image-independent JSON form:
@@ -96,6 +96,9 @@ SWACoverageData >> asJsonString [
 			yourself.
 		(entry at: #evicted ifAbsent: [false]) == true ifTrue: [e at: 'evicted' put: true].
 		entry at: #invocations ifPresent: [:n | e at: 'invocations' put: n].
+		"Timing runs only: inclusive / exclusive wall microseconds."
+		entry at: #micros ifPresent: [:n | e at: 'micros' put: n].
+		entry at: #selfMicros ifPresent: [:n | e at: 'selfMicros' put: n].
 		cov at: mid printString put: e].
 	dict := Dictionary new
 		at: 'format' put: 'SWACoverageData/1';
@@ -149,6 +152,18 @@ SWACoverageData >> hasInvocationData [
 	by a runner that records invocations). Old JSON files answer false, so the view
 	can fall back to covering-test weighting and tell the user."
 	^ coverage anySatisfy: [:entry | entry includesKey: #invocations]
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWACoverageData >> hasTimingData [
+	"True if any method carries a measured time, i.e. this data came from a TIMING
+	run (SWATimingWrapper) rather than a plain counting tally. Gates the time metrics
+	in SWADataset>>buildMetrics, so old files and counting tallies simply do not offer
+	them."
+	^ coverage anySatisfy: [:entry | entry includesKey: #micros]
 ]
 
 {
@@ -229,7 +244,7 @@ SWACoverageData >> isTestKey: aKey [
 
 {
 	#category : #persistence,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
 }
 SWACoverageData >> loadFromJson: json [
 	"Populate from a parsed JSON object (see #asJsonString for the shape)."
@@ -253,6 +268,8 @@ SWACoverageData >> loadFromJson: json [
 			yourself.
 		(entry at: 'evicted' ifAbsent: [false]) == true ifTrue: [e at: #evicted put: true].
 		entry at: 'invocations' ifPresent: [:n | e at: #invocations put: n].
+		entry at: 'micros' ifPresent: [:n | e at: #micros put: n].
+		entry at: 'selfMicros' ifPresent: [:n | e at: #selfMicros put: n].
 		coverage at: midStr asNumber put: e]
 ]
 
@@ -285,6 +302,35 @@ SWACoverageData >> maxInvocation [
 	| max |
 	max := 0.
 	self invocationMap valuesDo: [:n | n > max ifTrue: [max := n]].
+	^ max
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWACoverageData >> maxMicros [
+	"Largest recorded INCLUSIVE time across all methods (0 if none). Used to
+	log-normalize the time metric's colour ramp -- durations span as many orders of
+	magnitude as call counts do."
+	| max |
+	max := 0.
+	coverage valuesDo: [:entry |
+		entry at: #micros ifPresent: [:n | n > max ifTrue: [max := n]]].
+	^ max
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWACoverageData >> maxSelfMicros [
+	"Largest recorded EXCLUSIVE time across all methods (0 if none), for the self-time
+	colour ramp."
+	| max |
+	max := 0.
+	coverage valuesDo: [:entry |
+		entry at: #selfMicros ifPresent: [:n | n > max ifTrue: [max := n]]].
 	^ max
 ]
 
@@ -369,6 +415,18 @@ SWACoverageData >> methodsForTestOrClass: aKey [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWACoverageData >> microsFor: aMethodName [
+	"INCLUSIVE wall microseconds measured for the method (0 if unknown -- not a
+	timing run, or the method was never called)."
+	| mid |
+	mid := methodIds at: aMethodName ifAbsent: [^ 0].
+	^ (coverage at: mid ifAbsent: [^ 0]) at: #micros ifAbsent: [0]
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:35'
 }
@@ -385,6 +443,31 @@ SWACoverageData >> recordInvocationCount: anInteger for: aMethodName [
 	entry := coverage at: mid ifAbsentPut: [
 		Dictionary new at: #count put: 0; at: #tests put: OrderedCollection new; yourself].
 	entry at: #invocations put: anInteger
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:20'
+}
+SWACoverageData >> recordMicros: totalMicros selfMicros: selfMicros for: aMethodName [
+	"Store the measured wall time of aMethodName from a TIMING run (see
+	SWATimingWrapper): #micros is INCLUSIVE (callees included), #selfMicros is
+	EXCLUSIVE (instrumented callees subtracted). Both in microseconds, both already
+	compensated for tracing overhead. Set once at the end of a run, alongside
+	#recordInvocationCount:for:, into the SAME per-method entry -- a timing run is a
+	call tally that also carries times, so #call and the time metrics coexist on one
+	dataset and you can flip between 'called often' and 'costs a lot' without
+	re-running.
+
+	Entries with no time (nothing measured) are skipped rather than stored as 0, so
+	#hasTimingData stays false for plain tallies and old files."
+	| mid entry |
+	(totalMicros isNil or: [totalMicros <= 0]) ifTrue: [^ self].
+	mid := self methodIdFor: aMethodName.
+	entry := coverage at: mid ifAbsentPut: [
+		Dictionary new at: #count put: 0; at: #tests put: OrderedCollection new; yourself].
+	entry at: #micros put: totalMicros.
+	entry at: #selfMicros put: (selfMicros ifNil: [0])
 ]
 
 {
@@ -418,6 +501,35 @@ SWACoverageData >> resultMap [
 	map := Dictionary new.
 	coverage keysAndValuesDo: [:mid :entry |
 		map at: (methodNames at: mid) put: (entry at: #count)].
+	^ map
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWACoverageData >> selfMicrosFor: aMethodName [
+	"EXCLUSIVE wall microseconds measured for the method -- its own time, with the
+	instrumented methods it called subtracted (0 if unknown). This is the metric that
+	points at the culprit; #microsFor: points at the caller that contains it."
+	| mid |
+	mid := methodIds at: aMethodName ifAbsent: [^ 0].
+	^ (coverage at: mid ifAbsent: [^ 0]) at: #selfMicros ifAbsent: [0]
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWACoverageData >> selfMicrosMap [
+	"A flat 'Class>>selector' -> EXCLUSIVE microseconds map. Peer of #invocationMap;
+	handy for sorting a timing run into a top-N list without going through the
+	treemap. Methods with no measured time are absent."
+	| map |
+	map := Dictionary new.
+	coverage keysAndValuesDo: [:mid :entry |
+		entry at: #selfMicros ifPresent: [:n |
+			map at: (methodNames at: mid) put: n]].
 	^ map
 ]
 

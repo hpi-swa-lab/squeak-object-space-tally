@@ -655,7 +655,7 @@ SWAPane class >> unload [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:37'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
 }
 SWAPane >> abandonInvocationTally [
 	"Tear down a live invocation tally WITHOUT collecting or touching the treemap/UI.
@@ -668,6 +668,7 @@ SWAPane >> abandonInvocationTally [
 		liveTally := nil].
 	self closeTallyStopWindow.
 	SWATallyWrapper resetCallTree.
+	SWATimingWrapper resetFrames.
 	SWAMethodWrapper uninstallAllStrayWrappers
 ]
 
@@ -745,6 +746,41 @@ SWAPane >> addCallTallyDataset: aSWACoverage name: aName [
 	callMetric ifNotNil: [tm colorMode: callMetric modeSymbol].
 	self treemapCoverageStatus: 'Call Tally (', ds name, '): ',
 		ds source invocationMap size printString, ' methods invoked'.
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
+}
+SWAPane >> addCallTimingDataset: aSWACoverage name: aName [
+	"Turn a collected TIMING run into a retained, named SWADataset, make it active,
+	and colour the map by SELF time -- the metric that points at where the run
+	actually burned its microseconds. #call and #totalTime ride along on the same
+	dataset, so the Color menu flips between 'how often' and 'how long' with no
+	re-run.
+
+	Stopwatch twin of #addCallTallyDataset:name:, and its shared tail for both timing
+	generators (Stop-window and doit). The dataset itself is built by
+	SWADataset class>>callTimingFrom:named:, so a workspace can make the very same
+	thing without a pane.
+
+	The status line reports the WALL time of the exercise next to the summed self
+	time. They differ, and the gap is the honest part: it is everything that ran
+	outside the instrumented scope plus the tracing overhead itself."
+	| tm ds selfMetric summedSelf |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset callTimingFrom: aSWACoverage named: aName).
+	tm selectDataset: ds.
+	selfMetric := ds metrics detect: [:m | m id == #selfTime] ifNone: [nil].
+	selfMetric ifNil: [selfMetric := ds metrics detect: [:m | m id == #call] ifNone: [nil]].
+	selfMetric ifNotNil: [tm colorMode: selfMetric modeSymbol].
+	summedSelf := aSWACoverage selfTimeMap inject: 0 into: [:sum :each | sum + each].
+	self treemapCoverageStatus: 'Call Timing (', ds name, '): ',
+		aSWACoverage resultMap size printString, ' methods, ',
+		(SWASamplingTallyNode formatMicros: summedSelf), ' attributed of ',
+		(SWASamplingTallyNode formatMicros: aSWACoverage wallMicros), ' wall'.
 	self refresh.
 	^ ds
 ]
@@ -1128,7 +1164,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:59'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -1140,17 +1176,31 @@ SWAPane >> codeMapGeneratorEntries [
 	Call Tally is TWO-PHASE (instrument -> exercise -> collect): picking it instruments
 	and pops up a STOP window; pressing STOP there collects. The label reflects whether
 	a tally is currently live. Its ONE-SHOT twin '(instrument + doit)' asks for an
-	expression instead and collects the moment that expression returns."
+	expression instead and collects the moment that expression returns.
+
+	Call TIMING is the same pair again with a stopwatch: instead of only counting the
+	calls it brackets each one with Time utcMicrosecondClock and reports self / total
+	microseconds per method, plus the wall time of the whole exercise. It costs much
+	more (no eviction, work on every call), so it is offered as a separate mode rather
+	than always on -- reach for the tally to find WHAT runs, for the timing to find
+	what is SLOW. Only ONE run of either kind can be live, so while one is live the
+	menu collapses to a single COLLECT entry for it."
 	| entries |
 	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ #()].
 	entries := OrderedCollection new.
 	entries add: { 'Generate: duplication (clone heat)'. #generateDuplicationDataset }.
 	entries add: { 'Generate: test coverage (run related tests)'. #generateCoverageDataset }.
 	liveTally isNil
-		ifTrue: [entries add: { 'Generate: call tally (instrument + exercise, then Stop)'. #generateCallTallyDataset }]
-		ifFalse: [entries add: { 'Generate: call tally -- COLLECT now'. #generateCallTallyDataset }].
-	liveTally isNil ifTrue: [
-		entries add: { 'Generate: call tally (instrument + doit)'. #generateCallTallyDoitDataset }].
+		ifTrue: [
+			entries add: { 'Generate: call tally (instrument + exercise, then Stop)'. #generateCallTallyDataset }.
+			entries add: { 'Generate: call tally (instrument + doit)'. #generateCallTallyDoitDataset }.
+			entries add: { 'Generate: call TIMING (instrument + exercise, then Stop)'. #generateCallTimingDataset }.
+			entries add: { 'Generate: call TIMING (instrument + doit)'. #generateCallTimingDoitDataset }]
+		ifFalse: [
+			"One live run at a time, of either kind; the label says which is waiting."
+			entries add: { liveTally isTimingRun
+				ifTrue: ['Generate: call TIMING -- COLLECT now']
+				ifFalse: ['Generate: call tally -- COLLECT now']. #generateCallTallyDataset }].
 	entries add: { 'Generate: sample tally (', self class sampleTallyDuration printString, 's CPU heat)'. #generateSampleTallyDataset }.
 	entries add: { 'Generate: topic model (k=', self class topicK printString, ')'. #generateTopicDataset }.
 	^ entries
@@ -1215,7 +1265,7 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/28/2026 18:01'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
@@ -1236,14 +1286,19 @@ SWAPane >> collectInvocationTally [
 	and every method recompiled since), and it used to survive until the NEXT tally.
 	Cleanup belongs in the ensure:, not after the early ^, precisely because the
 	dataset branch below returns non-locally."
-	| n tm cov |
+	| n tm cov timing |
 	liveTally ifNil: [^ self].
 	cov := liveTally.
-	[cov collectTally.
+	"ONE ivar holds either flavour of live run, so ask the run itself which harvest
+	it needs: a TIMING run (SWATimingWrapper) must be read with #collectTiming, which
+	also freezes the wall clock and the microsecond maps."
+	timing := cov isTimingRun.
+	[timing ifTrue: [cov collectTiming] ifFalse: [cov collectTally].
 	 cov uninstall]
 		ensure: [
 			SWAMethodWrapper uninstallAllStrayWrappers.
-			SWATallyWrapper resetCallTree].
+			SWATallyWrapper resetCallTree.
+			SWATimingWrapper resetFrames].
 	self closeTallyStopWindow.
 	n := cov resultMap size.
 	tm := self treemap.
@@ -1251,7 +1306,9 @@ SWAPane >> collectInvocationTally [
 		ifTrue: [
 			tallyAsDataset := false.
 			liveTally := nil.
-			^ self addCallTallyDataset: cov name: self nextCallTallyName].
+			^ timing
+				ifTrue: [self addCallTimingDataset: cov name: self nextCallTimingName]
+				ifFalse: [self addCallTallyDataset: cov name: self nextCallTallyName]].
 	tm showCoverage: cov.
 	(tm respondsTo: #noteColorMode:) ifTrue: [tm noteColorMode: #tally].
 	self treemapCoverageStatus: 'Tally: ', n printString, ' methods invoked'.
@@ -1625,6 +1682,83 @@ SWAPane >> generateCallTallyDoitDataset [
 	self addCallTallyDataset: cov name: self nextCallTallyName.
 	failure ifNotNil: [
 		self treemapCoverageStatus: 'Call Tally (doit FAILED: ', failure, ') -- partial counts kept']
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
+}
+SWAPane >> generateCallTimingDataset [
+	"Data-menu GENERATE: the STOPWATCH twin of #generateCallTallyDataset. Same
+	two-phase shape -- instrument, exercise, press STOP -- but the wrappers bracket
+	every call with Time utcMicrosecondClock, so what comes back is not only 'how
+	often was this called' but 'how long did it take', split into self and total time
+	(the Smalltalk answer to wrapping every JavaScript function in performance.now()).
+
+	  1st pick -- instrument the shown packages with SWATimingWrapper AND pop up the
+	              STOP window;
+	  2nd phase -- press STOP to collect the times, UNINSTALL the wrappers, and retain
+	               the result as a named SWADataset coloured by its #selfTime metric.
+
+	Cost, up front: timing does NOT evict, so unlike the counting tally the overhead
+	does not decay as hot methods drop out -- the image stays slow for the whole run.
+	Instrument the packages you suspect, not everything, and exercise briefly.
+
+	If a run is already live this just collects it, whichever kind it is (idempotent
+	with the Stop button)."
+	| root |
+	liveTally ifNotNil: [^ self collectInvocationTally].
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Call Timing: only on a Code Map'].
+	tallyAsDataset := true.
+	self startInvocationTiming: root.
+	self openTallyStopWindow
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
+}
+SWAPane >> generateCallTimingDoitDataset [
+	"Data-menu GENERATE: the ONE-SHOT stopwatch. Asks for an EXPRESSION, then
+
+	  1. instruments every method of the packages this Code Map shows with timing
+	     wrappers,
+	  2. evaluates the expression while the clock runs,
+	  3. collects and uninstalls THE MOMENT it returns,
+
+	and retains the measured times as a named SWADataset coloured by #selfTime. This
+	is the variant to reach for: a bounded expression keeps the tracing overhead
+	bounded too, and the reported wall time then actually means something -- 'this
+	doit took N ms, and here is where the microseconds went'.
+
+	Shares LastTallyDoit with the counting twin, so you can time the very expression
+	you just tallied without retyping it.
+
+	Errors in the doit are CAUGHT rather than opening a debugger -- a debugger sitting
+	open on a fully instrumented image is how wrappers get stranded. Whatever ran
+	before the failure is still measured. Refuses while another run is live."
+	| root src cov failure |
+	liveTally ifNotNil: [
+		^ self treemapCoverageStatus: 'Call Timing: a run is already live -- COLLECT it first'].
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Call Timing: only on a Code Map'].
+	src := FillInTheBlank
+		multiLineRequest: 'Expression to TIME (', root packageNames size printString,
+			' package(s) instrumented; collected when it returns):'
+		centerAt: self world center
+		initialAnswer: (LastTallyDoit ifNil: ['Smalltalk garbageCollect'])
+		answerHeight: 120.
+	(src isNil or: [src asString withBlanksTrimmed isEmpty]) ifTrue: [^ self].
+	LastTallyDoit := src asString.
+	self treemapCoverageStatus: 'Call Timing: instrumenting, then running the doit...'.
+	cov := SWACoverage timePackages: root packageNames while: [
+		[Compiler evaluate: LastTallyDoit for: nil logged: false]
+			on: Error, Halt
+			do: [:e | failure := e description. e return: nil]].
+	self addCallTimingDataset: cov name: self nextCallTimingName.
+	failure ifNotNil: [
+		self treemapCoverageStatus: 'Call Timing (doit FAILED: ', failure, ') -- partial times kept']
 ]
 
 {
@@ -2676,6 +2810,18 @@ SWAPane >> nextCallTallyName [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
+}
+SWAPane >> nextCallTimingName [
+	"Mint a unique name for a generated Call Timing run. Shares CallTallyCounter with
+	#nextCallTallyName on purpose: both kinds end up in the same dataset list and are
+	mask-comparable, so their numbering must not collide."
+	CallTallyCounter := (CallTallyCounter ifNil: [0]) + 1.
+	^ 'Call Timing ', CallTallyCounter printString
+]
+
+{
 	#category : #'marks - flap',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:09'
 }
@@ -2758,20 +2904,26 @@ SWAPane >> openSource [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 13:17'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
 }
 SWAPane >> openTallyStopWindow [
 	"Pop up a small window with a single STOP button that collects the live call tally.
 	STOP -> #collectInvocationTally; closing without stopping -> #abandonInvocationTally.
 	Retained so #collectInvocationTally can close it."
+	| timing |
 	liveTally ifNil: [^ self].
+	timing := liveTally isTimingRun.
 	tallyStopPanel := SWACoverageRunPanel new
 		onStop: [self collectInvocationTally];
 		onClose: [self abandonInvocationTally];
-		openInWindowTitled: 'Call Tally -- exercise, then Stop';
+		openInWindowTitled: (timing
+			ifTrue: ['Call Timing -- exercise, then Stop']
+			ifFalse: ['Call Tally -- exercise, then Stop']);
 		yourself.
-	tallyStopPanel status: 'Tallying ', liveTally methods size printString,
-		' methods. Exercise the system, then press STOP to collect.'
+	tallyStopPanel status: (timing ifTrue: ['Timing '] ifFalse: ['Tallying ']),
+		liveTally methods size printString,
+		' methods. Exercise the system, then press STOP to collect.',
+		(timing ifTrue: [' (no eviction: the image stays slow until you do)'] ifFalse: [''])
 ]
 
 {
@@ -3386,6 +3538,35 @@ SWAPane >> startInvocationTally: aCodeRoot [
 		methodsForPackages: aCodeRoot packageNames.
 	liveTally instrumentTally.
 	self treemapCoverageStatus: 'Tallying ', liveTally methods size printString,
+		' methods -- exercise, then press STOP to collect'
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
+}
+SWAPane >> startInvocationTiming: aCodeRoot [
+	"Stopwatch twin of #startInvocationTally:: install live TIMING wrappers
+	(SWATimingWrapper) on the shown packages, so every call is not only counted but
+	bracketed with Time utcMicrosecondClock. They stay installed while you exercise
+	the system; the STOP window collects them.
+
+	Two differences from the counting tally, both deliberate and both costly:
+	NO EVICTION -- a wrapper that drops out after 1000 calls would stop timing the
+	very methods worth timing -- and real work on EVERY call instead of only the
+	first thousand. So the image stays slower for the whole run. Keep the scope tight
+	and the exercise short.
+
+	Same CRITICAL stray sweep first as the counting twin: installing on top of a
+	prior run's wrappers LAYERS them, and collecting the new layer then restores and
+	strands the old one."
+	liveTally ifNotNil: [^ self collectInvocationTally].
+	SWAMethodWrapper uninstallAllStrayWrappers.
+	liveTally := SWACoverage new
+		captureCallTree: true;
+		methodsForPackages: aCodeRoot packageNames.
+	liveTally instrumentTiming.
+	self treemapCoverageStatus: 'Timing ', liveTally methods size printString,
 		' methods -- exercise, then press STOP to collect'
 ]
 
