@@ -44,16 +44,16 @@ GcGraphMorph class >> open [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 15:38'
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 16:45'
 }
-GcGraphMorph class >> srMenuOpenInXr: aContext [
+GcGraphMorph class >> srMenuOpenInXr: aMenu [
 	<srMenu: #(world apps) label: 'GC Stats' priority: 300>
 	| window panel world |
 	window := self open ifNil: [^ nil].
-	world := (aContext at: #world ifAbsent: [nil]) ifNil: [SRWorld current].
+	world := (aMenu ifNotNil: [:m | m world]) ifNil: [SRWorld current].
 	world ifNil: [^ window].
 	panel := SRMorphPanel new morph: window; yourself.
-	(aContext at: #position ifAbsent: [nil]) ifNotNil: [:p | panel position: p].
+	aMenu ifNotNil: [:m | panel position: m position].
 	world addChild: panel.
 	^ panel
 ]
