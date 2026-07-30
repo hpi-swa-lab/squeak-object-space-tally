@@ -43,19 +43,6 @@ GcGraphMorph class >> open [
 ]
 
 {
-	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 16:48'
-}
-GcGraphMorph class >> srMenuOpenInXr: aMenu [
-	<srMenu: #(world apps) label: 'GC Stats' priority: 300>
-	| panel |
-	panel := SRMorphPanel new morph: self open; yourself.
-	panel position: aMenu position.
-	aMenu world addChild: panel.
-	^ panel
-]
-
-{
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:50'
 }
@@ -63,6 +50,19 @@ GcGraphMorph class >> unload [
 	"Remove the Apps-menu entry when the package is unloaded."
 	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
 		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
+]
+
+{
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:21'
+}
+GcGraphMorph class >> xrMenuOpen: aMenu [
+	<xrMenu: #(world apps) label: 'GC Stats' priority: 300>
+	| panel |
+	panel := SRMorphPanel new morph: self open; yourself.
+	panel position: aMenu position.
+	aMenu world addChild: panel.
+	^ panel
 ]
 
 {
