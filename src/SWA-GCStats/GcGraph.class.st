@@ -234,6 +234,21 @@ GcGraph >> mbString: kb [
 ]
 
 {
+	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:58'
+}
+GcGraph >> niceScaleFor: kbPerPixel [
+	"Round kbPerPixel up to the next 1-2-5 x 10^n value, so that the scale
+	changes in recognizable steps instead of on every allocation."
+	| magnitude |
+	kbPerPixel <= 1 ifTrue: [^1].
+	magnitude := 10 raisedTo: (kbPerPixel log: 10) floor.
+	#(1 2 5 10) do: [:mantissa |
+		mantissa * magnitude >= kbPerPixel ifTrue: [^mantissa * magnitude]].
+	^10 * magnitude
+]
+
+{
 	#category : #'vm statistics',
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:41'
 }
@@ -248,6 +263,18 @@ GcGraph >> oldSpace [
 }
 GcGraph >> rootTableSize [
 	^Smalltalk vmParameterAt: 21
+]
+
+{
+	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:00'
+}
+GcGraph >> stepUpdate [
+	"Advance the strip by one column. Factored out so a morph holding several
+	different strips can drive them all uniformly. The fps strip needs the clock
+	sampled first; strips that plot absolute amounts do not."
+	self updateTime.
+	self updateGraph
 ]
 
 {

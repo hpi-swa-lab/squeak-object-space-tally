@@ -151,6 +151,15 @@ GSMetadata {
 			#path : FSAbsolutePath [
 				'src'
 			]
+		},
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'SWA-Memory'
+			},
+			#path : FSAbsolutePath [
+				'src'
+			]
 		}
 	],
 	#name : 'squeak-object-space-tally'

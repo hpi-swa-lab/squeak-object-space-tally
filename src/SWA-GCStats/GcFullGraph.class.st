@@ -85,21 +85,6 @@ GcFullGraph >> labelString [
 ]
 
 {
-	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:41'
-}
-GcFullGraph >> niceScaleFor: kbPerPixel [
-	"Round kbPerPixel up to the next 1-2-5 x 10^n value, so that the scale
-	changes in recognizable steps instead of on every allocation."
-	| magnitude |
-	kbPerPixel <= 1 ifTrue: [^1].
-	magnitude := 10 raisedTo: (kbPerPixel log: 10) floor.
-	#(1 2 5 10) do: [:mantissa |
-		mantissa * magnitude >= kbPerPixel ifTrue: [^mantissa * magnitude]].
-	^10 * magnitude
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:41'
 }
