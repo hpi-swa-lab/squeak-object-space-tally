@@ -121,7 +121,7 @@ GcFullGraph >> update [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:42'
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:58'
 }
 GcFullGraph >> updateGraph [
 
@@ -134,19 +134,23 @@ GcFullGraph >> updateGraph [
 	self graph shiftBy: 2.
 	self graph
 		drawFrom: 0 to: height
-		color: (rescaled ifTrue: [Color black] ifFalse: [Color white])
+		color: (rescaled ifTrue: [self class slateColor] ifFalse: [self class backgroundColor])
 		width: 2.
 
 	top := (self usedOldSpace // scale) min: height.
-	self graph drawFrom: 0 to: top color: Color gray width: 2.
+	self graph drawFrom: 0 to: top color: self class deepOceanColor width: 2.
 
 	"young space is tiny compared to a large image, so make it at least one pixel"
 	used := self usedYoungSpace.
 	used := used isZero ifTrue: [0] ifFalse: [(used // scale) max: 1].
-	self graph drawFrom: top to: (top := (top + used) min: height) color: Color red width: 2.
+	self graph
+		drawFrom: top to: (top := (top + used) min: height)
+		color: self class seafoamColor width: 2.
 
 	free := self freeSpace // scale.
-	self graph drawFrom: top to: ((top + free) min: height) color: Color blue width: 2.
+	self graph
+		drawFrom: top to: ((top + free) min: height)
+		color: self class shallowOceanColor width: 2.
 
 ]
 

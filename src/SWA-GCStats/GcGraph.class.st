@@ -24,6 +24,35 @@ Class {
 }
 
 {
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:57'
+}
+GcGraph class >> backgroundColor [
+	"Background of the graph forms, and of the morph wherever the forms have
+	not been painted yet."
+	^ Color white
+]
+
+{
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+}
+GcGraph class >> coralColor [
+	"Marker for a full GC. The one warm colour in the palette, muted so it
+	stands out without shouting."
+	^ Color r: 0.87 g: 0.55 b: 0.47
+]
+
+{
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+}
+GcGraph class >> deepOceanColor [
+	"Live old space, and the frame time bars: the deep water at the bottom."
+	^ Color r: 0.16 g: 0.36 b: 0.47
+]
+
+{
 	#category : #'default instance',
 	#'squeak_changestamp' : 'jl 10/25/2005 17:38'
 }
@@ -57,11 +86,57 @@ GcGraph class >> new [
 ]
 
 {
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:57'
+}
+GcGraph class >> paleOceanColor [
+	"The pale tint used for the window frame."
+	^ Color r: 0.855 g: 0.925 b: 0.945
+]
+
+{
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+}
+GcGraph class >> seafoamColor [
+	"Used young space, and the marker for a tenure."
+	^ Color r: 0.35 g: 0.72 b: 0.66
+]
+
+{
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+}
+GcGraph class >> shallowOceanColor [
+	"Free old space: shallow water above the live objects."
+	^ Color r: 0.62 g: 0.80 b: 0.855
+]
+
+{
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+}
+GcGraph class >> slateColor [
+	"Labels, and the marker column for a change of scale."
+	^ Color r: 0.24 g: 0.32 b: 0.38
+]
+
+{
 	#category : #'default instance',
 	#'squeak_changestamp' : 'jl 10/25/2005 19:22'
 }
 GcGraph class >> update [
 	self default ifNotNil: [ self default update].
+]
+
+{
+	#category : #palette,
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:57'
+}
+GcGraph class >> windowColor [
+	"Border and title bar of the window. Only the frame is tinted; the graphs
+	themselves keep a white background."
+	^ self paleOceanColor
 ]
 
 {
@@ -190,7 +265,7 @@ GcGraph >> update [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:44'
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:57'
 }
 GcGraph >> updateGraph [
 	| gcCount fps tenurCount |
@@ -199,16 +274,25 @@ GcGraph >> updateGraph [
 	tenurCount := Smalltalk vmParameterAt: 11.
 	
 	fps := self fps.
-	(lastGcCount == gcCount)
+	(lastGcCount = gcCount)
 		ifTrue: [
-			lastTenurCount == tenurCount
-				ifTrue: [graph addValue: fps.
-					]
+			lastTenurCount = tenurCount
+				ifTrue: [
+					self graph
+						addValue: fps
+						color: self class deepOceanColor
+						bgColor: self class backgroundColor]
 				ifFalse: [
-					self graph addValue: fps color: Color black bgColor: Color green.
+					self graph
+						addValue: fps
+						color: self class deepOceanColor
+						bgColor: self class seafoamColor.
 					lastTenurCount := tenurCount]]
 		ifFalse: [
-			self graph addValue: fps color: Color black bgColor: Color red.
+			self graph
+				addValue: fps
+				color: self class deepOceanColor
+				bgColor: self class coralColor.
 			lastTenurCount := tenurCount.
 			lastGcCount := gcCount].
 

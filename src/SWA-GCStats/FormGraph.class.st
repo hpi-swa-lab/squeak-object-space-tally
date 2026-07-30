@@ -166,10 +166,12 @@ FormGraph >> shiftBy: aStep [
 
 {
 	#category : #initialize,
-	#'squeak_changestamp' : 'jl 11/8/2005 21:02'
+	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
 }
 FormGraph >> updateForm [
-	form := Form extent: width@height depth: 8.	
+	"32 bit: at depth 8 every fill is quantized to the standard palette, which
+	turns pale tints into plain grays."
+	form := Form extent: width@height depth: 32.	
 ]
 
 {
