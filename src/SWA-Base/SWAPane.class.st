@@ -97,6 +97,19 @@ SWAPane class >> defaultWindowBounds [
 ]
 
 {
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> defaultXRProfilePackages [
+	"Package globs a frame profile instruments unless told otherwise. Note this is
+	the whole SqueakXR package, which includes ~30 EXTENSION methods on system
+	classes (Morph, Object, Form, Point, UIManager, ...) -- those get wrapped too,
+	because the substrate guard in SWACoverage>>methodsForPackages: goes by package
+	name, not by the class the method lands on."
+	^ #('SqueakXR')
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
@@ -211,6 +224,39 @@ SWAPane class >> initialize [
 		'SWA Code Map'.
 		{self. #open}.
 		'Open a treemap of all packages, classes as leaves' }
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> measureXRFrames: aCount packages: aGlobCollection in: aWorld [
+	"Instrument aGlobCollection with timing wrappers, render EXACTLY aCount frames,
+	uninstall, answer the SWACoverage.
+
+	MUST be called inside SRWorld>>runBetweenFrames: -- it drives the frames itself
+	with #doOneCycle, so the loop has to be blocked, and nothing may render while
+	the wrappers are going in.
+
+	Frame-EXACT, not time boxed: no deadline, no polling, no Delay. aCount sends of
+	#doOneCycle are aCount frames, and because we ARE the world process for the
+	duration, not one extra frame can slip in at either end.
+
+	The wrappers come off in an ensure:, so an error inside a frame still leaves
+	nothing instrumented -- a stranded wrapper on the render path would be much
+	worse than a lost measurement."
+	| cov |
+	cov := SWACoverage new
+		captureCallTree: true;
+		methodsForPackages: aGlobCollection.
+	cov instrumentTiming.
+	[aCount timesRepeat: [aWorld doOneCycle]]
+		ensure: [
+			[cov collectTiming. cov uninstall]
+				ensure: [
+					SWAMethodWrapper uninstallAllStrayWrappers.
+					SWATallyWrapper resetCallTree]].
+	^ cov
 ]
 
 {
@@ -504,6 +550,35 @@ SWAPane class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 ]
 
 {
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> openXRFrameFlamegraphOn: aCoverage frames: aCount [
+	"Open a flamegraph -- not a treemap -- on the call tree of a frame profile, in
+	the shared SWAPane chrome. Answers the window.
+
+	The header carries the two numbers that must be read TOGETHER: wall time of the
+	measured frames, and the summed self time attributed to instrumented methods.
+	They differ by everything that ran outside the instrumented packages plus the
+	tracing overhead itself, and a large gap is information, not an error."
+	| flame panel window summedSelf |
+	aCoverage collectCallTree ifNil: [^ nil].
+	summedSelf := aCoverage selfTimeMap inject: 0 into: [:sum :each | sum + each].
+	flame := SWASamplingTallyFlamegraphMorph on: aCoverage collectCallTree.
+	flame metaInfo: aCount printString, ' frame(s)',
+		'   ', (SWASamplingTallyNode formatMicros: aCoverage wallMicros), ' wall',
+		'   ', (SWASamplingTallyNode formatMicros: summedSelf), ' attributed',
+		'   ', aCoverage resultMap size printString, ' methods called'.
+	panel := SWAPane on: flame.
+	window := panel openInWindow.
+	window setLabel: 'XR Frame Profile: ', aCount printString, ' frame(s)  (',
+		(SWASamplingTallyNode formatMicros: aCoverage wallMicros), ')'.
+	window extent: (Display extent * 0.7) rounded.
+	window center: Display center.
+	^ window
+]
+
+{
 	#category : #'marks-show',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
 }
@@ -530,6 +605,108 @@ SWAPane class >> paneMatchingProvenance: aProvenanceDict [
 							and: [(root respondsTo: #displayName)
 								and: [root displayName asString = wantScope]]]]]
 		ifNone: [nil]
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:34'
+}
+SWAPane class >> popUp: aMenu at: aPoint in: aHostMorph [
+	"Pop up aMenu as a CHILD of aHostMorph -- never in the world -- at aPoint (world
+	coordinates), clamped so it cannot escape the host. Answer the menu, or nil if
+	there was nothing to show.
+
+	Why not #popUpInWorld:. In SqueakXR the flat Morphic world is never rendered.
+	SRPasteUpMorph>>addedMorph: wraps each TOP-LEVEL world morph in its own floating
+	SRMorphPanel, but only when the morph answers #shouldBeInMorphPanel -- and
+	MenuMorph answers false (only SystemWindow and DialogWindow answer true). A menu
+	opened with #popUpInWorld: is therefore INVISIBLE and unreachable on the headset.
+	Parented to the host it is part of the very morph SRMorphTexture draws, so it
+	just works, in 3D exactly as on the desktop.
+
+	#popUpAt:forHand:in: happily takes any morph as its 'world' -- it only sends
+	#worldBounds and #addMorphFront: -- but Morph>>worldBounds answers the REAL
+	world's bounds, so its own fit-in-the-world clamping is against the wrong
+	rectangle. We redo it here against the host."
+	| delta |
+	(aMenu isNil or: [aMenu items isEmpty]) ifTrue: [^ nil].
+	aHostMorph world ifNil: [^ nil].
+	aMenu popUpAt: aPoint forHand: aHostMorph currentHand in: aHostMorph.
+	aMenu owner ifNil: [^ nil].
+	delta := aMenu bounds amountToTranslateWithin: aHostMorph bounds.
+	delta isZero ifFalse: [aMenu position: aMenu position + delta].
+	^ aMenu
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> profileXRFrames: aCount [
+	"Profile aCount frames of the running XR world over #defaultXRProfilePackages.
+
+	  (SWAPane profileXRFrames: 1)"
+	^ self profileXRFrames: aCount packages: self defaultXRProfilePackages
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> profileXRFrames: aCount packages: aGlobCollection [
+	"Profile exactly aCount frames of the running XR world and open a FLAMEGRAPH on
+	the result. Answers the window, or nil when the profile was deferred (see
+	below) or no world is running.
+
+	  (SWAPane profileXRFrames: 1 packages: #('SqueakXR'))
+	  (SWAPane profileXRFrames: 60 packages: #('SqueakXR' 'SWAGame*'))
+
+	Everything -- instrument, the frames, collect, uninstall, open -- happens inside
+	SRWorld>>runBetweenFrames:, i.e. in the world process at a frame boundary with
+	the render loop blocked. That placement IS the measurement: run from a tool
+	process instead (priority 30, below the loop's 40) the install is preempted and
+	the loop renders throughout it, so the numbers cover a few hundred frames rather
+	than aCount.
+
+	Called from the world process itself -- which is where an XR menu action runs --
+	the work is deferred to the next boundary and nil comes back, so the flamegraph
+	is opened inside the block rather than by the caller."
+	| world |
+	world := SRWorld current.
+	world ifNil: [^ nil].
+	^ world runBetweenFrames: [
+		self
+			openXRFrameFlamegraphOn: (self measureXRFrames: aCount packages: aGlobCollection in: world)
+			frames: aCount]
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:34'
+}
+SWAPane class >> refreshMorphPanelFor: aMorph [
+	"XR only: tell the SRMorphPanel that shows aMorph to re-measure its plane and
+	fully repaint its texture.
+
+	Needed as soon as a pop-up or dialog appears as a child (which is the whole
+	point of hosting them here rather than in the world): SRMorphTexture is a
+	DEPENDENT of the hosted morph and normally repaints from Morphic damage rects,
+	but the panel's 3D plane size comes from SRMorphPanel>>setSizeFromPixelsPerMeter:
+	and is only recomputed on a #fullTextureUpdate.
+
+	Walks up the owner chain to the morph that actually IS in a panel (a pane is
+	usually a submorph of a SystemWindow, and it is the window that got wrapped).
+	A no-op on the desktop and on images without SqueakXR loaded."
+	| worldClass xrWorld root |
+	worldClass := Smalltalk at: #SRWorld ifAbsent: [^ self].
+	xrWorld := worldClass current.
+	xrWorld ifNil: [^ self].
+	root := aMorph.
+	[root isInMorphPanel] whileFalse: [
+		root := root owner ifNil: [^ self]].
+	xrWorld
+		allDescendantsSelect: [:obj | obj isMorphPanel and: [obj morph == root]]
+		thenDo: [:panel | panel fullTextureUpdate]
 ]
 
 {
@@ -651,6 +828,80 @@ SWAPane class >> unload [
 	"Remove the Apps-menu entry."
 	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
 		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:15'
+}
+SWAPane class >> xrMenuOpenAllCodeMap: aMenu [
+	<xrMenu: #(world code) label: 'All Squeak' priority: 340>
+	"Open in the 2D world; the framework promotes the window into 3D.
+	#class rather than #method: with a '*' glob a method-leaf render tiles
+	tens of thousands of nodes."
+	^ self openOnPackageNamed: '*' leafKind: #class
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:15'
+}
+SWAPane class >> xrMenuOpenMorphicCodeMap: aMenu [
+	<xrMenu: #(world code) label: 'Morphic' priority: 330>
+	"Open in the 2D world; the framework promotes the window into 3D.
+	The pragma is only ever scanned by SRMenuRegistry, so this method is
+	inert in an image without SqueakXR."
+	^ self openOnPackageNamed: 'Morphic' leafKind: #method
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:15'
+}
+SWAPane class >> xrMenuOpenSqueakXRCodeMap: aMenu [
+	<xrMenu: #(world code) label: 'SqueakXR' priority: 320>
+	"Open in the 2D world; the framework promotes the window into 3D.
+	The pragma is only ever scanned by SRMenuRegistry, so this method is
+	inert in an image without SqueakXR."
+	^ self openOnPackageNamed: 'SqueakXR' leafKind: #method
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> xrMenuProfileOneFrame: aMenu [
+	<xrMenu: #(world profile) label: '1 frame' priority: 110>
+	"Profile a single frame and open a flamegraph on it. The menu action runs in the
+	world process, so the profile is deferred to the next frame boundary -- which
+	also means the frame this menu click is part of is NOT the one measured.
+	The pragma is only ever scanned by SRMenuRegistry, so this method is inert in an
+	image without SqueakXR."
+	^ self profileXRFrames: 1
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> xrMenuProfileSixtyFrames: aMenu [
+	<xrMenu: #(world profile) label: '60 frames' priority: 130>
+	"Sixty frames -- about a second of normal rendering, far longer once every
+	SqueakXR method is wrapped. The world is frozen for the whole run: the loop is
+	blocked inside the between-frame action driving #doOneCycle itself, so on a
+	headset this reads as a freeze, not as slow rendering."
+	^ self profileXRFrames: 60
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+}
+SWAPane class >> xrMenuProfileTenFrames: aMenu [
+	<xrMenu: #(world profile) label: '10 frames' priority: 120>
+	"Ten frames: enough that per-frame jitter averages out, still short enough that
+	the untimed-eviction-free tracing overhead stays bounded."
+	^ self profileXRFrames: 10
 ]
 
 {
@@ -861,6 +1112,22 @@ SWAPane >> addTopicDataset: aSWATopicData name: aName [
 ]
 
 {
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:39'
+}
+SWAPane >> addedMorph: aMorph [
+	"Hook: a submorph joined me. Since every pop-up and dialog of this tool is now a
+	CHILD of the pane rather than a world morph (see #dialogHost), this is exactly
+	the moment the XR panel showing us has to re-measure and repaint.
+
+	Filtered to pop-ups on purpose: the pane adds chrome rows, list items and source
+	panes all the time, and #refreshMorphPanel walks the XR scene graph."
+	super addedMorph: aMorph.
+	((aMorph isKindOf: MenuMorph) or: [aMorph isKindOf: DialogWindow])
+		ifTrue: [self refreshMorphPanel]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -1043,25 +1310,28 @@ SWAPane >> buttonLabelled: aString action: aSelector [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:44'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> chooseJsonFilePrompt: aPromptString [
 	"Open a *.json file chooser and answer the chosen full path, or nil if cancelled.
 	Falls back to a text path prompt if no file chooser is available (e.g. headless).
-	aPromptString labels the fallback text prompt."
+	aPromptString labels the fallback text prompt.
+
+	Uses UIManager's chooser (a FileChooserDialog) rather than StandardFileMenu: the
+	latter is a PopUpMenu, i.e. not even a Morph, and so is invisible in XR -- while
+	a DialogWindow at least renders. Same chooser #loadMarks already uses."
 	| result |
-	(Smalltalk includesKey: #StandardFileMenu) ifTrue: [
-		result := StandardFileMenu oldFileFrom: FileDirectory default withPattern: '*.json'.
-		result ifNil: [^ nil].
-		^ result directory fullNameFor: result name].
+	(UIManager default respondsTo: #chooseFileMatching:label:) ifTrue: [
+		result := UIManager default chooseFileMatching: '*.json' label: aPromptString.
+		^ (result isNil or: [result isEmpty]) ifTrue: [nil] ifFalse: [result]].
 	"Fallback."
-	^ (UIManager default request: aPromptString initialAnswer: '')
+	^ (self request: aPromptString initialAnswer: '')
 		ifNil: [nil] ifNotNil: [:s | s isEmpty ifTrue: [nil] ifFalse: [s withBlanksTrimmed]]
 ]
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> chooseMaskOverlayFor: aBaseDataset [
 	"Second step of building a mask: the base A is chosen, now pop up the OVERLAY (B)
@@ -1077,7 +1347,7 @@ SWAPane >> chooseMaskOverlayFor: aBaseDataset [
 			target: self
 			selector: #buildMaskFrom:overlay:
 			argumentList: { aBaseDataset. ds }].
-	menu popUpInWorld: self world
+	self popUpMenu: menu
 ]
 
 {
@@ -1532,6 +1802,19 @@ SWAPane >> detailInfoContents [
 ]
 
 {
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> dialogHost [
+	"The morph that every pop-up menu and every dialog of this pane must be parented
+	to. The PANE ITSELF -- never the Morphic world. See SWAPane class>>popUp:at:in:
+	for why the world is fatal in XR. Factored out as a hook so a subclass can host
+	its pop-ups somewhere else (e.g. its enclosing window) without touching any call
+	site."
+	^ self
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 12:07'
 }
@@ -1560,7 +1843,7 @@ SWAPane >> enforceMinimumWindowWidth [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 18:46'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> exportCoverage [
 	"Button: write the current provenance coverage (SWACoverageData) to a reusable,
@@ -1569,7 +1852,7 @@ SWAPane >> exportCoverage [
 	| data path |
 	data := self treemap coverageData.
 	data ifNil: [^ self treemapCoverageStatus: 'No coverage to export (run Cover first)'].
-	path := UIManager default
+	path := self
 		request: 'Write coverage JSON to:'
 		initialAnswer: (FileDirectory default fullNameFor: 'swa-coverage.json').
 	(path isNil or: [path isEmpty]) ifTrue: [^ self].
@@ -1641,7 +1924,7 @@ SWAPane >> generateCallTallyDataset [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/28/2026 17:01'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> generateCallTallyDoitDataset [
 	"Data-menu GENERATE: the ONE-SHOT twin of #generateCallTallyDataset. Instead of
@@ -1666,10 +1949,9 @@ SWAPane >> generateCallTallyDoitDataset [
 		^ self treemapCoverageStatus: 'Call Tally: a tally is already live -- COLLECT it first'].
 	root := self codeRoot.
 	root ifNil: [^ self treemapCoverageStatus: 'Call Tally: only on a Code Map'].
-	src := FillInTheBlank
-		multiLineRequest: 'Expression to tally (', root packageNames size printString,
+	src := self
+		requestMultiLine: 'Expression to tally (', root packageNames size printString,
 			' package(s) instrumented; collected when it returns):'
-		centerAt: self world center
 		initialAnswer: (LastTallyDoit ifNil: ['Smalltalk garbageCollect'])
 		answerHeight: 120.
 	(src isNil or: [src asString withBlanksTrimmed isEmpty]) ifTrue: [^ self].
@@ -1717,7 +1999,7 @@ SWAPane >> generateCallTimingDataset [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> generateCallTimingDoitDataset [
 	"Data-menu GENERATE: the ONE-SHOT stopwatch. Asks for an EXPRESSION, then
@@ -1743,10 +2025,9 @@ SWAPane >> generateCallTimingDoitDataset [
 		^ self treemapCoverageStatus: 'Call Timing: a run is already live -- COLLECT it first'].
 	root := self codeRoot.
 	root ifNil: [^ self treemapCoverageStatus: 'Call Timing: only on a Code Map'].
-	src := FillInTheBlank
-		multiLineRequest: 'Expression to TIME (', root packageNames size printString,
+	src := self
+		requestMultiLine: 'Expression to TIME (', root packageNames size printString,
 			' package(s) instrumented; collected when it returns):'
-		centerAt: self world center
 		initialAnswer: (LastTallyDoit ifNil: ['Smalltalk garbageCollect'])
 		answerHeight: 120.
 	(src isNil or: [src asString withBlanksTrimmed isEmpty]) ifTrue: [^ self].
@@ -1980,7 +2261,7 @@ SWAPane >> iconButtonGraphic: aForm action: aSelector [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 6/24/2026 16:19'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> importCoverage [
 	"Button action (code map only): load a smalltalkCI Coveralls JSON file
@@ -1989,7 +2270,7 @@ SWAPane >> importCoverage [
 	tests in this image."
 	| path cov |
 	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ self].
-	path := UIManager default
+	path := self
 		request: 'Path to Coveralls JSON (coveralls_results.json):'
 		initialAnswer: ''.
 	(path isNil or: [path isEmpty]) ifTrue: [^ self].
@@ -2844,14 +3125,14 @@ SWAPane >> openMarks [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> openMarksBurgerMenu [
 	"Pop up the Marks burger menu (Copy/Clear/Save/Load)."
 	| menu |
 	menu := MenuMorph new.
 	self marksBurgerMenu: menu.
-	menu popUpInWorld: self world
+	self popUpMenu: menu
 ]
 
 {
@@ -2866,14 +3147,14 @@ SWAPane >> openMarksClassDiagram [
 
 {
 	#category : #'pane menu',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:49'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> openPaneMenu [
 	"Pop up the generic per-pane menu (the header-row hamburger)."
 	| menu |
 	menu := MenuMorph new.
 	self paneMenu: menu.
-	menu popUpInWorld: self world
+	self popUpMenu: menu
 ]
 
 {
@@ -2980,7 +3261,7 @@ SWAPane >> popUpColorMenu [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> popUpDataMenu [
 	"Header 'Data' button: pop up the top-level Data menu (loaded datasets + open
@@ -2989,7 +3270,7 @@ SWAPane >> popUpDataMenu [
 	| menu |
 	menu := self dataMenuMorph.
 	menu ifNil: [^ self treemapCoverageStatus: 'Data: load a dataset or open another treemap to cross-reference'].
-	menu popUpInWorld: self world
+	self popUpMenu: menu
 ]
 
 {
@@ -3005,7 +3286,7 @@ SWAPane >> popUpDecorationMenu [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> popUpMaskBaseMenu [
 	"First step of building a mask (the 'Mask (B \ A)...' Data-menu entry): pop up the
@@ -3022,7 +3303,28 @@ SWAPane >> popUpMaskBaseMenu [
 			target: self
 			selector: #chooseMaskOverlayFor:
 			argumentList: { ds }].
-	menu popUpInWorld: self world
+	self popUpMenu: menu
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> popUpMenu: aMenu [
+	"Pop up aMenu inside this pane (see #dialogHost) at the hand position. THE way
+	this tool opens a menu -- #popUpInWorld: must not appear anywhere in the SWA
+	panes, see SWAPane class>>popUp:at:in:. Answers nil if aMenu is nil or empty, so
+	callers may pass a menu builder's result straight through."
+	^ self popUpMenu: aMenu at: self currentHand position
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> popUpMenu: aMenu at: aPoint [
+	"Pop up aMenu inside this pane (see #dialogHost) at aPoint, in world coordinates."
+	^ self class popUp: aMenu at: aPoint in: self dialogHost
 ]
 
 {
@@ -3038,7 +3340,7 @@ SWAPane >> popUpSizeMenu [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAPane >> popUpTreeMenu [
 	"Header 'Tree' button: pop up the base-structure selector. If nothing else can
@@ -3048,7 +3350,7 @@ SWAPane >> popUpTreeMenu [
 	menu ifNil: [
 		^ self treemapCoverageStatus:
 			'Tree: load a space-tally node-tree JSON to switch structure'].
-	menu popUpInWorld: self world
+	self popUpMenu: menu
 ]
 
 {
@@ -3197,6 +3499,16 @@ SWAPane >> refresh [
 ]
 
 {
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> refreshMorphPanel [
+	"Re-measure and repaint the SRMorphPanel showing this pane in XR; no-op elsewhere.
+	See SWAPane class>>refreshMorphPanelFor:."
+	self class refreshMorphPanelFor: self
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
 }
@@ -3216,6 +3528,72 @@ SWAPane >> removeSelectedMark [
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
 	commentEditKey := nil
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:39'
+}
+SWAPane >> removedMorph: aMorph [
+	"Hook: a submorph left me -- a menu or dialog closing. Repaint the XR panel so
+	the texture loses it too. See #addedMorph:."
+	super removedMorph: aMorph.
+	((aMorph isKindOf: MenuMorph) or: [aMorph isKindOf: DialogWindow])
+		ifTrue: [self refreshMorphPanel]
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> request: aPromptString initialAnswer: aString [
+	"Single-line text prompt that opens INSIDE this pane. Drop-in replacement for
+	`UIManager default request:initialAnswer:`. Answers nil when cancelled (the
+	UIManager version answers '' -- callers here already treat nil and empty alike)."
+	^ self
+		request: aPromptString
+		initialAnswer: aString
+		answerExtent: FillInTheBlankMorph defaultAnswerExtent
+		acceptOnCR: true
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> request: aPromptString initialAnswer: aString answerExtent: anExtent acceptOnCR: aBoolean [
+	"Build a FillInTheBlankMorph exactly the way FillInTheBlankMorph class>>request:...
+	does, but run it modally as a CHILD of #dialogHost instead of in the world.
+	Answers nil when cancelled.
+
+	The whole reason this exists: every UIManager text prompt ends in
+	DialogWindow>>getUserResponse, which used to hardcode `self openInWorld: world`.
+	In XR that turns a prompt belonging to this tool into a separate SRMorphPanel
+	floating in front of the user."
+	| dialog |
+	dialog := FillInTheBlankMorph new
+		setQuery: aPromptString
+		initialAnswer: aString
+		answerExtent: anExtent
+		acceptOnCR: aBoolean.
+	dialog createAcceptButton action: [dialog textPane accept].
+	dialog createCancelButton action: [dialog closeDialog: nil].
+	^ dialog getUserResponseIn: self dialogHost
+]
+
+{
+	#category : #dialogs,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
+}
+SWAPane >> requestMultiLine: aPromptString initialAnswer: aString answerHeight: aNumber [
+	"Multi-line text prompt that opens INSIDE this pane. Drop-in replacement for
+	`FillInTheBlank multiLineRequest:centerAt:initialAnswer:answerHeight:` -- note
+	that no centerAt: is needed any more: the dialog is clamped into the pane."
+	^ self
+		request: aPromptString
+		initialAnswer: aString
+		answerExtent: FillInTheBlankMorph defaultAnswerExtent x @ aNumber
+		acceptOnCR: false
 ]
 
 {

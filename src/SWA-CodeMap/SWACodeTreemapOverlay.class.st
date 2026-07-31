@@ -439,24 +439,24 @@ SWACodeTreemapOverlay >> dupLineWidthForSharedLoc: sharedLoc [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:16'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWACodeTreemapOverlay >> popUpDataMenu [
 	"Pop up the top-level Data menu standalone (header 'Data' button)."
 	| menu |
 	menu := self dataMenuMorph.
-	menu ifNotNil: [menu popUpInWorld: self world]
+	self popUpMenu: menu
 ]
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:13'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:37'
 }
 SWACodeTreemapOverlay >> popUpDecorationMenu [
 	"Pop up the Links (decoration) menu standalone (header 'Links' button)."
 	| menu |
 	menu := self decorationMenuMorph.
-	menu ifNotNil: [menu popUpInWorld: self world]
+	self popUpMenu: menu
 ]
 
 {

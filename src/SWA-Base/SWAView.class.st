@@ -851,14 +851,37 @@ SWAView >> navPanel: aSWAPane [
 
 {
 	#category : #coloring,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:32'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWAView >> popUpColorMenu [
 	"Pop up the Color menu standalone (header 'Color' button). No-op if the view
 	offers no color options."
 	| menu |
 	menu := self colorMenuMorph.
-	menu ifNotNil: [menu popUpInWorld: self world]
+	self popUpMenu: menu
+]
+
+{
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
+}
+SWAView >> popUpMenu: aMenu [
+	"Pop up aMenu at the hand position, as a CHILD -- never in the world.
+	See SWAPane class>>popUp:at:in: for why."
+	^ self popUpMenu: aMenu at: self currentHand position
+]
+
+{
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
+}
+SWAView >> popUpMenu: aMenu at: aPoint [
+	"Route the pop-up through the owning pane, so it is hosted by whatever that pane
+	declares as its #dialogHost and gets the XR panel refresh. Falls back to this
+	view itself when the view is used bare, without a pane around it."
+	^ navPanel
+		ifNil: [SWAPane popUp: aMenu at: aPoint in: self]
+		ifNotNil: [:pane | pane popUpMenu: aMenu at: aPoint]
 ]
 
 {
