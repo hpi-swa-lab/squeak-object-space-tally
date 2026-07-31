@@ -18,7 +18,8 @@ Class {
 	#instVars : [
 		'scale',
 		'lastStep',
-		'reading'
+		'reading',
+		'sampling'
 	],
 	#category : #'SWA-Memory-Graph',
 	#'squeak_changestamp' : '<historical>'
@@ -56,29 +57,49 @@ SWAStackedGraph >> rangeString [
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:53'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 15:33'
 }
 SWAStackedGraph >> reading [
 	"The most recent reading. Every column between samples repaints this one, and
-	segments, rangeKB and labelString all read it, so one draw costs one probe."
-	^reading ifNil: [reading := self takeReading]
+	segments, rangeKB and labelString all read it, so one draw costs one probe.
+
+	Answers nil until the first background sample lands; every #segments treats
+	that as an empty stack, so the strip just starts out blank. Deliberately does
+	not probe on demand: the point of sampling in another process is that no draw
+	ever waits for a /proc read."
+	^reading
 ]
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 15:34'
 }
 SWAStackedGraph >> sampleIfDue [
 	"Take a fresh reading at most once per minimumInterval. The second clause
 	catches the millisecond clock wrapping around, which would otherwise freeze
-	the reading for the rest of the session."
+	the reading for the rest of the session.
+
+	The reading is taken in a background process at userBackgroundPriority, below
+	the UI, so the morphic step never waits for a scan of /proc. Squeak processes
+	are green threads, so this does not make the reads free; it makes them
+	preemptible between individual files, which is what removes the stall.
+
+	Publishing the result needs no lock: takeReading builds a complete object and
+	a single assignment makes it visible, and green threads cannot interleave
+	mid-assignment, so a drawing step sees either the old reading or the new one.
+
+	The in-flight guard matters more than the clock. If a probe ever runs longer
+	than minimumInterval, samplers must not pile up behind each other."
 	| now |
+	sampling == true ifTrue: [^self].
 	now := Time millisecondClockValue.
 	(lastStep notNil
 		and: [now >= lastStep]
 		and: [now - lastStep < self minimumInterval]) ifTrue: [^self].
 	lastStep := now.
-	reading := self takeReading
+	sampling := true.
+	[[reading := self takeReading] ensure: [sampling := false]]
+		forkAt: Processor userBackgroundPriority
 ]
 
 {

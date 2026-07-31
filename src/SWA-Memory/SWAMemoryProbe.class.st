@@ -29,7 +29,8 @@ Class {
 		'nvmlState',
 		'nvmlDevice',
 		'nvmlBuffer',
-		'cachedPageSizeKB'
+		'cachedPageSizeKB',
+		'gpuSource'
 	],
 	#category : #'SWA-Memory-Graph',
 	#'squeak_changestamp' : '<historical>'
@@ -37,15 +38,30 @@ Class {
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:50'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 15:31'
 }
 SWAMemoryProbe class >> contentsOfProcFile: aPath limit: maxBytes [
 	"Answer the first maxBytes characters of a /proc file, or nil if it cannot be
 	read. Files under /proc report a size of zero, so #contentsOfEntireFile would
-	answer an empty string; we have to read a fixed number of bytes instead."
+	answer an empty string; we have to read until the stream runs dry instead.
+
+	Read in doubling chunks rather than one maxBytes buffer. #next: allocates its
+	whole argument up front, so the old fixed-limit read cost a 4000 byte String
+	to fetch a 41 byte fdinfo file and a 1 MB String to fetch 67 KB of maps.
+	Almost every file here is well under a kilobyte, so start small and grow."
 	| stream |
 	^[stream := FileStream readOnlyFileNamed: aPath.
-	  [stream next: maxBytes] ensure: [stream close]]
+	  [| out chunk size |
+	   out := WriteStream on: (String new: 0).
+	   size := 512.
+	   [out position < maxBytes
+		and: [chunk := stream next: (size min: maxBytes - out position).
+			chunk size > 0]]
+		whileTrue: [
+			out nextPutAll: chunk.
+			size := size * 2 min: 65536].
+	   out contents]
+		ensure: [stream close]]
 		on: Error do: [:e | nil]
 ]
 
@@ -117,7 +133,7 @@ SWAMemoryProbe class >> gpuKgslKB [
 
 {
 	#category : #'gpu memory',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 15:31'
 }
 SWAMemoryProbe class >> gpuProcessKB [
 	"Driver-side per-process GPU kilobytes, or nil where the platform has none.
@@ -125,9 +141,30 @@ SWAMemoryProbe class >> gpuProcessKB [
 	nvidia-smi answers 'Not available in WDDM driver model'. There vramKB, which
 	covers the whole device, is the only real signal. macOS has no /proc, but its
 	unified memory puts GPU allocations into rssKB anyway."
-	self gpuDrmKB ifNotNil: [:kb | ^kb].
-	self gpuKgslKB ifNotNil: [:kb | kb > 0 ifTrue: [^kb]].
-	^nil
+	self gpuSource caseOf: {
+		[#drm] -> [^self gpuDrmKB].
+		[#kgsl] -> [^self gpuKgslKB] }
+		otherwise: [^nil]
+]
+
+{
+	#category : #'gpu memory',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 15:31'
+}
+SWAMemoryProbe class >> gpuSource [
+	"Which driver interface, if any, reports per-process GPU memory on this
+	machine: #drm, #kgsl or #none. Probed once and cached, because the answer is
+	a property of the kernel and driver, not of the moment. Only the decision is
+	cached; the figures themselves are re-read on every sample.
+
+	This matters: probing #drm opens every entry in /proc/self/fdinfo, and
+	probing #kgsl reads all of /proc/self/maps. Doing that per sample cost about
+	2 MB of garbage four times a second to answer a question whose answer never
+	changed."
+	gpuSource ifNotNil: [^gpuSource].
+	self gpuDrmKB ifNotNil: [^gpuSource := #drm].
+	(self gpuKgslKB ifNil: [0]) > 0 ifTrue: [^gpuSource := #kgsl].
+	^gpuSource := #none
 ]
 
 {
@@ -315,12 +352,13 @@ SWAMemoryProbe class >> report [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:06'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 15:31'
 }
 SWAMemoryProbe class >> reset [
 	"Drop every cached decision. Send this after moving an image to a different
 	machine, where both the page size and the presence of a GPU may differ."
 	cachedPageSizeKB := nil.
+	gpuSource := nil.
 	self nvmlReset
 ]
 
