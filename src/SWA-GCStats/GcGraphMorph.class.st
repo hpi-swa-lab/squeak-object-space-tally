@@ -54,15 +54,12 @@ GcGraphMorph class >> unload [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:21'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 11:06'
 }
 GcGraphMorph class >> xrMenuOpen: aMenu [
 	<xrMenu: #(world apps) label: 'GC Stats' priority: 300>
-	| panel |
-	panel := SRMorphPanel new morph: self open; yourself.
-	panel position: aMenu position.
-	aMenu world addChild: panel.
-	^ panel
+	"Open in the 2D world; the framework promotes the window into 3D."
+	^ self open
 ]
 
 {

@@ -19,30 +19,40 @@ Class {
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:59'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAProcessGraph >> labelString [
-	| rss |
-	rss := SWAMemoryProbe rssKB.
-	rss ifNil: [^'process  /proc unavailable'].
-	^String streamContents: [:s |
-		s nextPutAll: 'rss '; nextPutAll: (self mbString: rss);
-		  nextPutAll: '  image '; nextPutAll: (self mbString: SWAMemoryProbe imageCommittedKB);
-		  nextPutAll: '  outside '; nextPutAll: (self mbString: SWAMemoryProbe nonImageKB);
-		  nextPutAll: '  range '; nextPutAll: self rangeString]
+	^self reading ifNil: ['process  /proc unavailable'] ifNotNil: [:r |
+		String streamContents: [:s |
+			s nextPutAll: 'rss '; nextPutAll: (self mbString: r first);
+			  nextPutAll: '  image '; nextPutAll: (self mbString: r second);
+			  nextPutAll: '  outside '; nextPutAll: (self mbString: r first - r second);
+			  nextPutAll: '  range '; nextPutAll: self rangeString]]
 ]
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:59'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAProcessGraph >> segments [
 	"Object memory at the bottom, everything outside it stacked on top, so the
 	coral band is literally the memory GcGraphMorph is blind to."
-	| rss image |
+	^self reading ifNil: [#()] ifNotNil: [:r |
+		| rss image |
+		rss := r first.
+		image := r second min: rss.
+		{image -> self class deepOceanColor.
+		 (rss - image) -> self class coralColor}]
+]
+
+{
+	#category : #plotting,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:53'
+}
+SWAProcessGraph >> takeReading [
+	"Resident and image-committed kilobytes, or nil where /proc is unavailable."
+	| rss |
 	rss := SWAMemoryProbe rssKB.
-	rss ifNil: [^#()].
-	image := SWAMemoryProbe imageCommittedKB min: rss.
-	^{image -> self class deepOceanColor.
-	   (rss - image) -> self class coralColor}
+	rss ifNil: [^nil].
+	^{rss. SWAMemoryProbe imageCommittedKB}
 ]

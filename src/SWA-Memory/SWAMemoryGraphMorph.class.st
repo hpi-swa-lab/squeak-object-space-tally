@@ -37,7 +37,7 @@ Class {
 
 {
 	#category : #'class initialization',
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:03'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 11:00'
 }
 SWAMemoryGraphMorph class >> initialize [
 	"Register the Apps-menu entry, next to 'SWA GC Stats'. Same shape as
@@ -47,7 +47,7 @@ SWAMemoryGraphMorph class >> initialize [
 	TheWorldMenu registerOpenCommand: {
 		'SWA Memory Stats'.
 		{self. #open}.
-		'Live graph of the whole process: object memory, FFI and native memory, GPU uploads and VRAM' }
+		'Live graph of the whole process: object memory, FFI and native memory, driver-reported GPU memory and VRAM' }
 ]
 
 {
@@ -71,17 +71,27 @@ SWAMemoryGraphMorph class >> open [
 ]
 
 {
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 11:06'
+}
+SWAMemoryGraphMorph class >> xrMenuOpen: aMenu [
+	<xrMenu: #(world apps) label: 'Memory Stats' priority: 310>
+	"Open in the 2D world; the framework promotes the window into 3D."
+	^ self open
+]
+
+{
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:00'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
 }
 SWAMemoryGraphMorph >> buildStrips [
-	"The portable four, plus the VRAM strip where a driver can supply it."
+	"The portable three, plus the GPU and VRAM strips where a driver can supply them."
 	| result |
 	result := OrderedCollection new.
 	result add: GcGraph new.
 	result add: GcFullGraph new.
 	result add: SWAProcessGraph new.
-	result add: SWAGpuGraph new.
+	SWAGpuProcessGraph isAvailable ifTrue: [result add: SWAGpuProcessGraph new].
 	SWAVramGraph isAvailable ifTrue: [result add: SWAVramGraph new].
 	^result
 ]
@@ -137,6 +147,18 @@ SWAMemoryGraphMorph >> initialize [
 	super initialize.
 	strips := self buildStrips.
 	self extent: 400 @ (100 * strips size)
+]
+
+{
+	#category : #'stepping and presenter',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 11:26'
+}
+SWAMemoryGraphMorph >> outOfWorld: aWorld [
+	"Stop stepping at once. Morph>>outOfWorld: deliberately leaves this to the
+	world's lazy step-list purge, which is fine for a passive morph but not for
+	one whose step reads /proc and NVML."
+	aWorld ifNotNil: [aWorld stopStepping: self].
+	super outOfWorld: aWorld
 ]
 
 {

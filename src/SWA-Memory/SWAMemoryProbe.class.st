@@ -74,6 +74,63 @@ SWAMemoryProbe class >> derivePageSizeKB [
 ]
 
 {
+	#category : #'gpu memory',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
+}
+SWAMemoryProbe class >> gpuDrmKB [
+	"Per-process GPU kilobytes reported by the kernel DRM fdinfo interface
+	(amdgpu, i915, msm, ...), or nil where no open fd reports it. Prefers the
+	current drm-resident-memory key over the older drm-memory-vram so the two
+	are never added together."
+	| resident vram |
+	resident := 0.
+	vram := 0.
+	[(FileDirectory on: '/proc/self/fdinfo') fileNames do: [:name |
+		| text |
+		text := self contentsOfProcFile: '/proc/self/fdinfo/', name limit: 4000.
+		text ifNotNil: [
+			text linesDo: [:line |
+				| parts |
+				parts := line findTokens: ': ', (String with: Character tab).
+				parts size >= 2 ifTrue: [
+					parts first = 'drm-resident-memory'
+						ifTrue: [resident := resident + (parts at: 2) asNumber].
+					parts first = 'drm-memory-vram'
+						ifTrue: [vram := vram + (parts at: 2) asNumber]]]]]]
+		on: Error do: [:e | ^nil].
+	resident > 0 ifTrue: [^resident].
+	vram > 0 ifTrue: [^vram].
+	^nil
+]
+
+{
+	#category : #'gpu memory',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
+}
+SWAMemoryProbe class >> gpuKgslKB [
+	"Per-process GPU kilobytes on Adreno, from this process's own /dev/kgsl-3d0
+	mappings. Qualcomm's kgsl exposes no per-process sysfs node on the Quest
+	kernel, and debugfs is absent, so mappings are the only driver-side source.
+	Buffers the driver never maps for the CPU are not counted."
+	^self mappedKBForDevice: '/dev/kgsl-3d0'
+]
+
+{
+	#category : #'gpu memory',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
+}
+SWAMemoryProbe class >> gpuProcessKB [
+	"Driver-side per-process GPU kilobytes, or nil where the platform has none.
+	WSL has none: /dev/dxg is not a DRM device and exposes no drm- keys, and
+	nvidia-smi answers 'Not available in WDDM driver model'. There vramKB, which
+	covers the whole device, is the only real signal. macOS has no /proc, but its
+	unified memory puts GPU allocations into rssKB anyway."
+	self gpuDrmKB ifNotNil: [:kb | ^kb].
+	self gpuKgslKB ifNotNil: [:kb | kb > 0 ifTrue: [^kb]].
+	^nil
+]
+
+{
 	#category : #'process memory',
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:50'
 }
@@ -81,6 +138,29 @@ SWAMemoryProbe class >> imageCommittedKB [
 	"Committed Squeak object memory in kilobytes: old space (live plus free)
 	plus the young space in use. Same figure GcFullGraph plots."
 	^((Smalltalk vmParameterAt: 1) + (Smalltalk vmParameterAt: 2)) // 1024
+]
+
+{
+	#category : #'gpu memory',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
+}
+SWAMemoryProbe class >> mappedKBForDevice: aDevicePath [
+	"Kilobytes this process has mapped from aDevicePath, per /proc/self/maps.
+	Answer nil where /proc is unavailable. Costs about 3 ms."
+	| text total |
+	text := self contentsOfProcFile: '/proc/self/maps' limit: 1000000.
+	text ifNil: [^nil].
+	total := 0.
+	text linesDo: [:line |
+		| parts bounds |
+		parts := line findTokens: ' '.
+		(parts size >= 6 and: [(parts at: 6) = aDevicePath]) ifTrue: [
+			bounds := (parts at: 1) findTokens: '-'.
+			bounds size = 2 ifTrue: [
+				total := total
+					+ (Integer readFrom: (bounds at: 2) base: 16)
+					- (Integer readFrom: (bounds at: 1) base: 16)]]].
+	^total // 1024
 ]
 
 {

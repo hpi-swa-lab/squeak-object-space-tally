@@ -17,7 +17,8 @@ Class {
 	#superclass : #GcGraph,
 	#instVars : [
 		'scale',
-		'lastStep'
+		'lastStep',
+		'reading'
 	],
 	#category : #'SWA-Memory-Graph',
 	#'squeak_changestamp' : '<historical>'
@@ -25,13 +26,12 @@ Class {
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:01'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAStackedGraph >> minimumInterval [
-	"Milliseconds between columns. The strips above us scroll once per morphic
-	frame so their fps figure stays honest, but reading /proc and NVML that often
-	is pointless: these amounts move on a human timescale, and a slower axis
-	buys a much longer history in the same width."
+	"Milliseconds between readings, not between columns. Columns advance once per
+	morphic step like every other strip; only the probe is throttled, because
+	reading /proc and NVML per frame would cost more than the figures move."
 	^250
 ]
 
@@ -55,6 +55,33 @@ SWAStackedGraph >> rangeString [
 ]
 
 {
+	#category : #plotting,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:53'
+}
+SWAStackedGraph >> reading [
+	"The most recent reading. Every column between samples repaints this one, and
+	segments, rangeKB and labelString all read it, so one draw costs one probe."
+	^reading ifNil: [reading := self takeReading]
+]
+
+{
+	#category : #plotting,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
+}
+SWAStackedGraph >> sampleIfDue [
+	"Take a fresh reading at most once per minimumInterval. The second clause
+	catches the millisecond clock wrapping around, which would otherwise freeze
+	the reading for the rest of the session."
+	| now |
+	now := Time millisecondClockValue.
+	(lastStep notNil
+		and: [now >= lastStep]
+		and: [now - lastStep < self minimumInterval]) ifTrue: [^self].
+	lastStep := now.
+	reading := self takeReading
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:59'
 }
@@ -75,19 +102,25 @@ SWAStackedGraph >> segments [
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:01'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAStackedGraph >> stepUpdate [
-	"Advance at most once per minimumInterval, ignoring the caller's rate.
-	The second clause catches the millisecond clock wrapping around, which would
-	otherwise freeze the strip for the rest of the session."
-	| now |
-	now := Time millisecondClockValue.
-	(lastStep notNil
-		and: [now >= lastStep]
-		and: [now - lastStep < self minimumInterval]) ifTrue: [^self].
-	lastStep := now.
+	"Advance one column per caller step, so every strip in the morph shares one
+	time axis and a vertical line means the same instant in all of them. Reading
+	the source is throttled separately; between samples the last value is
+	repainted, which is what keeps the shared axis affordable."
+	self sampleIfDue.
 	self updateGraph
+]
+
+{
+	#category : #plotting,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:53'
+}
+SWAStackedGraph >> takeReading [
+	"Answer a fresh reading from this strip's data source, or nil when the source
+	is unavailable. Called at most once per minimumInterval."
+	^self subclassResponsibility
 ]
 
 {

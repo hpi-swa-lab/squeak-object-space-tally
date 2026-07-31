@@ -34,36 +34,41 @@ SWAVramGraph class >> isAvailable [
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:00'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAVramGraph >> labelString [
-	| vram |
-	vram := SWAMemoryProbe vramKB.
-	vram ifNil: [^'vram  NVML unavailable'].
-	^String streamContents: [:s |
-		s nextPutAll: 'vram used '; nextPutAll: (self mbString: vram third);
-		  nextPut: $/; nextPutAll: (self mbString: vram first);
-		  nextPutAll: '  (whole device)']
+	^self reading ifNil: ['vram  NVML unavailable'] ifNotNil: [:vram |
+		String streamContents: [:s |
+			s nextPutAll: 'vram used '; nextPutAll: (self mbString: vram third);
+			  nextPut: $/; nextPutAll: (self mbString: vram first);
+			  nextPutAll: '  (whole device)']]
 ]
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:00'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAVramGraph >> rangeKB [
 	"Pin the axis to the physical size of the card. The card does not change
 	size, so the scale settles once and the strip reads as an absolute gauge."
-	^SWAMemoryProbe vramTotalKB ifNil: [0]
+	^self reading ifNil: [0] ifNotNil: [:vram | vram first]
 ]
 
 {
 	#category : #plotting,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 18:00'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:54'
 }
 SWAVramGraph >> segments [
-	| vram |
-	vram := SWAMemoryProbe vramKB.
-	vram ifNil: [^#()].
-	^{vram third -> self class coralColor.
-	  vram second -> self class paleOceanColor}
+	^self reading ifNil: [#()] ifNotNil: [:vram |
+		{vram third -> self class coralColor.
+		 vram second -> self class paleOceanColor}]
+]
+
+{
+	#category : #plotting,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:53'
+}
+SWAVramGraph >> takeReading [
+	"Total, free and used device kilobytes, or nil where NVML is unavailable."
+	^SWAMemoryProbe vramKB
 ]
