@@ -98,7 +98,7 @@ SWAPane class >> defaultWindowBounds [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+	#'squeak_changestamp' : 'MCPServer 8/3/2026 17:53'
 }
 SWAPane class >> defaultXRProfilePackages [
 	"Package globs a frame profile instruments unless told otherwise. Note this is
@@ -106,7 +106,7 @@ SWAPane class >> defaultXRProfilePackages [
 	classes (Morph, Object, Form, Point, UIManager, ...) -- those get wrapped too,
 	because the substrate guard in SWACoverage>>methodsForPackages: goes by package
 	name, not by the class the method lands on."
-	^ #('SqueakXR')
+	^ #('SqueakXR' 'Raylib'  'SWAGame')
 ]
 
 {
@@ -551,7 +551,7 @@ SWAPane class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:58'
 }
 SWAPane class >> openXRFrameFlamegraphOn: aCoverage frames: aCount [
 	"Open a flamegraph -- not a treemap -- on the call tree of a frame profile, in
@@ -570,11 +570,12 @@ SWAPane class >> openXRFrameFlamegraphOn: aCoverage frames: aCount [
 		'   ', (SWASamplingTallyNode formatMicros: summedSelf), ' attributed',
 		'   ', aCoverage resultMap size printString, ' methods called'.
 	panel := SWAPane on: flame.
-	window := panel openInWindow.
-	window setLabel: 'XR Frame Profile: ', aCount printString, ' frame(s)  (',
-		(SWASamplingTallyNode formatMicros: aCoverage wallMicros), ')'.
-	window extent: (Display extent * 0.7) rounded.
-	window center: Display center.
+	"Sized before the window enters the world, so the XR SRMorphPanel that
+	SRPasteUpMorph>>addedMorph: builds captures the real extent, not a guess."
+	window := panel
+		openInWindowLabeled: 'XR Frame Profile: ', aCount printString, ' frame(s)  (',
+			(SWASamplingTallyNode formatMicros: aCoverage wallMicros), ')'
+		bounds: (((Display extent - (1200 @ 800)) // 2) extent: 1200 @ 800).
 	^ window
 ]
 
@@ -651,7 +652,7 @@ SWAPane class >> profileXRFrames: aCount [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:49'
 }
 SWAPane class >> profileXRFrames: aCount packages: aGlobCollection [
 	"Profile exactly aCount frames of the running XR world and open a FLAMEGRAPH on
@@ -677,7 +678,10 @@ SWAPane class >> profileXRFrames: aCount packages: aGlobCollection [
 	^ world runBetweenFrames: [
 		self
 			openXRFrameFlamegraphOn: (self measureXRFrames: aCount packages: aGlobCollection in: world)
-			frames: aCount]
+			frames: aCount.
+		 
+		]
+		
 ]
 
 {
@@ -868,6 +872,22 @@ SWAPane class >> xrMenuOpenSqueakXRCodeMap: aMenu [
 
 {
 	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 18:07'
+}
+SWAPane class >> xrMenuProfileHundredFrames: aMenu [
+	<xrMenu: #(world profile) label: '100 frames' priority: 140>
+	"A hundred frames. Long enough that anything periodic -- a step that only runs
+	every n frames, a GC, a texture re-upload -- shows up at all, which the shorter
+	runs can miss entirely.
+
+	The world is frozen for the whole run: the loop is blocked inside the
+	between-frame action that drives #doOneCycle itself, so this reads as a hang
+	rather than as slow rendering."
+	^ self profileXRFrames: 100
+]
+
+{
+	#category : #'xr frame profiling',
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
 }
 SWAPane class >> xrMenuProfileOneFrame: aMenu [
@@ -884,24 +904,28 @@ SWAPane class >> xrMenuProfileOneFrame: aMenu [
 	#category : #'xr frame profiling',
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
 }
-SWAPane class >> xrMenuProfileSixtyFrames: aMenu [
-	<xrMenu: #(world profile) label: '60 frames' priority: 130>
-	"Sixty frames -- about a second of normal rendering, far longer once every
-	SqueakXR method is wrapped. The world is frozen for the whole run: the loop is
-	blocked inside the between-frame action driving #doOneCycle itself, so on a
-	headset this reads as a freeze, not as slow rendering."
-	^ self profileXRFrames: 60
-]
-
-{
-	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
-}
 SWAPane class >> xrMenuProfileTenFrames: aMenu [
 	<xrMenu: #(world profile) label: '10 frames' priority: 120>
 	"Ten frames: enough that per-frame jitter averages out, still short enough that
 	the untimed-eviction-free tracing overhead stays bounded."
 	^ self profileXRFrames: 10
+]
+
+{
+	#category : #'xr frame profiling',
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 18:07'
+}
+SWAPane class >> xrMenuProfileThousandFrames: aMenu [
+	<xrMenu: #(world profile) label: '1000 frames' priority: 150>
+	"A thousand frames. Expect TENS OF SECONDS of a completely frozen world: the
+	loop is blocked inside the between-frame action driving #doOneCycle itself, and
+	timing wrappers never evict (SWACoverage>>instrumentTiming), so the per-call
+	overhead stays for the whole run rather than decaying. On a headset this is a
+	hang, not slow rendering -- take it off before pressing this.
+
+	Worth it for the rare-event case: something that fires once in several hundred
+	frames is invisible below this scale."
+	^ self profileXRFrames: 1000
 ]
 
 {
@@ -3100,6 +3124,32 @@ SWAPane >> nextCallTimingName [
 	mask-comparable, so their numbering must not collide."
 	CallTallyCounter := (CallTallyCounter ifNil: [0]) + 1.
 	^ 'Call Timing ', CallTallyCounter printString
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:58'
+}
+SWAPane >> openInWindowLabeled: aString bounds: aRectangle [
+	"Open me in a window that ALREADY has its final bounds. Morph>>openInWindowLabeled:
+	guesses an extent from #fullBounds and adds the window to the world before the
+	caller can correct it, so in XR SRPasteUpMorph>>addedMorph: has already built the
+	SRMorphPanel around the guessed size. Sizing after that point leaves the panel's
+	plane at the wrong aspect."
+
+	| window |
+	window := (SystemWindow labelled: aString) model: nil.
+	window
+		addMorph: self frame: (0 @ 0 extent: 1 @ 1);
+		updatePaneColors;
+		bounds: aRectangle.
+	self enforceMinimumWindowWidth.
+	"#addMorph:, not #openInWorld: the latter re-frames the window through
+	RealEstateAgent and would throw away the bounds just set."
+	self currentWorld addMorph: window.
+	window beKeyWindow.
+	self currentWorld startSteppingSubmorphsOf: window.
+	^ window
 ]
 
 {
