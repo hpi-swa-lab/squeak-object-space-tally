@@ -55,7 +55,7 @@ spy record; waitForTrace; openExplorer; openTreemap.
 briefly pauses the VM (~0.5 ms), so ~500 Hz means ~25 % pause time; the practical
 ceiling is ~2000 Hz.
 
-![Sampling Tally flamegraph of a profiled run](gallery-stspy.png)
+![Sampling Tally flamegraph of a profiled run](media/gallery-stspy.png)
 
 ## The recording pipeline
 

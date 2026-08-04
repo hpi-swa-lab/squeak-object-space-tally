@@ -22,7 +22,7 @@ capability-gated, so it changes as you morph one tool into another. Below: the
 Code Map in **Show** mode -- the full chrome, breadcrumb, selection highlight, and
 the details/source/covering-tests panes are all view-layer features.
 
-![The shared SWAPane chrome in Show mode: header, breadcrumb, info lines, and the details/source/xref panes](gallery-viewlayer.png)
+![The shared SWAPane chrome in Show mode: header, breadcrumb, info lines, and the details/source/xref panes](media/gallery-viewlayer.png)
 
 <!-- SCREENSHOT gallery-viewlayer.png (shared chrome + Show row; needs squeakxr-coverage.json alongside)
 | w tm panel data leaf |
@@ -37,7 +37,7 @@ tm rootNode withAllChildrenDo: [:n |
 tm selectTileNode: leaf.
 panel toggleSource.
 World displayWorld. (Delay forMilliseconds: 700) wait. World displayWorld. (Delay forMilliseconds: 300) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/gallery-viewlayer.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-viewlayer.png'.
 w delete.
 -->
 
@@ -51,13 +51,13 @@ where tile **area** is a size metric (LOC / bytes / method count / execution
 counts) and tile **colour** is an orthogonal property, both switched live from the
 **Size** / **Color** buttons. Full doc: **[SWACodeMap.md](SWACodeMap.md)**.
 
-![Code Map of SqueakXR, sized by LOC, coloured by kind](gallery-codemap.png)
+![Code Map of SqueakXR, sized by LOC, coloured by kind](media/gallery-codemap.png)
 
 <!-- SCREENSHOT gallery-codemap.png
 | w |
 w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/gallery-codemap.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-codemap.png'.
 w delete.
 -->
 
@@ -76,7 +76,7 @@ dedicated analysis models (each its own `SWA-*` package) plug in this way; the
   covered methods. Presets: `openCoverage:onPackageNamed:` /
   `openInvocations:onPackageNamed:`.
 
-  ![Coverage overlay: covered green, tests blue, on the LOC map](codemap-coverage-overlay-on-loc.png)
+  ![Coverage overlay: covered green, tests blue, on the LOC map](media/codemap-coverage-overlay-on-loc.png)
 
 - **Duplication** (`SWA-Duplication`, `SWADuplicationData`) -- load a duplication
   JSON to surface copy-paste / similarity clusters, tinting members of the same
@@ -103,13 +103,13 @@ Walks the *live object graph* (BFS from the roots) and tiles it by retained
 **bytes**, so you see where the memory goes and who keeps it alive. Full doc:
 **[SWASpaceTally.md](SWASpaceTally.md)**.
 
-![Space Tally of the live image, tiles sized by retained bytes](gallery-spacetally.png)
+![Space Tally of the live image, tiles sized by retained bytes](media/gallery-spacetally.png)
 
 <!-- SCREENSHOT gallery-spacetally.png (whole-image walk; a few seconds)
 | w |
 w := SWASpaceTally openTreemap.
 World displayWorld. (Delay forMilliseconds: 1500) wait. World displayWorld. (Delay forMilliseconds: 500) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/gallery-spacetally.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-spacetally.png'.
 w delete.
 -->
 
@@ -121,7 +121,7 @@ wall-clock call tree as a flamegraph (also treemap / explorer). Shows *where tim
 goes*. (st-spy is the internal sampler binary, not the user-facing name.) Stub doc:
 **[SWAMessageTally.md](SWAMessageTally.md)**.
 
-![Sampling Tally flamegraph of a profiled run](gallery-stspy.png)
+![Sampling Tally flamegraph of a profiled run](media/gallery-stspy.png)
 
 <!-- SCREENSHOT gallery-stspy.png (reuses an existing chrome-trace file rather than live recording)
 | spy w |
@@ -130,7 +130,7 @@ spy pid: 18463.
 spy parseTraceFile: '18463-2026-06-19T13:45:32+02:00.json'.
 w := spy openFlamegraph.
 World displayWorld. (Delay forMilliseconds: 1200) wait. World displayWorld. (Delay forMilliseconds: 400) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/gallery-stspy.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-stspy.png'.
 w delete.
 -->
 
@@ -144,13 +144,13 @@ A time-bucketed treemap over the `.changes` file
 = diff-line count. Selecting a change shows an inline diff. Documented in the
 journal: [2026-07-09](../../journal/2026-07-09-swachangeparser-change-treemap-and-recovery.md).
 
-![Change Map: the last 14 days of the .changes file, bucketed by time](gallery-changemap.png)
+![Change Map: the last 14 days of the .changes file, bucketed by time](media/gallery-changemap.png)
 
 <!-- SCREENSHOT gallery-changemap.png
 | w |
 w := SWAChangeParser openLastDays: 14.
 World displayWorld. (Delay forMilliseconds: 1500) wait. World displayWorld. (Delay forMilliseconds: 500) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/gallery-changemap.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-changemap.png'.
 w delete.
 -->
 
@@ -162,13 +162,13 @@ lightgray placeholders, click a class/method to drive nav-panel selection.
 Documented in the journal:
 [2026-07-13](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md).
 
-![Class Diagram of the JSON package: inheritance edges to external superclasses](gallery-classdiagram.png)
+![Class Diagram of the JSON package: inheritance edges to external superclasses](media/gallery-classdiagram.png)
 
 <!-- SCREENSHOT gallery-classdiagram.png (small package: the diagram is only legible on small packages)
 | w |
 w := SWAClassDiagram openOnPackageNamed: 'JSON'.
 World displayWorld. (Delay forMilliseconds: 800) wait. World displayWorld. (Delay forMilliseconds: 300) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/gallery-classdiagram.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-classdiagram.png'.
 w delete.
 -->
 

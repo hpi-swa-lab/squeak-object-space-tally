@@ -24,13 +24,13 @@ coverage data set generated from its own SUnit tests.
 SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 ```
 
-![Code Map of SqueakXR, sized by LOC, coloured by kind](codemap-default-loc-kind.png)
+![Code Map of SqueakXR, sized by LOC, coloured by kind](media/codemap-default-loc-kind.png)
 
 <!-- SCREENSHOT codemap-default-loc-kind.png
 | w |
 w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-default-loc-kind.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'media/codemap-default-loc-kind.png'.
 w delete.
 -->
 
@@ -75,7 +75,7 @@ Right-click -> **Size**, or the header **Size** button (always reachable, even i
 metric collapses the map to empty). The size metric is a rolled-up weight: an
 aggregate tile is the sum of its descendants.
 
-![The Size menu](codemap-size-menu.png)
+![The Size menu](media/codemap-size-menu.png)
 
 <!-- SCREENSHOT codemap-size-menu.png (captures a Display REGION so the popped-up menu is included)
 | w panel overlay menu rect form |
@@ -89,7 +89,7 @@ World displayWorld. (Delay forMilliseconds: 300) wait.
 rect := w bounds.
 form := Form extent: rect extent depth: 32.
 form copy: (0@0 extent: rect extent) from: rect origin in: Display rule: Form over.
-PNGReadWriter putForm: form onFileNamed: 'codemap-size-menu.png'.
+PNGReadWriter putForm: form onFileNamed: 'media/codemap-size-menu.png'.
 menu delete. w delete.
 -->
 
@@ -123,11 +123,11 @@ modes on a fixed layout.
 - **By recency (last changed)** -- newest code brightest.
 - **By author (last changed)** -- a hue per author.
 
-![Coloured by LOC heat](codemap-color-loc-heat.png)
+![Coloured by LOC heat](media/codemap-color-loc-heat.png)
 
-![Coloured by author](codemap-color-author.png)
+![Coloured by author](media/codemap-color-author.png)
 
-![Coloured by recency](codemap-color-recency.png)
+![Coloured by recency](media/codemap-color-recency.png)
 
 <!-- SCREENSHOT codemap-color-loc-heat.png / codemap-color-author.png / codemap-color-recency.png
 | w tm cap |
@@ -135,9 +135,9 @@ w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
 tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
 cap := [:name | World displayWorld. (Delay forMilliseconds: 400) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 	PNGReadWriter putForm: w imageForm onFileNamed: name].
-tm colorMode: #loc.     cap value: 'codemap-color-loc-heat.png'.
-tm colorMode: #author.  cap value: 'codemap-color-author.png'.
-tm colorMode: #recency. cap value: 'codemap-color-recency.png'.
+tm colorMode: #loc.     cap value: 'media/codemap-color-loc-heat.png'.
+tm colorMode: #author.  cap value: 'media/codemap-color-author.png'.
+tm colorMode: #recency. cap value: 'media/codemap-color-recency.png'.
 w delete.
 -->
 
@@ -157,13 +157,13 @@ method's source bytes into three lexical buckets:
 SWAPane openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
 ```
 
-![Byte composition: doc (teal) / string (amber) / code (green-gray)](codemap-byte-composition.png)
+![Byte composition: doc (teal) / string (amber) / code (green-gray)](media/codemap-byte-composition.png)
 
 <!-- SCREENSHOT codemap-byte-composition.png
 | w |
 w := SWAPane openByteCompositionOnPackageNamed: 'SqueakXR' leafKind: nil.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-byte-composition.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'media/codemap-byte-composition.png'.
 w delete.
 -->
 
@@ -212,7 +212,7 @@ TestCase classes, **red** methods evicted during the run, gray untouched. Aggreg
 tiles get a proportional green/red/blue/gray bar summarising their leaves. The
 overlay works on *any* size metric -- here on a LOC-sized structural layout:
 
-![Coverage overlay (green covered, blue tests) on a LOC-sized map](codemap-coverage-overlay-on-loc.png)
+![Coverage overlay (green covered, blue tests) on a LOC-sized map](media/codemap-coverage-overlay-on-loc.png)
 
 <!-- SCREENSHOT codemap-coverage-overlay-on-loc.png (overlay tint on a LOC-sized layout)
 | w tm |
@@ -221,7 +221,7 @@ tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
 tm showCoverageData: (SWACoverageData fromFile: 'squeakxr-coverage.json') weightMode: #tests.
 (w allMorphs detect: [:m | m isKindOf: SWAPane]) treemapCoverageStatus: 'Coverage overlay on LOC-sized map'.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-coverage-overlay-on-loc.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'media/codemap-coverage-overlay-on-loc.png'.
 w delete.
 -->
 
@@ -235,12 +235,12 @@ exercised:
 SWAPane openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR'.
 ```
 
-![Sized by covering-test count](codemap-coverage-tests-weighted.png)
+![Sized by covering-test count](media/codemap-coverage-tests-weighted.png)
 
 Switch the Size metric to **Execution: call count** for raw invocation counts (or
 use `openInvocations:onPackageNamed:`):
 
-![Sized by invocation count](codemap-coverage-invocations-weighted.png)
+![Sized by invocation count](media/codemap-coverage-invocations-weighted.png)
 
 <!-- SCREENSHOT codemap-coverage-tests-weighted.png + codemap-coverage-invocations-weighted.png
 | w tm cap |
@@ -248,9 +248,9 @@ w := SWAPane openCoverage: 'squeakxr-coverage.json' onPackageNamed: 'SqueakXR' l
 tm := w allMorphs detect: [:m | m isKindOf: SWACodeTreemapMorph].
 cap := [:name | World displayWorld. (Delay forMilliseconds: 400) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
 	PNGReadWriter putForm: w imageForm onFileNamed: name].
-cap value: 'codemap-coverage-tests-weighted.png'.
+cap value: 'media/codemap-coverage-tests-weighted.png'.
 tm weightMetric: #invocations.
-cap value: 'codemap-coverage-invocations-weighted.png'.
+cap value: 'media/codemap-coverage-invocations-weighted.png'.
 w delete.
 -->
 
@@ -261,7 +261,7 @@ pane (center, Shout-highlighted), and a **Covered by N tests** pane (right) list
 the tests that exercised the selected method. Selecting a method green-filters the
 map to it; selecting a test blue-filters to the methods it covered.
 
-![Show mode: details, source, and covering-tests panes](codemap-show-source-details.png)
+![Show mode: details, source, and covering-tests panes](media/codemap-show-source-details.png)
 
 <!-- SCREENSHOT codemap-show-source-details.png (selects a covered method, then opens the Show row)
 | w tm panel data leaf |
@@ -276,7 +276,7 @@ tm rootNode withAllChildrenDo: [:n |
 tm selectTileNode: leaf.
 panel toggleSource.
 World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'codemap-show-source-details.png'.
+PNGReadWriter putForm: w imageForm onFileNamed: 'media/codemap-show-source-details.png'.
 w delete.
 -->
 
