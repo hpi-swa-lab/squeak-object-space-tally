@@ -31,6 +31,74 @@ Class {
 
 {
 	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
+}
+SWADataset class >> callTallyFrom: aSWACoverage named: aString [
+	"Turn a COLLECTED live tally (a SWACoverage whose resultMap maps
+	'Class>>selector' -> invocation count) into a retained, named dataset carrying
+	invocation data. Its #call metric colours a Code Map by call count.
+
+	Two structures come along when the tally captured a call tree: PRIMARY = the
+	captured call tree (flamegraph), DERIVED = its code-map grouping. Both re-project
+	the same data, so the Tree button morphs freely between them.
+
+	Pure construction -- no treemap, no UI. Shared by the pane's Call-Tally generator
+	(#addCallTallyDataset:name:) and the workspace entry point
+	(#fromCallTally:packages:)."
+	| data ds callTreeRoot |
+	data := SWACoverageData new.
+	aSWACoverage resultMap keysAndValuesDo: [:key :count |
+		data recordInvocationCount: count for: key].
+	ds := self coverageFrom: data named: aString.
+	callTreeRoot := aSWACoverage collectCallTree.
+	callTreeRoot ifNotNil: [
+		ds structures: {
+			SWAStructure key: #callTree label: 'Flamegraph (call tree)'
+				view: SWASamplingTallyFlamegraphMorph rootBlock: [callTreeRoot].
+			SWAStructure key: #grouping label: 'Grouped by class (treemap)'
+				view: SWASamplingTallyTreemapMorph rootBlock: [callTreeRoot asCodeGroupingRoot] }].
+	^ ds
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWADataset class >> callTimingFrom: aSWACoverage named: aString [
+	"Turn a COLLECTED TIMING run (a SWACoverage harvested by #collectTiming, so it
+	carries #resultMap counts PLUS #timeMap / #selfTimeMap microseconds) into a
+	retained, named dataset. Superset of #callTallyFrom:named:: the resulting dataset
+	offers 'By call' AND 'By self time' / 'By total time', so one run answers both
+	'called how often' and 'cost how long' and you flip metrics instead of re-running.
+
+	The attached call tree is the SAME structure the counting tally attaches, but its
+	nodes are weighted in MICROSECONDS of self time instead of invocations -- i.e. a
+	real time flamegraph, directly comparable with the sampling one.
+
+	Pure construction -- no treemap, no UI. Shared by the pane's timing generators and
+	the workspace entry point #fromCallTiming:packages:."
+	| data ds callTreeRoot |
+	data := SWACoverageData new.
+	aSWACoverage resultMap keysAndValuesDo: [:key :count |
+		data recordInvocationCount: count for: key].
+	aSWACoverage timeMap keysAndValuesDo: [:key :micros |
+		data
+			recordMicros: micros
+			selfMicros: (aSWACoverage selfTimeMap at: key ifAbsent: [0])
+			for: key].
+	ds := self coverageFrom: data named: aString.
+	callTreeRoot := aSWACoverage collectCallTree.
+	callTreeRoot ifNotNil: [
+		ds structures: {
+			SWAStructure key: #callTree label: 'Flamegraph (time)'
+				view: SWASamplingTallyFlamegraphMorph rootBlock: [callTreeRoot].
+			SWAStructure key: #grouping label: 'Grouped by class (treemap)'
+				view: SWASamplingTallyTreemapMorph rootBlock: [callTreeRoot asCodeGroupingRoot] }].
+	^ ds
+]
+
+{
+	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
 }
 SWADataset class >> coverageFrom: aSWACoverageData named: aString [
@@ -54,6 +122,48 @@ SWADataset class >> duplicationFrom: aSWADuplicationData named: aString [
 		source: aSWADuplicationData;
 		name: aString;
 		yourself
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/28/2026 16:58'
+}
+SWADataset class >> fromCallTally: aBlock packages: packageNames [
+	"WORKSPACE entry point: instrument packageNames, run aBlock, collect when it
+	returns, and answer the resulting call-tally dataset -- ready to be handed to a
+	Code Map with
+
+		| ds |
+		ds := SWADataset fromCallTally: [self doSomething] packages: #('SWA-Base').
+		SWAPane openPanes first treemap addDataset: ds.
+
+	Scope matters: only methods in packageNames are counted, so pick the packages you
+	actually want to see coloured. The pane's Data menu offers the same thing with the
+	scope taken from the shown Code Map."
+	| cov |
+	cov := SWACoverage tallyPackages: packageNames while: aBlock.
+	^ self callTallyFrom: cov named: 'Call Tally (doit)'
+]
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:21'
+}
+SWADataset class >> fromCallTiming: aBlock packages: packageNames [
+	"WORKSPACE entry point, stopwatch twin of #fromCallTally:packages:: instrument
+	packageNames with timing wrappers, run aBlock, collect when it returns, and answer
+	the resulting dataset -- ready to hand to a Code Map with
+
+		| ds |
+		ds := SWADataset fromCallTiming: [self doSomething] packages: #('SWA-Base').
+		SWAPane openPanes first treemap addDataset: ds.
+
+	Scope matters twice over here: only methods in packageNames are timed, and time
+	spent anywhere else is charged as SELF time to whichever instrumented method was
+	running. Widen the scope and that time moves down into the real callee."
+	| cov |
+	cov := SWACoverage timePackages: packageNames while: aBlock.
+	^ self callTimingFrom: cov named: 'Call Timing (doit)'
 ]
 
 {
@@ -180,7 +290,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 18:10'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:22'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -195,7 +305,28 @@ SWADataset >> buildMetrics [
 				ms add: (SWADatasetMetric new
 					dataset: self; id: #call; label: 'By call';
 					axes: #(#color #size); rollup: #sum;
-					scale: (self spaceTallyScaleForMax: source maxInvocation); yourself)]]].
+					scale: (self spaceTallyScaleForMax: source maxInvocation); yourself)]].
+		"A TIMING run (SWATimingWrapper) is a call tally that ALSO carries measured
+		wall time, so it offers the #call metric above PLUS these two -- one dataset,
+		flip the metric to switch the question from 'called how often' to 'cost how
+		long'. Self time first: it is the one that names the culprit, while total
+		time names the caller that contains it.
+
+		Different ROLLUPS on purpose: self times partition the run, so a class or
+		package node SUMS its methods. Inclusive times NEST -- a caller's total
+		already contains its callees' -- so summing them inside one class would
+		count the same microseconds twice; #max answers 'the costliest entry point
+		in here' instead."
+		(source respondsTo: #hasTimingData) ifTrue: [
+			source hasTimingData ifTrue: [
+				ms add: (SWADatasetMetric new
+					dataset: self; id: #selfTime; label: 'By self time';
+					axes: #(#color #size); rollup: #sum;
+					scale: (self spaceTallyScaleForMax: source maxSelfMicros); yourself).
+				ms add: (SWADatasetMetric new
+					dataset: self; id: #totalTime; label: 'By total time (incl. callees)';
+					axes: #(#color #size); rollup: #max;
+					scale: (self spaceTallyScaleForMax: source maxMicros); yourself)]]].
 	kind == #duplication ifTrue: [
 		ms add: (SWADatasetMetric new
 			dataset: self; id: #duplication; label: 'By duplication';

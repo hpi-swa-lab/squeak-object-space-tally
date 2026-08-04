@@ -316,18 +316,40 @@ SWATreemapOverlay >> mouseMove: evt [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWATreemapOverlay >> popUpColorMenu [
 	"Pop up the Color menu standalone (header 'Color' button)."
 	| menu |
 	menu := self colorMenuMorph.
-	menu ifNotNil: [menu popUpInWorld: self world]
+	self popUpMenu: menu
+]
+
+{
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
+}
+SWATreemapOverlay >> popUpMenu: aMenu [
+	"Pop up aMenu at the hand position, as a CHILD -- never in the world.
+	See SWAPane class>>popUp:at:in: for why."
+	^ self popUpMenu: aMenu at: self currentHand position
+]
+
+{
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
+}
+SWATreemapOverlay >> popUpMenu: aMenu at: aPoint [
+	"Hand the pop-up to the treemap I decorate, which hands it on to its pane.
+	Falls back to this overlay (it covers the whole map) when there is no view."
+	^ (treemapMorph notNil and: [treemapMorph respondsTo: #popUpMenu:at:])
+		ifTrue: [treemapMorph popUpMenu: aMenu at: aPoint]
+		ifFalse: [SWAPane popUp: aMenu at: aPoint in: self]
 ]
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWATreemapOverlay >> popUpSizeMenu [
 	"Pop up the Size menu standalone (header 'Size' button). Reachable even when the
@@ -335,7 +357,7 @@ SWATreemapOverlay >> popUpSizeMenu [
 	canvas black), which the tile-based right-click menu cannot do."
 	| menu |
 	menu := self sizeMenuMorph.
-	menu ifNotNil: [menu popUpInWorld: self world]
+	self popUpMenu: menu
 ]
 
 {
@@ -359,7 +381,7 @@ SWATreemapOverlay >> setSizeMode: aSymbol [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
 SWATreemapOverlay >> showMenuFor: aNode event: evt [
 	"Show a context menu for the given node. Generic items (title, go back, the
@@ -377,7 +399,7 @@ SWATreemapOverlay >> showMenuFor: aNode event: evt [
 	sizeMenu ifNotNil: [menu addLine. menu add: 'Size' subMenu: sizeMenu].
 	colorMenu := self colorMenuMorph.
 	colorMenu ifNotNil: [menu addLine. menu add: 'Color' subMenu: colorMenu].
-	menu popUpEvent: evt in: self world
+	self popUpMenu: menu at: (evt ifNil: [self currentHand] ifNotNil: [evt hand]) position truncated
 ]
 
 {

@@ -204,7 +204,7 @@ SWAClassDiagram >> graphFieldClicked: anAssoc [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:57'
+	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:39'
 }
 SWAClassDiagram >> graphMenuRequest: evt [
 	"Right-click on the graph: pop up a context menu with the shared Color submenu
@@ -214,7 +214,7 @@ SWAClassDiagram >> graphMenuRequest: evt [
 	menu addTitle: 'Class Diagram'.
 	colorMenu := self colorMenuMorph.
 	colorMenu ifNotNil: [menu add: 'Color' subMenu: colorMenu].
-	menu popUpEvent: evt in: self world
+	self popUpMenu: menu at: (evt ifNil: [self currentHand] ifNotNil: [evt hand]) position truncated
 ]
 
 {

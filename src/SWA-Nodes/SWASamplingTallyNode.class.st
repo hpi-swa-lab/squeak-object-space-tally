@@ -22,6 +22,20 @@ Class {
 }
 
 {
+	#category : #formatting,
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
+}
+SWASamplingTallyNode class >> formatMicros: micros [
+	"Human-readable duration from a microsecond count -- us / ms / s, whichever keeps
+	the number readable. Lives on the class so callers that have a duration but no
+	node (status lines, timing reports) can format it the same way the flamegraph
+	labels do; the instance-side #formatMicros: delegates here."
+	micros < 1000 ifTrue: [^ micros printString, ' us'].
+	micros < 1000000 ifTrue: [^ ((micros / 1000.0) roundTo: 0.1) printString, ' ms'].
+	^ ((micros / 1000000.0) roundTo: 0.01) printString, ' s'
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:50'
 }
@@ -219,13 +233,12 @@ SWASamplingTallyNode >> filename: aString [
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:01'
+	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
 }
 SWASamplingTallyNode >> formatMicros: micros [
-	"Human-readable duration from a microsecond count."
-	micros < 1000 ifTrue: [^ micros printString, ' us'].
-	micros < 1000000 ifTrue: [^ ((micros / 1000.0) roundTo: 0.1) printString, ' ms'].
-	^ ((micros / 1000000.0) roundTo: 0.01) printString, ' s'
+	"Human-readable duration from a microsecond count. Delegates to the class-side
+	version, which callers without a node in hand can use too."
+	^ self class formatMicros: micros
 ]
 
 {
