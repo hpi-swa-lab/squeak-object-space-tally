@@ -1,15 +1,15 @@
 # SWA -- Smells, Duplications & Open Ends (As-Is Findings)
 
-> **Status: static findings snapshot**, from a full source read of the 13 `SWA-*`
-> categories (~24,650 lines). This is a *scaffold for discussion*, not a change plan.
-> Each item is a candidate to talk through -- some are real debt, some are deliberate
-> trade-offs worth confirming, some are just "watch this." Severity is my rough read;
-> we'll re-rank together. Companions: [architecture.md](architecture.md),
-> [api.md](api.md).
+![](_navigation.html)
 
-Legend: **[dup]** duplication · **[open]** unfinished / TODO-shaped · **[risk]**
-correctness/robustness · **[naming]** clarity · **[design]** structural ·
-**[dead]** likely-dead/legacy.
+*Legend:* <br>
+**[dup]** duplication <br>
+**[open]** unfinished / TODO-shaped <br>
+**[risk]** correctness/robustness<br>
+**[naming]** clarity<br>
+**[design]** structural<br>
+**[dead]** likely-dead/legacy
+{style="padding:10px; background-color:gray;color:white; width:50%"}
 
 ---
 

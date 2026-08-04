@@ -1,11 +1,6 @@
 # SWASpaceTally -- Structural Memory Analysis for Squeak
 
-> **Doc-drift note (as of the architecture pass):** the *Performance* section below
-> and any mention of `deadlineMs` / `#timeout` describe the pre-rewrite walker. The
-> current walker uses the **closed-universe** guarantee (snapshot the heap up front),
-> so there is no wall-clock deadline -- only an optional, testing-only `maxVisits`
-> (see the *Termination* section, which is current). For the engineering view see
-> [architecture.md](architecture.md) §8 and [smells.md](smells.md) §6.7.
+![](_navigation.html)
 
 ## Motivation
 
@@ -38,25 +33,25 @@ for most of that. You can trace any object back to the root that keeps it alive.
 The Squeak Object Space Tally presents the resulting tree in a multi-column tree browser. 
 
 
-![Explorer view with a workspace expression for the selected node](swaspacetally-explorer.png)
+![Explorer view with a workspace expression for the selected node](media/swaspacetally-explorer.png)
 
 
 ## Treemap
 
 A squarified treemap where area = byte size, with zoom-in/out navigation and hover tooltips
 
-![Treemap, full detail](swaspacetally-treemap.png)
+![Treemap, full detail](media/swaspacetally-treemap.png)
 
 The compacted tree shows he same heap pruned to a higher byte threshold. Fewer, larger tiles give a
 coarse overview where the labels are readable.
 
-![Compacted treemap with fewer, larger tiles](swaspacetally-treemap-compact.png)
+![Compacted treemap with fewer, larger tiles](media/swaspacetally-treemap-compact.png)
 
 ### Color Modes
 
 With `trackOtherParents: true` and the "By shared references" color mode, tiles are tinted red in proportion to how many *other* parents reference the same object. Unique objects are blue-gray; heavily-shared objects (symbols, interned strings, the `Environment`) glow red. This reveals which objects are structurally shared across the system versus owned by a single parent.
 
-![Treemap colored by number of other parents](swaspacetally-treemap-otherparents.png)
+![Treemap colored by number of other parents](media/swaspacetally-treemap-otherparents.png)
 
 
 ### Diff
@@ -68,9 +63,9 @@ It compares two tallies and see only the new objects, revealing exactly what you
 
 One can also directly start the space tally on a collections of instances. In this mode known global roots like Class objects are cut off, to better show the object group in isolation.
 
-![](swaspacetally-class-menu.png)
+![](media/swaspacetally-class-menu.png)
 
-![](swaspacetally-instances.png)
+![](media/swaspacetally-instances.png)
 
 
 ## Shared View Architecture

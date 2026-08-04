@@ -1,22 +1,6 @@
 # SWA Code Maps -- Documentation Index
 
-> See the **[gallery](gallery.md)** for a one-look, screenshot-per-tool overview,
-> and **[packages.md](packages.md)** for the package map, dependency graph, and
-> class hierarchy.
->
-> **Two doc layers.** The tool docs below are *user-facing*. For the *engineering*
-> view -- read end-to-end from source as a static as-is snapshot -- see:
-> - **[architecture.md](architecture.md)** -- the layering, the view/data/dataset
->   spines, the instrumentation substrate, the walker, extension points.
-> - **[api.md](api.md)** -- the important public protocols, grouped by class.
-> - **[smells.md](smells.md)** -- duplications, dead/legacy code, design debt, and
->   open ends -- a scaffold for refactoring/evolution discussions.
->
-> Note: the user-facing docs predate several shipped features -- **Marks** (global
-> cross-view bookmarks), the **Mask (B\A)** dataset combinator, the async
-> **Generate** dataset entries, the **topic model**, and the **live
-> class-diagram-of-marks** -- which are described in architecture.md/api.md but not
-> yet in the tool docs (see smells.md §7).
+![](_navigation.html)
 
 A suite of structural-analysis tools for Squeak, sharing one tree/view/navigation
 layer (`SWANode` / `SWAView` / `SWAPane`, in the `SWA-Base` package) and a common

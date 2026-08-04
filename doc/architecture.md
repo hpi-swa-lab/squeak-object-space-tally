@@ -1,15 +1,10 @@
 # SWA Architecture -- As-Is Overview
 
-> **Status: static snapshot.** This document describes the SWA package suite *as it
-> currently stands in the image*, read end-to-end from source (~24,650 lines across
-> the 13 `SWA-*` categories). It is deliberately descriptive, not aspirational: it
-> records the structure we have, so later refactoring discussions have a fixed base
-> to reason from. For a companion catalogue of duplication / rough edges / open ends
-> see [smells.md](smells.md); for the key public protocols see [api.md](api.md).
+![](_navigation.html)
 
-## 1. What this is
+## 1. SWA Maps
 
-SWA is a suite of **interactive structural-analysis visualizations** for Squeak.
+SWA Maps is a suite of **interactive structural-analysis visualizations** for Squeak.
 Every tool renders a tree of nodes as a navigable **squarified treemap** (or a
 flamegraph, or a Graphviz diagram), and any tool can be coloured/sized by another
 tool's data because they all share one identity vocabulary: the **`crossRefKey`**
@@ -25,7 +20,7 @@ Five user-facing tools, plus a shared substrate and supporting data models:
 | **Change Map** | when code changed, how much | `.changes` time buckets | diff lines |
 | **Class Diagram** | inheritance shape | class/inheritance graph (Graphviz) | -- (diagram) |
 
-## 2. The layering
+## 2. Architecture
 
 ```
                  SWAPane            (window chrome, ~130 methods, 43 ivars)
@@ -78,7 +73,7 @@ Two independent inheritance spines meet at the view:
 > `SWA-Tmp`, `SWA-TopicModel`(shared), `SWA-MessageTally`(shared) show as categories
 > but their classes physically live in the packages above.
 
-## 3. The tree contract (`SWANode`)
+## 3. `SWANode`
 
 `SWANode` (2 ivars: `parent`, `children`) is the minimal shared tree protocol.
 Everything a view walks goes through it:
@@ -121,7 +116,7 @@ Everything a view walks goes through it:
   diff size against the prior version, provenance status (`#current`/`#superseded`/
   `#inHistory`/`#gone`/`#other`), author, and inline-diff sources.
 
-## 4. The view (`SWAView`) -- the busy hub
+## 4. `SWAView`
 
 `SWAView` (23 ivars) is where nearly every cross-cutting concern lives. Its
 responsibilities, by subsystem:
@@ -149,7 +144,7 @@ Concrete `baseColorForNode:` overrides plus a small set of `viewKind`/`overlayCl
 hooks are essentially all a concrete view *must* supply; everything else is
 inherited.
 
-### `SWATreemapMorph` -- the squarified engine
+### `SWATreemapMorph` 
 
 Adds the Bruls/Huijsen/van Wijk **squarified layout** (`squarify:scales:into:`,
 `worstAspectRatio:...`, `emitRow:...`), **Form-cached static rendering**
@@ -164,7 +159,7 @@ coverage bars, topic bars, duplication links).
 size change invalidates the layout and reflows (keeping zoom + selection). This is
 the "recolour is instant, resize reflows" behaviour.
 
-### `SWATreemapOverlay` -- interaction
+### `SWATreemapOverlay` 
 
 A transparent sibling morph over the treemap. Handles hover highlight + canvas-drawn
 tooltip (Morphic balloons never worked over these views), click-select /
@@ -172,7 +167,7 @@ click-again-zoom / shift-mark, right-click context menu, and the shared Size/Col
 menu construction. Draws mark borders (green), secondary selection (red), and
 selection (yellow) via the stateless `SWASelectionPainter`.
 
-## 5. The chrome (`SWAPane`)
+## 5. `SWAPane`
 
 The single largest class (43 ivars, ~130 methods). Wraps any `SWAView` and supplies
 **all** window UI, rebuilt per-view and capability-gated (so the header changes as
@@ -195,7 +190,7 @@ you morph one tool into another):
   window, and (critically) `delete` tears down any live instrumentation so wrappers
   never linger.
 
-## 6. Datasets -- the unifying data path
+## 6. Datasets 
 
 The single most important architectural idea (journal 2026-06-30 onward). A
 **`SWADataset`** is a named, retained, image-independent overlay wrapping an analysis
@@ -229,7 +224,7 @@ Binding is orthogonal to kind: any dataset can **decorate** (colour/size/link an
 existing tree) or **structure** (become the tree). This "decorate vs structure"
 axis is the conceptual core to keep in mind when evolving the design.
 
-## 7. Instrumentation substrate (coverage + tally)
+## 7. Instrumentation substrate
 
 `SWAMethodWrapper` is installed *in place of* a `CompiledMethod` in a method dict;
 sends dispatch to `run:with:in:`, which does minimal bookkeeping then forwards to
@@ -298,7 +293,7 @@ mint-on-first-sight ids.
   `SWACoverageRunPanel` Stop window, streaming results back on the UI process via
   `WorldState addDeferredUIMessage:`.
 
-## 10. Rendering pipeline (treemap)
+## 10. Rendering pipeline
 
 ```
 setRoot: aNode
@@ -318,7 +313,7 @@ overlay drawOn:
 
 Colour changes flush only the Form; size/zoom/root changes invalidate the layout.
 
-## 11. Extension points (how a new view/metric/dataset plugs in)
+## 11. Extension points
 
 - **New tool view:** subclass `SWATreemapMorph` (or `SWAView` for a non-treemap),
   override `baseColorForNode:`, `viewKind`, `overlayClass`, and a node family under

@@ -1,22 +1,14 @@
 # SWA Code Maps -- Package Overview
 
-> For the engineering-level layering (view/data/dataset spines, instrumentation
-> substrate, extension points) see **[architecture.md](architecture.md)**; for the
-> protocols **[api.md](api.md)**; for debt/open-ends **[smells.md](smells.md)**.
-> Note: the class-hierarchy diagram below omits several later additions --
-> `SWACodeInstVarNode`, `SWACodeMarkSetRootNode`, `SWAMaskSource`, `SWAStructure`, and
-> the marks/instrumentation family (`SWAMarkSet`, `SWAMethodWrapper`,
-> `SWACapturingLayer`, the wrappers). architecture.md covers these.
+![](_navigation.html)
 
-The suite ships as 14 `SWA-*` packages (13 code + 1 test). They layer cleanly:
-a shared **Base** view/tree/dataset substrate, a shared **Nodes** tree-model
-layer, and then one package per user-facing **tool**, plus a few supporting
-packages (Graphviz backend, small widgets, analysis data models).
+The `SWA-*` packages: 
+- a **Base** view/tree/dataset substrate
+- a **Nodes** tree-model layer
+- one package per user-facing **tool**
+- supporting packages (Graphviz backend, small widgets, analysis data models)
 
-> Source of truth is the live image. The counts below are read from the image's
-> `SWA-*` system categories; if they drift, re-run the snippet at the bottom.
-
-## Packages at a glance
+## Packages
 
 | Package | Classes | Methods | Role |
 |---|---:|---:|---|
@@ -96,7 +88,7 @@ Solid arrows are structural (subclassing / direct use); dotted arrows are
 runtime data flow -- e.g. the Code Map does not statically depend on
 `SWA-Coverage`; it *loads* a `SWACoverageData` as a dataset at runtime.
 
-## The shared substrate (`SWA-Base` + `SWA-Nodes`)
+## `SWA-Base` + `SWA-Nodes`
 
 Everything else is built on three abstractions in `SWA-Base`, with the concrete
 per-tool node models split out into `SWA-Nodes`.
@@ -198,7 +190,9 @@ subclasses (the treemap/flamegraph/diagram) plus its overlay.
   `SWASearchFieldMorph`, `SWASelectionPainter`) shared by the panes.
 - **SWA-Tests** -- SUnit coverage for the parsers and datasets.
 
-## Regenerating the inventory
+<!-- META
+ 
+Regenerating the inventory
 
 The tables above are read from the image. To refresh them:
 
@@ -213,3 +207,5 @@ The tables above are read from the image. To refresh them:
       cl isNil ifTrue: [sum] ifFalse: [sum + cl selectors size + cl class selectors size]].
     { c. names size. methods }]
 ```
+
+-->
