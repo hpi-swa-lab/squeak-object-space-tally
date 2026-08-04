@@ -78,6 +78,50 @@ SWADatasetMetric >> colorForNode: aNode [
 ]
 
 {
+	#category : #rollup,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+}
+SWADatasetMetric >> containerColorForNode: aNode [
+	"Tint for a container tile whose children are drawn on top of it: the MEAN of
+	its descendants (see #containerValueForNode:), muted back toward the dark
+	background so the leaf tiles -- the ones carrying the real per-method reading --
+	stay the figure and the container stays the ground. Answers nil when the metric
+	says nothing about aNode.
+
+	A CATEGORICAL metric (#colorBlock:, e.g. topics) is left alone: its block already
+	answers nil for anything that is not a method leaf."
+	| v |
+	colorBlock ifNotNil: [^ colorBlock value: aNode].
+	v := self containerValueForNode: aNode.
+	v ifNil: [^ nil].
+	^ (self scale value: v) alphaMixed: 0.45 with: (Color gray: 0.16)
+]
+
+{
+	#category : #rollup,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+}
+SWADatasetMetric >> containerValueForNode: aNode [
+	"The value to TINT a container tile with -- deliberately not the same as
+	#valueForNode:, which drives tile AREA.
+
+	For an additive metric (#sum) the total is the wrong thing to colour with: a
+	package's summed commit count or byte total is an order of magnitude past the
+	per-method maximum the scale was built for, so every container saturates at the
+	hot end of the ramp and the map turns into a wall of red headers. The honest
+	per-tile answer is the MEAN over the descendants that actually carry a value --
+	'how hot is the typical method in here', on the same scale as the methods.
+
+	For a #max metric (recency, author count, inclusive time) the rollup is already
+	a representative value rather than a total, so it is used unchanged."
+	| pair |
+	self rollup == #sum ifFalse: [^ self valueForNode: aNode].
+	pair := self sumAndCountForNode: aNode.
+	pair ifNil: [^ nil].
+	^ (pair first / pair second) asFloat
+]
+
+{
 	#category : #querying,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:26'
 }
@@ -227,7 +271,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:22'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -246,6 +290,10 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	id == #sampleTallySelf ifTrue: [^ dataset source selfCountForKey: aCrossRefKey].
 	id == #maskHit ifTrue: [^ dataset source weightForKey: aCrossRefKey].
 	id == #peerWeight ifTrue: [^ dataset source weightForKey: aCrossRefKey].
+	id == #gitCommits ifTrue: [^ dataset source commitCountFor: aCrossRefKey].
+	id == #gitChurnLines ifTrue: [^ dataset source churnFor: aCrossRefKey].
+	id == #gitRecency ifTrue: [^ dataset source lastChangeSecondsFor: aCrossRefKey].
+	id == #gitAuthors ifTrue: [^ dataset source authorCountFor: aCrossRefKey].
 	^ nil
 ]
 
@@ -314,6 +362,25 @@ SWADatasetMetric >> sharedLocForKey: aKey score: aScore partnerKey: partnerKey [
 	locA := self locForKey: aKey.
 	locB := self locForKey: partnerKey.
 	^ (aScore * (locA min: locB)) rounded
+]
+
+{
+	#category : #rollup,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+}
+SWADatasetMetric >> sumAndCountForNode: aNode [
+	"{ sum . count } over every descendant that carries its OWN raw value, or nil
+	when nothing beneath aNode does. The count is what #averageForNode: needs and
+	#rollupForNode: throws away."
+	| sum count |
+	sum := 0. count := 0.
+	aNode withAllChildrenDo: [:n |
+		| key raw |
+		key := n crossRefKey.
+		key ifNotNil: [
+			raw := self rawValueForKey: key.
+			raw ifNotNil: [sum := sum + raw. count := count + 1]]].
+	^ count = 0 ifTrue: [nil] ifFalse: [{sum. count}]
 ]
 
 {

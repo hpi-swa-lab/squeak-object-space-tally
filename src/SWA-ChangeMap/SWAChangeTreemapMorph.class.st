@@ -70,6 +70,21 @@ SWAChangeTreemapMorph >> baseColorForNode: aNode [
 
 {
 	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:59'
+}
+SWAChangeTreemapMorph >> baselineDescriptionFor: aNode [
+	"A human name for what this leaf's diff is taken AGAINST -- shown in the Details
+	box and as the header of the inline diff. Factored out so subclasses whose
+	baseline has a different provenance can rename it (the Git Map diffs against the
+	parent COMMIT, not against the image)."
+	aNode changeType == #methodRemoval ifTrue: [^ 'removed body'].
+	^ aNode prevInScope
+		ifNil: ['image version']
+		ifNotNil: [:p | 'previous in view']
+]
+
+{
+	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 7/9/2026 17:38'
 }
 SWAChangeTreemapMorph >> colorByAuthor: aNode [
@@ -180,7 +195,7 @@ SWAChangeTreemapMorph >> detailInfoString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/9/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:59'
 }
 SWAChangeTreemapMorph >> detailLeafInfo: n on: s [
 	"Detail lines specific to a change LEAF."
@@ -190,9 +205,7 @@ SWAChangeTreemapMorph >> detailLeafInfo: n on: s [
 	n hasDiffBaseline
 		ifTrue: [
 			s nextPutAll: 'diff: '; print: n diffLines; nextPutAll: ' changed lines'; cr.
-			s nextPutAll: 'baseline: '; nextPutAll: (n changeType == #methodRemoval
-				ifTrue: ['removed body']
-				ifFalse: [n prevInScope ifNil: ['image version'] ifNotNil: [:p | 'previous in view']]); cr]
+			s nextPutAll: 'baseline: '; nextPutAll: (self baselineDescriptionFor: n); cr]
 		ifFalse: [
 			s nextPutAll: 'lines: '; print: n loc; cr]
 ]
@@ -233,7 +246,7 @@ SWAChangeTreemapMorph >> initialize [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/9/2026 18:21'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:59'
 }
 SWAChangeTreemapMorph >> selectedSourceString [
 	"Show pane content. For a selected method change with a baseline, show the
@@ -248,7 +261,7 @@ SWAChangeTreemapMorph >> selectedSourceString [
 	node hasDiffBaseline ifTrue: [
 		origin := node changeType == #methodRemoval
 			ifTrue: ['REMOVED  (', (node crossRefKey ifNil: ['?']), ')']
-			ifFalse: [(node prevInScope ifNil: ['diff vs image version'] ifNotNil: [:p | 'diff vs previous in view']),
+			ifFalse: ['diff vs ', (self baselineDescriptionFor: node),
 				'  ->  this change  (', (node crossRefKey ifNil: ['?']), ')'].
 		^ (('"', origin, '"', String cr, String cr) asText),
 		  (TextDiffBuilder buildDisplayPatchFrom: node diffFromSource to: node diffToSource)].

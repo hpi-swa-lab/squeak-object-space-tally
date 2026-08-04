@@ -168,6 +168,20 @@ SWADataset class >> fromCallTiming: aBlock packages: packageNames [
 
 {
 	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:02'
+}
+SWADataset class >> gitChurnFrom: aSWAGitChurnData named: aName [
+	"A #gitChurn dataset over per-method git history (see SWAGitChurnData) --
+	the bridge that lets a repository's commit log colour a Code Map."
+	^ self new
+		kind: #gitChurn;
+		name: aName;
+		source: aSWAGitChurnData;
+		yourself
+]
+
+{
+	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:05'
 }
 SWADataset class >> maskFrom: aBaseDataset minus: anOverlayDataset named: aString [
@@ -290,7 +304,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:22'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:02'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -376,6 +390,30 @@ SWADataset >> buildMetrics [
 			dataset: self; id: #peerWeight; label: 'By shared weight';
 			axes: #(#color); rollup: #sum;
 			scale: (self spaceTallyScaleForMax: source maxWeight); yourself)].
+	"GIT CHURN: one scan of a repository's history, four different questions.
+	Commits and changed lines SUM up the tree (a class's churn is its methods'
+	churn). Recency and author count do NOT: 'when was this last touched' rolls up
+	as the MOST RECENT touch, and 'how many hands' as the widest-shared method --
+	summing either would be meaningless arithmetic on a timestamp / double-count
+	the same person across siblings."
+	kind == #gitChurn ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #gitCommits; label: 'By commits (git)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #commits)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #gitChurnLines; label: 'By changed lines (git)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #churn)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #gitRecency; label: 'By recency of last commit (git)';
+			axes: #(#color); rollup: #max;
+			scale: (self gitRecencyScaleFrom: source minLastChangeSeconds
+				to: (source maxOf: #last)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #gitAuthors; label: 'By number of authors (git)';
+			axes: #(#color #size); rollup: #max;
+			scale: (self spaceTallyScaleForMax: source maxAuthorCount); yourself)].
 	^ ms
 ]
 
@@ -395,7 +433,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 18:17'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -432,12 +470,18 @@ SWADataset >> defaultBindings [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	kind == #peer ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+	"gitChurn: colour by commit count -- 'how often has this been rewritten' is the
+	question people actually arrive with; recency and churn lines are one menu pick
+	away. Size stays intrinsic (LOC), per the rule above: sizing by commits would
+	collapse everything the window did not touch."
+	kind == #gitChurn ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	^ d
 ]
 
 {
 	#category : #scale,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:55'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
 }
 SWADataset >> defaultScale [
 	"A good out-of-the-box raw-value -> Color mapping chosen by #kind. Each metric
@@ -446,6 +490,7 @@ SWADataset >> defaultScale [
 	kind == #duplication ifTrue: [^ self duplicationScale].
 	kind == #spaceTally ifTrue: [^ self spaceTallyScaleForMax: source maxSelf].
 	kind == #peer ifTrue: [^ self spaceTallyScaleForMax: source maxWeight].
+	kind == #gitChurn ifTrue: [^ self spaceTallyScaleForMax: (source maxOf: #commits)].
 	^ [:v | Color gray: 0.3]
 ]
 
@@ -462,6 +507,25 @@ SWADataset >> duplicationScale [
 			ifTrue: [Color h: 220 s: 0.25 v: 0.30 + (score * 0.2)]
 			ifFalse: [| t | t := ((score - 0.5) / 0.5) min: 1.0.
 				Color h: 60 * (1.0 - t) s: 0.85 v: 0.95]]
+]
+
+{
+	#category : #scales,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:02'
+}
+SWADataset >> gitRecencyScaleFrom: oldestSeconds to: newestSeconds [
+	"A last-touched-time -> Color ramp for the git recency metric: blue = oldest
+	change in the window, red = newest. LINEAR in time (unlike the byte ramps,
+	which are log): a scan window is usually days or weeks, and what you want to
+	see is 'this fortnight' standing out from 'last spring', not a compressed
+	perceptual ordering. Closes over the window's own bounds, so the ramp always
+	uses its full range whatever period was scanned."
+	| span |
+	span := (newestSeconds - oldestSeconds) max: 1.
+	^ [:secs |
+		| t |
+		t := ((secs - oldestSeconds) / span) asFloat min: 1.0 max: 0.0.
+		Color h: 240 * (1.0 - t) s: 0.62 v: 0.55 + (t * 0.33)]
 ]
 
 {

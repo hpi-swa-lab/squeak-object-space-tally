@@ -41,11 +41,55 @@ Class {
 		'activeDataset',
 		'searchQuery',
 		'searchMatchSet',
-		'markedNodesCache'
+		'markedNodesCache',
+		'suppressMetricColor'
+	],
+	#classVars : [
+		'DatasetContainerTint'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+}
+SWAView class >> datasetContainerTint [
+	"How a container tile (one with child tiles drawn inside it) is coloured while a
+	DATASET metric drives colour. Process-wide, so every SWA view agrees.
+
+		#muted  -- (default) mean of the descendants, dimmed back toward the
+			   background: the container reads as ground, its methods as figure
+		#none   -- containers keep their intrinsic structural colour; only the
+			   leaves carry the dataset reading
+		#full   -- the historical behaviour: containers take the full rolled-up
+			   value at full saturation (which, for an additive metric, saturates
+			   every header at the hot end of the ramp)"
+	^ DatasetContainerTint ifNil: [#muted]
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
+}
+SWAView class >> datasetContainerTint: aSymbol [
+	"#muted / #none / #full -- see #datasetContainerTint. Recolouring is instant, so
+	callers only need to flush the cached Form of the views they care about."
+	DatasetContainerTint := aSymbol
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
+}
+SWAView class >> datasetContainerTintOptions [
+	^ #(
+		(#muted 'Containers: muted average')
+		(#none  'Containers: structural colour (leaves only)')
+		(#full  'Containers: full rolled-up value')
+	)
+]
 
 {
 	#category : #marks,
@@ -286,6 +330,24 @@ SWAView >> colorModeOptions [
 	"{ colorModeSymbol. menuLabel } pairs offered by the Color menu. Default: none
 	(no Color menu). Subclasses that support recoloring override this."
 	^ #()
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:34'
+}
+SWAView >> containerColorFor: aNode metric: aMetric [
+	"Tint for a tile that has child tiles drawn inside it, under the class-wide
+	#datasetContainerTint setting. Answers nil to mean 'the metric says nothing',
+	which the caller turns into the neutral base."
+	| mode |
+	mode := self class datasetContainerTint.
+	mode == #full ifTrue: [^ aMetric colorForNode: aNode].
+	mode == #none ifTrue: [
+		"The subclass overrides all check #metricForMode: first, so a plain
+		#baseColorForNode: here would just hand back the metric colour again."
+		^ self withoutMetricColorDo: [self baseColorForNode: aNode]].
+	^ aMetric containerColorForNode: aNode
 ]
 
 {
@@ -530,6 +592,17 @@ SWAView >> handlesKeyboard: evt [
 ]
 
 {
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+}
+SWAView >> hasRenderedChildren: aNode [
+	"Does aNode have CHILD TILES drawn inside it in the current layout? Views that
+	cannot answer say false, which keeps the historical 'tint every node' behaviour.
+	SWATreemapMorph overrides with the real answer (see #computeLayout)."
+	^ false
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
 }
@@ -613,7 +686,7 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
 }
 SWAView >> intrinsicColorForNode: aNode [
 	"Tile color IGNORING the name-search overlay (see #colorForNode:, which dims this
@@ -637,8 +710,14 @@ SWAView >> intrinsicColorForNode: aNode [
 		"Blue tint for executed test / TestCase tiles (needs provenance wired up)."
 		(metric isCoverageProvenance and: [self isTestKey: aNode crossRefKey])
 			ifTrue: [^ self testColorForNode: aNode].
-		"Base tint from the metric; dim it if an active provenance filter excludes it."
-		base := (metric colorForNode: aNode) ifNil: [Color gray: 0.22].
+		"Base tint from the metric; dim it if an active provenance filter excludes it.
+		A tile with child tiles drawn INSIDE it is a container: painting it with the
+		same saturated ramp as its children buries the reading it is supposed to
+		frame (and, for an additive metric, saturates it past the scale's top). See
+		#datasetContainerTint / SWADatasetMetric>>containerColorForNode:."
+		base := ((self hasRenderedChildren: aNode)
+			ifTrue: [self containerColorFor: aNode metric: metric]
+			ifFalse: [metric colorForNode: aNode]) ifNil: [Color gray: 0.22].
 		(metric isCoverageProvenance and: [aNode isLeaf and: [self isFilteredOut: aNode]])
 			ifTrue: [^ base alphaMixed: 0.25 with: (Color gray: 0.12)].
 		^ base].
@@ -813,11 +892,17 @@ SWAView >> markedNodes [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:52'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:34'
 }
 SWAView >> metricForMode: aSymbol [
 	"The dataset METRIC a minted color/size symbol refers to, or nil if aSymbol is an
 	intrinsic mode (#loc, #class, ...)."
+	"#withoutMetricColorDo: switches this off for the duration of one call, which is
+	how a caller asks a subclass's #baseColorForNode: for the INTRINSIC (structural)
+	colour: every override consults this single lookup point first, so suppressing it
+	here makes them all fall through to their legacy modes without duplicating a
+	'ignore the dataset' branch in each."
+	suppressMetricColor == true ifTrue: [^ nil].
 	^ self metricsByMode at: aSymbol ifAbsent: [nil]
 ]
 
@@ -1290,4 +1375,19 @@ SWAView >> viewKindLabel [
 	via #viewKindLabelFor: so the machine-readable symbol stays the single source of
 	truth; override #viewKind (not this) in subclasses."
 	^ self class viewKindLabelFor: self viewKind
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:34'
+}
+SWAView >> withoutMetricColorDo: aBlock [
+	"Evaluate aBlock with dataset-metric colour lookup disabled, so
+	#baseColorForNode: answers the view's own structural colour. Re-entrant-safe via
+	save/restore, and #ensure:d so an error cannot strand the flag and leave every
+	tile permanently intrinsic."
+	| saved |
+	saved := suppressMetricColor.
+	suppressMetricColor := true.
+	^ aBlock ensure: [suppressMetricColor := saved]
 ]

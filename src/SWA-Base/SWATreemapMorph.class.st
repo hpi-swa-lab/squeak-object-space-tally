@@ -34,7 +34,8 @@ Class {
 		'selectionPathMorph',
 		'colorMode',
 		'layoutProgress',
-		'leafKind'
+		'leafKind',
+		'renderedParents'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -151,7 +152,7 @@ SWATreemapMorph >> commitDeferredResize [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
 }
 SWATreemapMorph >> computeLayout [
 	"Build a nested-treemap tile list rooted at currentNode.
@@ -159,10 +160,18 @@ SWATreemapMorph >> computeLayout [
 
 	| bounds |
 	tiles := OrderedCollection new.
+	renderedParents := IdentitySet new.
 	currentNode ifNil: [^ self].
 	bounds := 0 @ 0 extent: self extent.
 	(bounds width <= 0 or: [bounds height <= 0]) ifTrue: [^ self].
-	self layoutChildrenOf: currentNode in: bounds
+	self layoutChildrenOf: currentNode in: bounds.
+	"Record which nodes actually got CHILD TILES drawn inside them. Not the same as
+	'has children': recursion stops at #leafKind and at #minRecurseExtent, so a class
+	whose methods were too small to tile is visually a leaf and must be coloured like
+	one. Used by #hasRenderedChildren: to decide whether a tile is a container whose
+	dataset tint would just bury its own children."
+	tiles do: [:assoc |
+		assoc key parent ifNotNil: [:p | renderedParents add: p]]
 ]
 
 {
@@ -375,6 +384,20 @@ SWATreemapMorph >> formatWeight: aNumber [
 	"Human-readable form of a tile weight, for breadcrumb/balloon. Default: plain
 	number. Subclasses override (bytes for SpaceTally, 'N LOC' for code)."
 	^ aNumber printString
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+}
+SWATreemapMorph >> hasRenderedChildren: aNode [
+	"True when the current layout drew child tiles INSIDE aNode's tile -- i.e. aNode
+	is visually a container, not a leaf. Deliberately a question about the LAYOUT and
+	not about the tree: recursion stops at #leafKind and below #minRecurseExtent, so
+	a class whose methods did not get their own tiles is a leaf on screen and should
+	be coloured like one."
+	renderedParents ifNil: [^ false].
+	^ renderedParents includes: aNode
 ]
 
 {

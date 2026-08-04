@@ -1499,16 +1499,6 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
 }
-SWACodeTreemapMorph >> metricForMode: aSymbol [
-	"The dataset METRIC a minted color/size symbol refers to, or nil if aSymbol is a
-	legacy intrinsic mode (#loc, #duplication, ...)."
-	^ self metricsByMode at: aSymbol ifAbsent: [nil]
-]
-
-{
-	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:50'
-}
 SWACodeTreemapMorph >> metricsByMode [
 	"Map of minted menu symbol (e.g. #coverage_1_call) -> SWADatasetMetric. One entry
 	per metric of every loaded dataset; the symbol-based color/size machinery

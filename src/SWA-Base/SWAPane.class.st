@@ -1098,6 +1098,22 @@ SWAPane >> addDuplicationDataset: aDuplicationData name: aName [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:07'
+}
+SWAPane >> addGitChurnDataset: aGitChurnData name: aName [
+	"Retain an already-built SWAGitChurnData as a named, ACTIVE dataset -- the
+	shared tail of the file LOAD path and the async GENERATE path. Answers it."
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset gitChurnFrom: aGitChurnData named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: ds name, ': ', aGitChurnData summaryString.
+	self refresh.
+	^ ds
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:32'
 }
@@ -1458,7 +1474,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:24'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -1497,6 +1513,8 @@ SWAPane >> codeMapGeneratorEntries [
 				ifFalse: ['Generate: call tally -- COLLECT now']. #generateCallTallyDataset }].
 	entries add: { 'Generate: sample tally (', self class sampleTallyDuration printString, 's CPU heat)'. #generateSampleTallyDataset }.
 	entries add: { 'Generate: topic model (k=', self class topicK printString, ')'. #generateTopicDataset }.
+	SWAGitHistory workingCopies isEmpty ifFalse: [
+		entries add: { 'Generate: git churn (scan a repository''s commits)'. #generateGitChurnDataset }].
 	^ entries
 ]
 
@@ -2114,6 +2132,45 @@ SWAPane >> generateDuplicationDataset [
 ]
 
 {
+	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
+}
+SWAPane >> generateGitChurnDataset [
+	"Data-menu GENERATE: scan a GitS repository's recent history and colour THIS map
+	by per-method git churn. This is the point where the two halves meet -- the Git
+	Map shows the history laid out by time, this shows the same history laid out on
+	the code.
+
+	The scan costs a two-tree git diff per commit, so it asks how far back to go and
+	runs FORKED at background priority; the dataset is installed back on the UI
+	process when it is done."
+	| wc n |
+	wc := SWAGitHistory chooseWorkingCopy ifNil: [^ self].
+	n := UIManager default
+		request: 'Scan how many commits back from HEAD?'
+		initialAnswer: SWAGitHistory defaultMaxCommits printString.
+	(n isNil or: [n isEmpty]) ifTrue: [^ self].
+	self treemapCoverageStatus: 'Git churn: scanning ', n, ' commits...'.
+	[ | history root data total |
+	  history := (SWAGitHistory on: wc) maxCommits: n asInteger; yourself.
+	  total := history commitsToScan size.
+	  "#buildTreeProgress:, not #buildTree: a Morphic progress bar must not be
+	  driven from a forked background process -- we report through the panel's own
+	  status line on the UI process instead."
+	  root := history buildTreeProgress: [:i :c |
+		i \\ 5 = 0 ifTrue: [
+			WorldState addDeferredUIMessage: [
+				self treemapCoverageStatus: 'Git churn: commit ',
+					i printString, ' / ', total printString]]].
+	  data := SWAGitChurnData fromGitTree: root.
+	  data repositoryName: history rootLabel.
+	  WorldState addDeferredUIMessage: [
+		self addGitChurnDataset: data
+			name: 'Git churn ', (data repositoryName ifNil: ['']), ' (', n, ' commits)'] ]
+		forkAt: Processor userBackgroundPriority
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/15/2026 10:32'
 }
@@ -2309,7 +2366,7 @@ SWAPane >> importCoverage [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
 }
 SWAPane >> importData [
 	"Unified Load button for the Code Map: open a *.json file chooser and overlay
@@ -2318,6 +2375,7 @@ SWAPane >> importData [
 	  'SWACoverageData/1'    -> coverage overlay (green covered + blue tests)
 	  'SWADuplicationData/1' -> duplication overlay (#duplication color mode)
 	  'SWATopicData/1'       -> topic dataset (dominant-topic hue families)
+	  'SWAGitChurnData/1'    -> git churn (commits / changed lines / recency / authors)
 	  space tally (kind=classSummary, or a node tree) -> per-class byte coloring
 	Coverage/duplication/topic are image-independent ('Class>>selector'-keyed) and may
 	be generated offline; space-tally JSON comes from SWASpaceTally>>writeToFile: (node
@@ -2415,7 +2473,7 @@ SWAPane >> loadDuplicationJson: json name: aName [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 13:40'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
 }
 SWAPane >> loadJsonFile: aPath [
 	"Load the analysis JSON at aPath into this Code Map, dispatching by its format
@@ -2437,6 +2495,9 @@ SWAPane >> loadJsonFile: aPath [
 		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: aPath)].
 	(format beginsWith: 'SWATopicData')
 		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: aPath)].
+	(format beginsWith: 'SWAGitChurnData')
+		ifTrue: [^ self addGitChurnDataset: (SWAGitChurnData fromJson: json)
+			name: (self datasetNameFor: aPath)].
 	^ self loadCoverageJson: json name: (self datasetNameFor: aPath)
 ]
 
@@ -4310,7 +4371,7 @@ SWAPane >> viewForStructureKey: aKey [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:19'
 }
 SWAPane >> wireOverlayFor: aTreemapMorph [
 	"Attach the matching event/menu overlay to aTreemapMorph if it doesn't have one
@@ -4321,7 +4382,15 @@ SWAPane >> wireOverlayFor: aTreemapMorph [
 	aTreemapMorph overlayMorph ifNotNil: [^ aTreemapMorph].
 	overlay := aTreemapMorph overlayClass new.
 	overlay treemapMorph: aTreemapMorph.
-	overlay extent: aTreemapMorph extent.
+	"bounds:, not extent:. A fresh Morph sits at 0@0, and #addMorph: KEEPS a
+	submorph's own position -- so wiring an overlay onto a treemap that has already
+	been placed in a window leaves the overlay hanging at the world origin, offset
+	from the tiles it is supposed to cover by the treemap's own position. Every
+	hover/click then hits the wrong tile (SWATreemapOverlay maps events with
+	`evt position - self position`). The other openers get away with #extent:
+	because they wire the overlay while the treemap is still at 0@0; this method
+	is the one that may be handed an already-positioned view."
+	overlay bounds: aTreemapMorph bounds.
 	aTreemapMorph overlayMorph: overlay.
 	aTreemapMorph addMorph: overlay.
 	^ aTreemapMorph

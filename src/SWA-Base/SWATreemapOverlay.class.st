@@ -24,6 +24,28 @@ Class {
 }
 
 {
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
+}
+SWATreemapOverlay >> addContainerTintItemsTo: aMenu [
+	"Below a separator, how CONTAINER tiles are tinted while a dataset metric drives
+	colour. Only shown when a dataset metric is actually active -- it says nothing
+	about the intrinsic modes, which colour containers on purpose (by kind, by
+	author, ...)."
+	| current |
+	((treemapMorph respondsTo: #metricForMode:) and: [treemapMorph respondsTo: #colorMode])
+		ifFalse: [^ self].
+	(treemapMorph metricForMode: treemapMorph colorMode) ifNil: [^ self].
+	current := SWAView datasetContainerTint.
+	aMenu addLine.
+	SWAView datasetContainerTintOptions do: [:pair |
+		aMenu
+			add: (current == pair first ifTrue: ['* '] ifFalse: ['   ']), pair second
+			selector: #setContainerTint:
+			argument: pair first]
+]
+
+{
 	#category : #menu,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
 }
@@ -63,7 +85,7 @@ SWATreemapOverlay >> clearHover [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:20'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
 }
 SWATreemapOverlay >> colorMenuMorph [
 	"Build the Color (instant recolor) menu from #colorModeOptions, ticking the
@@ -80,6 +102,7 @@ SWATreemapOverlay >> colorMenuMorph [
 			ifTrue: ['* ', pair second]
 			ifFalse: ['   ', pair second].
 		menu add: label selector: #setColorMode: argument: mode].
+	self addContainerTintItemsTo: menu.
 	^ menu
 ]
 
@@ -366,6 +389,19 @@ SWATreemapOverlay >> popUpSizeMenu [
 }
 SWATreemapOverlay >> setColorMode: aSymbol [
 	treemapMorph colorMode: aSymbol
+]
+
+{
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
+}
+SWATreemapOverlay >> setContainerTint: aSymbol [
+	"Switch how container tiles are tinted, everywhere. Colour-only, so every open
+	view just drops its cached Form -- no relayout."
+	SWAView datasetContainerTint: aSymbol.
+	SWAView allSubInstances do: [:v |
+		(v respondsTo: #flushCache) ifTrue: [v flushCache].
+		v changed]
 ]
 
 {
