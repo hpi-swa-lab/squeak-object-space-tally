@@ -51,6 +51,28 @@ SWAChangeParser class >> chooseChangesFilePrompt: aPromptString [
 ]
 
 {
+	#category : #initialization,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:45'
+}
+SWAChangeParser class >> initialize [
+	"Register the Apps-menu entries for the Change Map, alongside the other SWA
+	tools. The 'SWA ' label prefix groups them together in the (alphabetically
+	sorted) Apps menu. Idempotent: removes any prior entry for this receiver first.
+
+		SWAChangeParser initialize"
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Change Map'.
+		{self. #openChangeMapForDays}.
+		'Treemap of this image''s .changes file over the last N days' }.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Change Map (diff two changes files)'.
+		{self. #openInteractiveDiffChangeMap}.
+		'Pick a NEWER and a BASELINE .changes file; map what the newer one has and the baseline is missing' }
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/9/2026 14:50'
 }
@@ -60,11 +82,35 @@ SWAChangeParser class >> onFile: aFileName [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 12:05'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:46'
+}
+SWAChangeParser class >> openChangeMapForDays [
+	"Apps-menu entry: ask how far back to go, then map the running image's own
+	.changes file. Answers nil if cancelled or if the answer is not a number.
+
+	The window is the interesting variable here -- a day tells you what this session
+	did, a fortnight tells you what the project did -- so the menu asks rather than
+	hardcoding 7 (which #openChangeMapLast7Days still does, for scripts)."
+	| answer days |
+	answer := UIManager default
+		request: 'Map the last how many days of changes?'
+		initialAnswer: '7'.
+	(answer isNil or: [answer isEmpty]) ifTrue: [^ nil].
+	days := answer asNumber.
+	(days isNil or: [days <= 0]) ifTrue: [^ nil].
+	"max: 1 -- a fractional answer like '0.5' survives the >0 test but truncates to
+	zero, which would silently open an empty map."
+	^ self openLastDays: (days asInteger max: 1)
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:45'
 }
 SWAChangeParser class >> openChangeMapLast7Days [
 	"Open a change treemap of the image's .changes file for the last 7 days.
-	Used as the Apps-menu open command."
+	A fixed-window convenience for scripts; the Apps-menu entry is
+	#openChangeMapForDays, which asks for the window (see #initialize)."
 	| parser root |
 	parser := self new.
 	parser fileName: Smalltalk changesName.
