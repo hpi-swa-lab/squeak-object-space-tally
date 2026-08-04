@@ -554,6 +554,17 @@ SWACodeNode >> estimatedNodeCount [
 ]
 
 {
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:33'
+}
+SWACodeNode >> eventTimeStamp [
+	"A code node's position in time is when it was last changed, which is what the
+	Code Map's recency colouring already reads. This is what lets the timeline and
+	calendar views work on a plain Code Map, not just on change/git histories."
+	^ self lastChanged
+]
+
+{
 	#category : #'byte-metrics',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }

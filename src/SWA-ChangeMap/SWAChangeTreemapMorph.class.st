@@ -33,6 +33,22 @@ SWAChangeTreemapMorph >> aboutToStyle: aStyler [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAChangeTreemapMorph >> alternateStructures [
+	"A change history has a natural time axis, so offer the two temporal views over
+	the SAME tree. Inherited by the Git Map. The rootBlock answers this view's own
+	root -- no rebuilding, no second scan."
+	^ {
+		SWAStructure key: #timeline label: 'Timeline'
+			view: SWATimelineMorph rootBlock: [rootNode].
+		SWAStructure key: #calendar label: 'Calendar'
+			view: SWACalendarMorph rootBlock: [rootNode]
+	}
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/9/2026 17:38'
 }
@@ -288,6 +304,14 @@ SWAChangeTreemapMorph >> selectionInfoString [
 			ifFalse: [
 				s nextPutAll: '   '; print: n changeCount; nextPutAll: ' changes, ';
 					print: n totalLoc; nextPutAll: ' diff lines']]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAChangeTreemapMorph >> structureLabel [
+	^ 'Treemap'
 ]
 
 {

@@ -284,6 +284,30 @@ SWAChangeNode >> estimatedNodeCount [
 ]
 
 {
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:33'
+}
+SWAChangeNode >> eventGroupKey [
+	"The image SAVE this change was written by -- the .changes-file analogue of a
+	commit. Found by walking up to the enclosing #save bucket the parser built."
+	| n |
+	n := self.
+	[n notNil] whileTrue: [
+		n kind == #save ifTrue: [^ n label].
+		n := n parent].
+	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:33'
+}
+SWAChangeNode >> eventTimeStamp [
+	"A change IS an event: it happened at its recorded stamp."
+	^ timeStamp
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/9/2026 18:34'
 }

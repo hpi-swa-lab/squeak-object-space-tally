@@ -53,6 +53,33 @@ SWANode >> depth [
 ]
 
 {
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:33'
+}
+SWANode >> eventGroupKey [
+	"The identity of the ATOMIC ACT this node was part of -- a git commit, an image
+	save -- or nil when it does not belong to one. Used by the temporal views'
+	'commits' measure, which counts distinct acts rather than individual changes.
+	nil by default."
+	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:33'
+}
+SWANode >> eventTimeStamp [
+	"WHEN this node happened, as a DateAndTime/TimeStamp, or nil if it has no
+	position in time. This is the whole contract the temporal views
+	(SWATimelineMorph, SWACalendarMorph) need -- implementing it is what makes a
+	node family placeable on a time axis, without those views knowing anything about
+	changes, commits or methods.
+
+	nil by default: most nodes (a package, a heap object) are not events."
+	^ nil
+]
+
+{
 	#category : #tree,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:32'
 }

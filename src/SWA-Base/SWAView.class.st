@@ -196,6 +196,33 @@ SWAView >> addDataset: aSWADataset [
 
 {
 	#category : #datasets,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAView >> adoptDatasetsFrom: anotherView [
+	"Take over another view's retained datasets (and its active one) so morphing
+	between two drawings of the same tree does not silently drop the overlay you
+	loaded. Metrics are re-minted onto this view's own colour menu by #addDataset:."
+	(anotherView respondsTo: #datasets) ifFalse: [^ self].
+	anotherView datasets do: [:ds | self addDataset: ds].
+	(anotherView respondsTo: #activeDataset) ifTrue: [
+		anotherView activeDataset ifNotNil: [:ds | self selectDataset: ds]]
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAView >> alternateStructures [
+	"SWAStructures offering ANOTHER WAY TO DRAW THIS SAME TREE, for the Tree menu.
+
+	Distinct from a dataset's #structures, which supply a different TREE. Here the
+	root node is unchanged and only the viewClass differs -- the flamegraph/treemap
+	relationship, generalised. Empty by default."
+	^ #()
+]
+
+{
+	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:57'
 }
 SWAView >> applyColorMetricSymbol: aSymbolOrNil [
@@ -1242,6 +1269,16 @@ SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 	self highlightWeights: (useInvocations
 		ifTrue: [aCoverageData invocationMap]
 		ifFalse: [aCoverageData resultMap])
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAView >> structureLabel [
+	"Name for THIS view in the Tree menu / window title. Overridden per view; the
+	default keeps the historical 'Code map' wording for the code treemap."
+	^ 'Code map'
 ]
 
 {

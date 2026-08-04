@@ -1168,6 +1168,41 @@ SWAPane >> addedMorph: aMorph [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAPane >> alternateStructureKeyFor: aStructure [
+	"Tree-menu key for an alternate VIEW of the base tree. Namespaced so it can
+	never collide with #intrinsic or with a dataset's 'modeSymbol/structureKey'."
+	^ ('alt/', aStructure key asString) asSymbol
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWAPane >> alternateViewForKey: aKey [
+	"Build (once) an alternate VIEW of the base tree -- timeline, calendar -- and
+	cache it like any other structure view, so switching back and forth keeps its
+	zoom and selection.
+
+	The new view ADOPTS the base view's datasets, so a coverage/churn overlay you
+	loaded on the treemap keeps colouring after you morph: the datasets belong to
+	the analysis, not to one drawing of it."
+	| base built |
+	base := self codeMapView ifNil: [^ nil].
+	^ self structureViews at: aKey ifAbsentPut: [
+		built := nil.
+		base alternateStructures do: [:st |
+			(self alternateStructureKeyFor: st) == aKey
+				ifTrue: [built := st buildViewExtent: view extent]].
+		built ifNil: [^ nil].
+		built adoptDatasetsFrom: base.
+		self wireOverlayFor: built.
+		built]
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:50'
 }
@@ -1232,7 +1267,7 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 16:08'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
@@ -1263,11 +1298,16 @@ SWAPane >> buildHeaderRow [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
 	"Data / Tree / Size / Color / Links -- each gated on the overlay SUPPORTING it."
 	ovl := self treemapOverlay.
+	"TREE is deliberately OUTSIDE the overlay gate. Size/Color/Links are drawn from
+	the overlay's option lists so they genuinely need one, but structure switching is
+	a property of the PANEL. Gating it on the overlay made the button vanish on
+	exactly the views reached by it -- the timeline and calendar have no overlay, so
+	once you morphed into one there was no way back."
+	self showsTreeButton ifTrue: [
+		headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
 	ovl ifNotNil: [
 		(view respondsTo: #selectDataset:) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Data' action: #popUpDataMenu)].
-		self showsTreeButton ifTrue: [
-			headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
 		((ovl respondsTo: #sizeModeOptions) and: [ovl sizeModeOptions notEmpty]) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Size' action: #popUpSizeMenu)].
 		((ovl respondsTo: #colorModeOptions) and: [ovl colorModeOptions notEmpty]) ifTrue: [
@@ -2392,11 +2432,15 @@ SWAPane >> importData [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:55'
 }
 SWAPane >> labelForStructureKey: aKey [
 	"Human-readable window label for a namespaced structure key ('<dataset> -- <structure>'),
 	or a fallback."
+	(aKey asString beginsWith: 'alt/') ifTrue: [
+		self codeMapView ifNotNil: [:base |
+			base alternateStructures do: [:st |
+				(self alternateStructureKeyFor: st) == aKey ifTrue: [^ st label]]]].
 	self structureDatasets do: [:ds |
 		ds structures do: [:st |
 			(self structureKeyFor: ds structure: st) == aKey ifTrue: [
@@ -3984,15 +4028,22 @@ SWAPane >> showSourceTab [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 16:08'
 }
 SWAPane >> showsTreeButton [
-	"Show the Tree (base-structure) button when structure switching is meaningful:
-	on a Code Map (it can host loaded structure datasets, and the menu covers the
-	'none loaded yet' case), or whenever we have already morphed away from intrinsic
-	(so there is always a way back)."
-	(view isKindOf: SWACodeTreemapMorph) ifTrue: [^ true].
-	^ self activeStructureKey ~~ #intrinsic
+	"Show the Tree (base-structure) button whenever there is more than one structure
+	to switch between -- which is simply what the menu would offer.
+
+	This used to be hardcoded to 'is it a Code Map', which silently hid the button
+	on every other tool: a Change Map or Git Map offering a Timeline and a Calendar
+	had no way to reach them. Asking #structureOptions instead keeps the old
+	behaviour for the Code Map (which always offers its alternates) and for the
+	Space Tally (which offers nothing, so still no button), without naming classes.
+
+	Also always true once we have morphed away from intrinsic, so there is
+	guaranteed to be a way back even if the target view offers nothing itself."
+	self activeStructureKey ~~ #intrinsic ifTrue: [^ true].
+	^ self structureOptions size > 1
 ]
 
 {
@@ -4091,15 +4142,23 @@ SWAPane >> structureKeyFor: aDataset structure: aStructure [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
 }
 SWAPane >> structureOptions [
 	"{ key. label } pairs for the Tree selector: the intrinsic Code Map, plus one
 	entry per retained structure-capable dataset (a space tally loaded from a node
 	tree). Picking one MORPHS the view into that tree's tool in place."
-	| opts |
+	| opts base |
 	opts := OrderedCollection new.
-	opts add: (Array with: #intrinsic with: 'Code map').
+	base := self codeMapView.
+	opts add: (Array with: #intrinsic with:
+		(base ifNil: ['Code map'] ifNotNil: [:v | v structureLabel])).
+	"ALTERNATE VIEWS of the same tree (timeline, calendar) -- offered by the base
+	view itself rather than by a dataset, because the tree does not change; only the
+	way it is drawn does."
+	base ifNotNil: [
+		base alternateStructures do: [:st |
+			opts add: (Array with: (self alternateStructureKeyFor: st) with: st label)]].
 	self structureDatasets do: [:ds |
 		ds structures do: [:st |
 			opts add: (Array
@@ -4326,7 +4385,7 @@ SWAPane >> updateSource [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:55'
 }
 SWAPane >> updateStructureWindowLabel [
 	"Reflect the active structure in the enclosing window title, if any."
@@ -4334,7 +4393,7 @@ SWAPane >> updateStructureWindowLabel [
 	win := self enclosingWindow.
 	win ifNil: [^ self].
 	label := self activeStructureKey == #intrinsic
-		ifTrue: ['Code Map']
+		ifTrue: [self codeMapView ifNil: ['Code Map'] ifNotNil: [:v | v structureLabel]]
 		ifFalse: [self labelForStructureKey: self activeStructureKey].
 	win setLabel: label
 ]
@@ -4350,13 +4409,14 @@ SWAPane >> view [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:39'
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
 }
 SWAPane >> viewForStructureKey: aKey [
 	"The (cached, fully-wired) view morph for a structure key. #intrinsic is the
 	Code Map; a dataset modeSymbol builds -- once -- a Space Tally treemap on that
 	dataset's retained structureRoot. Answers nil if the key can't be resolved."
 	aKey == #intrinsic ifTrue: [^ self codeMapView].
+	(aKey asString beginsWith: 'alt/') ifTrue: [^ self alternateViewForKey: aKey].
 	^ self structureViews at: aKey ifAbsentPut: [
 		| tm |
 		tm := nil.

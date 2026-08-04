@@ -107,6 +107,22 @@ SWACodeTreemapMorph >> allTopicsList [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
+}
+SWACodeTreemapMorph >> alternateStructures [
+	"Code nodes answer #eventTimeStamp (their last-changed date), so the temporal
+	views work here too -- 'when was this package last touched, and on which days'
+	over the very same tree."
+	^ {
+		SWAStructure key: #timeline label: 'Timeline (last changed)'
+			view: SWATimelineMorph rootBlock: [rootNode].
+		SWAStructure key: #calendar label: 'Calendar (last changed)'
+			view: SWACalendarMorph rootBlock: [rootNode]
+	}
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:36'
 }
