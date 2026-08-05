@@ -169,6 +169,22 @@ GSMetadata {
 			#path : FSAbsolutePath [
 				'src'
 			]
+		},
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'SWA-GitMap'
+			},
+			#path : FSAbsolutePath [
+				'src'
+			]
+		},
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'SWA-Timeline'
+			},
+			#path : @58
 		}
 	],
 	#name : 'squeak-object-space-tally'
