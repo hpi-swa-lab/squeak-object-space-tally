@@ -109,13 +109,14 @@ SWATemporalView >> colorModeOptions [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:34'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
 }
 SWATemporalView >> drawOn: aCanvas [
 	"Blit the cached static layer, like the treemap and flamegraph: rendering these
 	views is far too expensive to redo per frame."
 	| form |
 	self ensureLayout.
+	self ensureZoomBar.
 	form := self ensureCachedForm.
 	aCanvas
 		image: form
@@ -209,6 +210,16 @@ SWATemporalView >> flushLayout [
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:35'
 }
 SWATemporalView >> handlesMouseDown: evt [
+	^ true
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
+}
+SWATemporalView >> handlesMouseWheel: evt [
+	"Always -- CTRL-wheel zooms time even when everything fits vertically and there is
+	nothing to scroll."
 	^ true
 ]
 
@@ -361,6 +372,54 @@ SWATemporalView >> minZoomUnits [
 	for the bucketed timeline, one minute is where every bucket is already one second
 	wide. Views whose layout keeps resolving further down (a trace) override."
 	^ 60
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
+}
+SWATemporalView >> panBy: aFraction [
+	"Slide the visible range sideways by aFraction of its own width, clamped to the full
+	span so panning can never leave the data.
+
+	Deliberately does NOT touch the zoom history. Panning is not zooming, and a Back
+	button that has to undo forty nudges before it undoes the zoom you actually want to
+	leave is a Back button nobody presses. Hitting the edge keeps the WIDTH and gives up
+	the movement, rather than squashing the range against the boundary."
+	| r full width delta lo hi |
+	r := self viewRange ifNil: [^ self].
+	full := self timeSpan ifNil: [^ self].
+	width := r second - r first.
+	delta := (width * aFraction) rounded.
+	lo := r first + delta.
+	hi := r second + delta.
+	lo < full first ifTrue: [hi := hi + (full first - lo). lo := full first].
+	hi > full second ifTrue: [lo := lo - (hi - full second). hi := full second].
+	lo := lo max: full first.
+	hi := hi min: full second.
+	(lo = r first and: [hi = r second]) ifTrue: [^ self].
+	viewStart := lo.
+	viewEnd := hi.
+	self flushLayout.
+	self refreshChrome
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
+}
+SWATemporalView >> panLeft [
+	"Slide the view a quarter-range earlier."
+	self panBy: -0.25
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
+}
+SWATemporalView >> panRight [
+	"Slide the view a quarter-range later."
+	self panBy: 0.25
 ]
 
 {
@@ -572,6 +631,55 @@ SWATemporalView >> viewRange [
 	viewStart := span first.
 	viewEnd := span second.
 	^ {viewStart. viewEnd}
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
+}
+SWATemporalView >> wheelZoomBy: aFactor at: localY [
+	"CTRL-wheel over a temporal view zooms TIME, the only axis it has to zoom. Routed
+	through #zoomIn / #zoomOut so the wheel, the +/- buttons and the menu all leave the
+	same trail in the zoom history."
+	^ aFactor > 1
+		ifTrue: [self zoomIn]
+		ifFalse: [self zoomOut]
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
+}
+SWATemporalView >> zoomBarSpecs [
+	"The floating zoom strip, shared with the flow view (SWAView>>ensureZoomBar). Every
+	button is a selector the right-click menu also offers -- drag-to-zoom and the menu
+	remain the precise tools; this is for the two thirds of the work that is 'a bit
+	further in' and 'a bit to the left', where reaching for a menu each time is
+	tiresome."
+	^ {
+		{'-'.    #zoomOut.    'Zoom out one step (undoes the last zoom)'}.
+		{'+'.    #zoomIn.     'Zoom in: halve the visible time range'}.
+		{'<'.    #panLeft.    'Pan left by a quarter of the visible range'}.
+		{'>'.    #panRight.   'Pan right by a quarter of the visible range'}.
+		{'1:1'.  #resetZoom.  'Show the whole span again'}
+	}
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
+}
+SWATemporalView >> zoomIn [
+	"Halve the visible time range, keeping its centre.
+
+	Goes through #zoomToStart:end: like a drag does, so it pushes the same history: '-'
+	undoes '+' exactly, and the pane's Back button still walks the whole trail. Refused
+	silently below #minZoomUnits, which is where the view has no more detail to give."
+	| r c q |
+	r := self viewRange ifNil: [^ self].
+	c := (r first + r second) // 2.
+	q := (r second - r first) // 4.
+	self zoomToStart: c - q end: c + q
 ]
 
 {

@@ -432,6 +432,17 @@ SWAMethodWrapper >> size [
 ]
 
 {
+	#category : #tracing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:54'
+}
+SWAMethodWrapper >> traceMarkerKind [
+	"nil -- a wrapper's span is a real call, not a synthetic marker. SWATraceMarker
+	answers #gcFull / #gcScavenge instead, which is how SWATraceNode class>>fromLane:
+	tags the two apart with a plain send rather than an isKindOf: in its inner loop."
+	^ nil
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/26/2026 14:30'
 }

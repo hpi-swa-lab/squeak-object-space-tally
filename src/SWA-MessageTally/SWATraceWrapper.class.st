@@ -65,6 +65,7 @@ Class {
 	#name : #SWATraceWrapper,
 	#superclass : #SWATimingWrapper,
 	#classVars : [
+		'GcLane',
 		'TraceArmed',
 		'TraceCapacity',
 		'TraceGeneration',
@@ -78,7 +79,7 @@ Class {
 
 {
 	#category : #'trace log',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:07'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
 }
 SWATraceWrapper class >> armTrace [
 	"Open a fresh trace log. Bumps the GENERATION, which is how a lane left behind in
@@ -93,7 +94,11 @@ SWATraceWrapper class >> armTrace [
 	TraceGeneration := (TraceGeneration ifNil: [0]) + 1.
 	TraceLanes := OrderedCollection new.
 	TraceStartMicros := Time utcMicrosecondClock.
+	StepLane := nil.
+	GcLane := nil.
 	TraceArmed := true.
+	SWATraceMarker armGcProbe.
+	SWATraceSeries arm.
 	self resetLane
 ]
 
@@ -120,13 +125,26 @@ SWATraceWrapper class >> chunkSlots [
 
 {
 	#category : #'trace log',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 10:59'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
 }
 SWATraceWrapper class >> disarmTrace [
 	"Stop appending, but KEEP the lanes: collection reads them afterwards. Sent at the
 	start of SWACoverage>>collectTrace, before the wrappers are uninstalled, so that
 	the uninstall itself -- thousands of sends -- does not land in the log."
-	TraceArmed := false
+	TraceArmed := false.
+	SWATraceSeries disarm
+]
+
+{
+	#category : #'trace log',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:37'
+}
+SWATraceWrapper class >> gcLane [
+	"The lane SWATraceMarker writes GC marks into, all at depth 0 so they are top-level
+	spans in a lane of their own -- never nested, never merged away, readable at any
+	zoom. nil when no trace is armed."
+	TraceArmed == true ifFalse: [^ nil].
+	^ GcLane ifNil: [GcLane := self syntheticLaneNamed: 'GC']
 ]
 
 {
@@ -213,6 +231,45 @@ SWATraceWrapper class >> laneSlots [
 ]
 
 {
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:53'
+}
+SWATraceWrapper class >> record: aProducer in: lane start: t0 stop: t1 depth: d [
+	"Append one Chrome-style COMPLETE event -- {producer. start. stop. depth} -- to a
+	process's lane. Four stores into a preallocated flat Array, no allocation in the
+	common case, no shared state: the lane belongs to the running process, so the index
+	bump cannot be interleaved by a preempting one.
+
+	aProducer is normally the SWATraceWrapper whose call this is, but the log does not
+	care -- SWATraceNode class>>fromLane: only ever asks it for #crossRefKey. That is
+	what lets SWATraceMarker put GC spans into the same lane without a call behind them.
+
+	UNBOUNDED. There is no event cap and no truncation. What bounds a trace instead is
+	per-method EVICTION (SWACoverage>>instrumentTrace installs with evictAt), which
+	drops each method out of the log after its first n calls. That is a far better
+	bound than a buffer limit: it spends the budget on the repetitive tail of hot
+	methods rather than on the whole END of the run -- and the end is usually where you
+	were going.
+
+	When the current chunk fills, a new one is added. Never doubled, never copied: see
+	SWATraceWrapper class>>laneSlots."
+	| buf i |
+	buf := lane at: 2.
+	i := lane at: 3.
+	i >= buf size ifTrue: [
+		buf := Array new: self chunkSlots.
+		(lane at: 1) addLast: buf.
+		lane at: 2 put: buf.
+		i := 0].
+	buf
+		at: i + 1 put: aProducer;
+		at: i + 2 put: t0;
+		at: i + 3 put: t1;
+		at: i + 4 put: d.
+	lane at: 3 put: i + 4
+]
+
+{
 	#category : #'trace log',
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 10:59'
 }
@@ -223,7 +280,7 @@ SWATraceWrapper class >> resetLane [
 
 {
 	#category : #'trace log',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 10:59'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
 }
 SWATraceWrapper class >> resetTrace [
 	"Drop the log and every buffer. MUST be sent from the collecting caller's ensure:,
@@ -238,7 +295,43 @@ SWATraceWrapper class >> resetTrace [
 	TraceArmed := false.
 	TraceLanes := nil.
 	TraceStartMicros := nil.
+	StepLane := nil.
+	GcLane := nil.
+	SWATraceMarker disarmGcProbe.
+	SWATraceSeries reset.
 	self resetLane
+]
+
+{
+	#category : #'trace log',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:37'
+}
+SWATraceWrapper class >> syntheticLaneNamed: aString [
+	"A lane that belongs to no process. Same six slots as #laneSlots, except that slot 4
+	-- normally the owning Process, which becomes the exported tid -- holds a NAME, and
+	slot 6 is not a generation because there is nothing to retire: these are built fresh
+	by #armTrace and dropped by #resetTrace.
+
+	Why a lane and not a nesting: a top-level lane is always laid out. Anything hung
+	underneath a call is only drawn if every one of its ancestors was wide enough to
+	draw, and a 16 ms Morphic cycle is a third of a pixel in a 30 s trace. Step spans
+	and GC marks are exactly the things you must be able to see AT FULL ZOOM-OUT, so
+	they cannot live under anything.
+
+	NOT per-process, unlike the real lanes, so the depth counter in slot 5 is shared. In
+	practice only the UI process runs Morphic cycles and there is no contention; two
+	worlds cycling in two processes would interleave the step nesting."
+	| lane |
+	lane := Array new: 6.
+	lane
+		at: 1 put: (OrderedCollection with: (Array new: self chunkSlots));
+		at: 3 put: 0;
+		at: 4 put: aString;
+		at: 5 put: 0;
+		at: 6 put: TraceGeneration.
+	lane at: 2 put: (lane at: 1) first.
+	TraceMutex critical: [TraceLanes ifNotNil: [:l | l add: lane]].
+	^ lane
 ]
 
 {
@@ -261,7 +354,7 @@ SWATraceWrapper class >> traceStartMicros [
 
 {
 	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:06'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:53'
 }
 SWATraceWrapper >> recordIn: lane start: t0 stop: t1 depth: d [
 	"Append one Chrome-style COMPLETE event -- {wrapper. start. stop. depth} -- to this
@@ -277,26 +370,19 @@ SWATraceWrapper >> recordIn: lane start: t0 stop: t1 depth: d [
 	were going.
 
 	When the current chunk fills, a new one is added. Never doubled, never copied: see
-	SWATraceWrapper class>>laneSlots."
-	| buf i |
-	buf := lane at: 2.
-	i := lane at: 3.
-	i >= buf size ifTrue: [
-		buf := Array new: SWATraceWrapper chunkSlots.
-		(lane at: 1) addLast: buf.
-		lane at: 2 put: buf.
-		i := 0].
-	buf
-		at: i + 1 put: self;
-		at: i + 2 put: t0;
-		at: i + 3 put: t1;
-		at: i + 4 put: d.
-	lane at: 3 put: i + 4
+	SWATraceWrapper class>>laneSlots.
+
+	The append itself lives on the class side (#record:in:start:stop:depth:) so that
+	producers which are not wrappers -- SWATraceMarker's GC spans -- write the same
+	format through the same code, instead of a second copy of it that would rot the
+	first time the chunk layout changed. This stays an instance method because
+	SWAStepTraceWrapper overrides it to emit its markers just before its own span."
+	^ SWATraceWrapper record: self in: lane start: t0 stop: t1 depth: d
 ]
 
 {
 	#category : #evaluation,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:05'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:15'
 }
 SWATraceWrapper >> run: aSelector with: anArray in: aReceiver [
 	"THE tracing dispatch. Deliberately a FORK of SWATimingWrapper>>run:with:in:

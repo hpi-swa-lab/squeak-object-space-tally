@@ -43,9 +43,7 @@ Class {
 		'items',
 		'layout',
 		'layoutExtent',
-		'contentHeight',
 		'zoom',
-		'scrollY',
 		'xMode',
 		'yMode',
 		'colorMode',
@@ -55,8 +53,7 @@ Class {
 		'dragStartY',
 		'dragStartScroll',
 		'didDrag',
-		'loadingNode',
-		'zoomBar'
+		'loadingNode'
 	],
 	#category : #'SWA-Flow',
 	#'squeak_changestamp' : '<historical>'
@@ -337,22 +334,6 @@ SWAChatFlowMorph >> drawRow: aNode rect: r index: i on: aCanvas [
 ]
 
 {
-	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:01'
-}
-SWAChatFlowMorph >> drawScrollIndicatorOn: aCanvas [
-	"A thumb on the right edge. Not a ScrollPane: this view owns its own y mapping
-	(zoom, virtualisation), and wrapping it in one would mean maintaining the same
-	arithmetic in two places."
-	| thumb |
-	thumb := self thumbRect ifNil: [^ self].
-	aCanvas fillRectangle: self scrollBarTrackRect color: (Color gray: 0.18).
-	aCanvas
-		fillRectangle: (thumb insetBy: 2)
-		color: (dragMode == #thumb ifTrue: [Color gray: 0.75] ifFalse: [Color gray: 0.5])
-]
-
-{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:22'
 }
@@ -395,38 +376,6 @@ SWAChatFlowMorph >> ensureLayout [
 	is the OTHER way this view could end up drawing nothing."
 	scrollY := (scrollY max: 0) min: ((contentHeight - self height) max: 0).
 	^ layout
-]
-
-{
-	#category : #'zoom bar',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:24'
-}
-SWAChatFlowMorph >> ensureZoomBar [
-	"A floating control strip, kept in the top-right corner.
-
-	Repositioned from #drawOn: rather than from a resize hook, for exactly the
-	reason the layout is validated there too: SWAPane resizes its view through a
-	layout policy that never sends #extent:, so there is no resize hook to trust."
-	| target |
-	zoomBar ifNil: [
-		zoomBar := AlignmentMorph newRow
-			color: (Color gray: 0.2);
-			borderWidth: 1;
-			borderColor: (Color gray: 0.35);
-			cellInset: 2;
-			layoutInset: 3;
-			hResizing: #shrinkWrap;
-			vResizing: #shrinkWrap;
-			yourself.
-		self zoomBarSpecs do: [:spec |
-			| b |
-			b := PluggableButtonMorphPlus on: self getState: nil action: spec second.
-			b label: spec first; setBalloonText: spec third.
-			zoomBar addMorphBack: b].
-		self addMorphFront: zoomBar].
-	target := (self right - self scrollBarWidth - zoomBar width - 4)
-		@ (self top + 4).
-	zoomBar position = target ifFalse: [zoomBar position: target]
 ]
 
 {
@@ -574,12 +523,13 @@ SWAChatFlowMorph >> intrinsicKindColorFor: aNode [
 ]
 
 {
-	#category : #scrollbar,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:01'
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
 }
-SWAChatFlowMorph >> isScrollable [
-	self ensureLayout.
-	^ (contentHeight ifNil: [0]) > self height
+SWAChatFlowMorph >> isDraggingScrollThumb [
+	"I track the thumb in my own drag-mode state machine (it also handles panning), not
+	in the inherited #scrollThumbDragOffset."
+	^ dragMode == #thumb
 ]
 
 {
@@ -756,32 +706,6 @@ SWAChatFlowMorph >> mouseUp: evt [
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:24'
 }
-SWAChatFlowMorph >> mouseWheel: evt [
-	"Wheel scrolls; CTRL-wheel zooms -- the convention everywhere else, and it keeps
-	the two gestures from fighting."
-	| localY step up |
-	(evt isWheelUp or: [evt isWheelDown]) ifFalse: [^ self].
-	up := evt isWheelUp.
-	localY := evt position y - self top.
-	"EITHER modifier zooms. This VM's Alt/Ctrl/Command mapping is tangled (Alt
-	arrives as command + blue button; see the 2026-07-23b journal), so insisting on
-	control alone means the gesture silently does nothing on some keyboards. The
-	zoom buttons exist for the same reason -- a modifier should never be the only
-	way to reach a function."
-	(evt controlKeyPressed or: [evt commandKeyPressed]) ifTrue: [
-		^ self zoomBy: (up ifTrue: [1.25] ifFalse: [0.8]) at: localY].
-	"#verticalScrollDelta: converts the platform's scroll units into an increment
-	for the notch size we ask for, and always answers a POSITIVE magnitude -- the
-	direction comes from #isWheelUp. That is what makes a trackpad's fine-grained
-	scrolling and a notched wheel both feel right."
-	step := evt verticalScrollDelta: 60.
-	self scrollBy: (up ifTrue: [step negated] ifFalse: [step])
-]
-
-{
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:24'
-}
 SWAChatFlowMorph >> nodeAt: aGlobalPoint [
 	"The zoom bar floats OVER the rows; a click on it must not also select whatever
 	row happens to lie beneath."
@@ -944,71 +868,6 @@ SWAChatFlowMorph >> rowRectFor: aNode index: i height: h [
 ]
 
 {
-	#category : #scrollbar,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:01'
-}
-SWAChatFlowMorph >> scrollBarTrackRect [
-	^ (self right - self scrollBarWidth) @ self top corner: self right @ self bottom
-]
-
-{
-	#category : #scrollbar,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:01'
-}
-SWAChatFlowMorph >> scrollBarWidth [
-	"Wide enough to hit. The 4px indicator this replaced was undraggable in
-	practice even before it was undraggable in principle."
-	^ 12
-]
-
-{
-	#category : #zooming,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:44'
-}
-SWAChatFlowMorph >> scrollBy: aNumber [
-	self scrollTo: scrollY + aNumber
-]
-
-{
-	#category : #zooming,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:24'
-}
-SWAChatFlowMorph >> scrollHome [
-	self scrollTo: 0
-]
-
-{
-	#category : #zooming,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:04'
-}
-SWAChatFlowMorph >> scrollTo: aNumber [
-	| max |
-	self ensureLayout.
-	max := (contentHeight ifNil: [0]) - self height max: 0.
-	"ROUNDED: the thumb maps a pixel to a Fraction of the content, and letting that
-	through makes scrollY a Fraction that then propagates into every row rectangle
-	-- exact, slower, and pointless when the destination is a pixel grid."
-	scrollY := ((aNumber max: 0) min: max) rounded.
-	self changed
-]
-
-{
-	#category : #scrollbar,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:01'
-}
-SWAChatFlowMorph >> scrollToThumbTop: aGlobalY [
-	"Inverse of #thumbRect: given where the thumb's TOP should be, answer the
-	scroll position that puts it there."
-	| track h span |
-	self isScrollable ifFalse: [^ self].
-	track := self scrollBarTrackRect.
-	h := ((track height * self height / contentHeight) max: 24) min: track height.
-	span := contentHeight - self height.
-	(track height - h) <= 0 ifTrue: [^ self scrollTo: 0].
-	self scrollTo: (aGlobalY - track top) * span / (track height - h)
-]
-
-{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:02'
 }
@@ -1107,25 +966,6 @@ SWAChatFlowMorph >> sideInset [
 ]
 
 {
-	#category : #scrollbar,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:18'
-}
-SWAChatFlowMorph >> thumbRect [
-	"Thumb geometry, in GLOBAL coordinates, and the single source of truth for
-	both drawing and hit testing -- drawing one rectangle and hit-testing another
-	is how a scrollbar ends up looking right and feeling wrong."
-	| track h span top |
-	self isScrollable ifFalse: [^ nil].
-	track := self scrollBarTrackRect.
-	"Integer arithmetic throughout, for the same reason as the rows: a Fraction
-	rectangle does not blit."
-	h := ((track height * self height // contentHeight) max: 24) min: track height.
-	span := contentHeight - self height.
-	top := track top + ((track height - h) * scrollY // span).
-	^ track left @ top extent: track width @ h
-]
-
-{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:43'
 }
@@ -1167,6 +1007,15 @@ SWAChatFlowMorph >> updateHoverAt: aGlobalPoint [
 }
 SWAChatFlowMorph >> viewKind [
 	^ #chatFlow
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
+}
+SWAChatFlowMorph >> wheelZoomBy: aFactor at: localY [
+	"CTRL-wheel over the flow zooms the row scale, keeping localY put."
+	^ self zoomBy: aFactor at: localY
 ]
 
 {

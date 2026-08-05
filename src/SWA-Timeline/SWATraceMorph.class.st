@@ -113,6 +113,83 @@ SWATraceMorph >> colorModeOptions [
 ]
 
 {
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:04'
+}
+SWATraceMorph >> columnAt: x in: cols [
+	"The { step. old. young. committed } slot for pixel column x, created empty on first
+	touch. Slots are filled in independently -- a column can carry a step time with no
+	memory reading (mid-cycle) or a reading with no step (nothing ran) -- so every field
+	is nil until something writes it."
+	^ (cols at: x + 1) ifNil: [
+		| slot |
+		slot := Array new: 4.
+		cols at: x + 1 put: slot.
+		slot]
+]
+
+{
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:04'
+}
+SWATraceMorph >> columnSeriesIn: range span: span width: w [
+	"Bucket the per-cycle samples into one entry per PIXEL COLUMN:
+	{ longest step (micros). live old space. used young space. committed } -- memory in
+	bytes. nil where no cycle fell in that column. Answers nil if the run has no samples.
+
+	Everything is a MAXIMUM, never an average. The whole reason to draw these bands is
+	the cycle that took 200 ms and the peak that triggered the collection; averaging is
+	exactly the operation that hides both, and at zoom-out one column can cover a
+	hundred cycles.
+
+	THE TWO QUANTITIES ARE PLACED DIFFERENTLY, and that is the whole subtlety here.
+
+	Memory is an INSTANT: one reading, at the moment it was taken, at that one column.
+	It is made continuous afterwards by #holdColumns:, because between two readings the
+	committed heap is the last measured figure -- nothing observed it change.
+
+	Step time is an INTERVAL: the cycle ran from t1-duration to t1, and the value belongs
+	to every column in between. Stamping it at t1 (the sample's timestamp) and holding it
+	forward -- the first version of this -- is wrong twice over: the stretch of x where
+	the image was actually frozen shows the PREVIOUS cycle's value, and the spike is then
+	carried into the NEXT cycle's stretch. Measured on a 125 ms cycle: the stall covered
+	columns 217..362 and the spike was drawn at 363. Everything shifted right by one step.
+
+	Both are MAXIMA per column, never averages. The whole reason to draw these bands is
+	the cycle that took 200 ms and the peak that triggered the collection; averaging is
+	exactly the operation that hides both, and at zoom-out one column can cover a
+	hundred cycles.
+
+	Samples from before this class carried a step time are tolerated (nil step, memory
+	only), so a trace collected earlier still draws instead of erroring."
+	| samples cols |
+	samples := rootNode ifNil: [^ nil] ifNotNil: [:r | r series].
+	samples isEmpty ifTrue: [^ nil].
+	cols := Array new: w + 1.
+	samples do: [:s |
+		| step x x0 x1 old young committed slot |
+		old := s second - s fourth.		"committed old - free old = live old"
+		young := s third.
+		committed := s second + s third.
+		x := (s first - range first) * w // span.
+		(x >= 0 and: [x <= w]) ifTrue: [
+			slot := self columnAt: x in: cols.
+			slot at: 2 put: ((slot second ifNil: [0]) max: old).
+			slot at: 3 put: ((slot third ifNil: [0]) max: young).
+			slot at: 4 put: ((slot fourth ifNil: [0]) max: committed)].
+		step := s size >= 5 ifTrue: [s fifth] ifFalse: [nil].
+		step ifNotNil: [
+			x0 := (s first - step - range first) * w // span.
+			x1 := x.
+			(x1 >= 0 and: [x0 <= w]) ifTrue: [
+				(x0 max: 0) to: (x1 min: w) do: [:xi |
+					slot := self columnAt: xi in: cols.
+					(slot first isNil or: [step > slot first])
+						ifTrue: [slot at: 1 put: step]]]]].
+	^ cols
+]
+
+{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:28'
 }
@@ -194,6 +271,28 @@ SWATraceMorph >> drawFrame: aFrame on: aCanvas at: anOrigin [
 ]
 
 {
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:53'
+}
+SWATraceMorph >> drawGraphBandsOn: aCanvas at: anOrigin [
+	"The two continuous bands above the lanes: step time, then memory. Same x axis as
+	the spans, so a GC mark, the cycle that paid for it and the sawtooth that caused it
+	line up vertically -- which is the only reason to put them in this window rather
+	than in SWA Memory Stats, where the numbers already were."
+	| range span w cols h |
+	self graphBandsHeight = 0 ifTrue: [^ self].
+	range := self viewRange ifNil: [^ self].
+	span := (range second - range first) max: 1.
+	w := self width max: 1.
+	cols := self columnSeriesIn: range span: span width: w.
+	cols ifNil: [^ self].
+	cols := self holdColumns: cols.
+	h := self graphBandHeight.
+	self drawStepTimeBand: cols in: (0 @ 0 extent: w @ h) on: aCanvas at: anOrigin.
+	self drawMemoryBand: cols in: (0 @ h extent: w @ h) on: aCanvas at: anOrigin
+]
+
+{
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
 }
@@ -206,6 +305,56 @@ SWATraceMorph >> drawLaneHeader: aLane in: r on: aCanvas [
 		at: (r left + 4) @ (r top)
 		font: self labelFont
 		color: (Color gray: 0.7)
+]
+
+{
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:05'
+}
+SWATraceMorph >> drawMemoryBand: cols in: aRect on: aCanvas at: anOrigin [
+	"Committed memory per pixel column, stacked: live old space at the bottom, used young
+	space on top of it, and the rest of the committed heap as the pale remainder.
+
+	Stacked and not three lines, because the question these bands exist to answer is
+	'what did the GC react to', and that is about PROPORTION -- young filling up under a
+	flat old space is a scavenge about to happen; old space stepping up is a tenuring
+	problem. Young space is a few hundred KB against a few hundred MB of old, so it gets
+	a one-pixel floor: at true scale it would be invisible exactly when it matters.
+
+	Scaled to the largest committed heap in view, never to zero, so the band shows the
+	SHAPE of the heap and not a full bar that never moves."
+	| max h base |
+	max := 1.
+	cols do: [:c | (c notNil and: [c fourth notNil]) ifTrue: [max := max max: c fourth]].
+	h := aRect height - 13.
+	base := aRect top + aRect height - 2.
+	aCanvas fillRectangle: (aRect translateBy: anOrigin) color: (Color gray: 0.16).
+	1 to: cols size do: [:i |
+		| c x committedH oldH youngH |
+		c := cols at: i.
+		(c notNil and: [c fourth notNil]) ifTrue: [
+			x := aRect left + i - 1.
+			committedH := c fourth * h // max.
+			oldH := c second * h // max.
+			youngH := (c third * h // max) max: 1.
+			aCanvas
+				fillRectangle: ((x @ (base - committedH) extent: 1 @ committedH) translateBy: anOrigin)
+				color: (GcGraph deepOceanColor alpha: 0.35).
+			aCanvas
+				fillRectangle: ((x @ (base - oldH) extent: 1 @ oldH) translateBy: anOrigin)
+				color: (GcGraph deepOceanColor alpha: 0.75).
+			aCanvas
+				fillRectangle: ((x @ (base - oldH) extent: 1 @ 1) translateBy: anOrigin)
+				color: GcGraph deepOceanColor.
+			aCanvas
+				fillRectangle: ((x @ (base - oldH - youngH) extent: 1 @ youngH) translateBy: anOrigin)
+				color: GcGraph seafoamColor]].
+	aCanvas
+		drawString: 'memory   committed ', (max / 1048576.0) rounded printString, ' MB',
+			'   [old, young, free]'
+		at: (aRect left + 3) @ (aRect top + 1) + anOrigin
+		font: self labelFont
+		color: (Color gray: 0.6)
 ]
 
 {
@@ -232,12 +381,16 @@ SWATraceMorph >> drawMerged: count in: r on: aCanvas [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> drawOn: aCanvas [
 	"Cached spans, then the live range-drag band on top -- drawn here and not into the
 	Form precisely because it changes on every mouse move."
 	super drawOn: aCanvas.
+	"The scrollbar is drawn HERE, not into the cached Form, because its geometry is in
+	global coordinates and because it changes with the scroll position rather than with
+	the picture."
+	self drawScrollIndicatorOn: aCanvas.
 	(dragStart notNil and: [dragNow notNil]) ifTrue: [
 		| lo hi |
 		lo := (dragStart x min: dragNow x) max: 0.
@@ -272,6 +425,56 @@ SWATraceMorph >> drawSpanLabelFor: aNode in: r on: aCanvas [
 		at: (r left + 3) @ (r top + ((r height - font height) // 2))
 		font: font
 		color: (Color gray: 0.08)
+]
+
+{
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:53'
+}
+SWATraceMorph >> drawStepTimeBand: cols in: aRect on: aCanvas at: anOrigin [
+	"How long each Morphic cycle took, longest-of-column, as a filled curve.
+
+	STEP TIME UPWARDS, not frame rate downwards. A stall is then a spike, and spikes are
+	what the eye finds; as a rate it is a dip towards zero, and a dip towards zero has
+	nowhere left to go -- a 40 ms stutter and a 400 ms freeze come out looking nearly the
+	same. It is also the same unit as the spans in the lanes below, so a tall column and
+	the wide span that caused it read together.
+
+	The scale is anchored at one 60 fps frame (16.7 ms) and grows to the worst cycle in
+	view, so a smooth run is a low flat band under the budget line rather than noise
+	rescaled to fill the height."
+	| max h base ref frame |
+	frame := 16667.
+	max := frame.
+	cols do: [:c | (c notNil and: [c first notNil]) ifTrue: [max := max max: c first]].
+	h := aRect height - 13.
+	base := aRect top + aRect height - 2.
+	aCanvas fillRectangle: (aRect translateBy: anOrigin) color: (Color gray: 0.16).
+	ref := base - (frame * h // max).
+	aCanvas
+		fillRectangle: ((aRect left @ ref extent: aRect width @ 1) translateBy: anOrigin)
+		color: (Color gray: 0.3).
+	1 to: cols size do: [:i |
+		| c bh col x |
+		c := cols at: i.
+		(c notNil and: [c first notNil]) ifTrue: [
+			bh := (c first * h // max) max: 1.
+			x := aRect left + i - 1.
+			col := c first > (frame * 2) ifTrue: [GcGraph coralColor] ifFalse: [GcGraph deepOceanColor].
+			"Area under the curve dimmed, the curve itself solid on top. With every column
+			filled (#holdColumns:) a single flat colour is a block, not a graph -- the
+			bright top edge is what makes the shape readable."
+			aCanvas
+				fillRectangle: ((x @ (base - bh) extent: 1 @ bh) translateBy: anOrigin)
+				color: (col alpha: 0.3).
+			aCanvas
+				fillRectangle: ((x @ (base - bh) extent: 1 @ 2) translateBy: anOrigin)
+				color: col]].
+	aCanvas
+		drawString: 'step time   16.7 ms ---   worst ', (SWATraceNode stringForMicros: max)
+		at: (aRect left + 3) @ (aRect top + 1) + anOrigin
+		font: self labelFont
+		color: (Color gray: 0.6)
 ]
 
 {
@@ -320,7 +523,7 @@ SWATraceMorph >> emitMergedFrom: x1 to: x2 count: n hidden: descendants depth: d
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:28'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:26'
 }
 SWATraceMorph >> ensureLayout [
 	"Build `frames` -- a flat list of { node. rect. depth. mergedCount } in LOCAL
@@ -331,10 +534,16 @@ SWATraceMorph >> ensureLayout [
 	into a cached Form and gets blitted, and hit testing is then a linear scan over
 	rectangles rather than a tree walk per mouse move.
 
-	Vertical budget: each lane gets a header row plus as many rows as it is deep.
-	Lanes that do not fit are simply not laid out -- clipped, not squeezed -- because
-	squeezing rows below a few pixels produces a picture that looks like data and is
-	not readable. #metaInfoString reports what was left out."
+	CONTENT COORDINATES: y runs from 0 at the first lane, NOT from my top edge. The
+	scroll position and the space the continuous bands take are applied at draw and
+	hit-test time (#laneOffset), so scrolling never invalidates this layout -- it only
+	invalidates the cached Form.
+
+	Vertical budget: each lane gets a header row plus as many rows as it is deep, and
+	ALL lanes are laid out however tall that comes to. Rows are never squeezed, because
+	rows a few pixels high produce a picture that looks like data and is not readable;
+	what does not fit is reached by scrolling. #contentHeight is the total, which is
+	what SWAView's scrollbar measures itself against."
 	| range span w y |
 	frames ifNotNil: [^ self].
 	frames := OrderedCollection new.
@@ -349,20 +558,20 @@ SWATraceMorph >> ensureLayout [
 		| depth needed |
 		depth := self depthOf: lane.
 		needed := (depth + 1) * rowHeight + self laneHeaderHeight.
-		y + self laneHeaderHeight <= (self height - self axisHeight) ifTrue: [
-			frames add: { lane.
-				(0 @ y extent: w @ self laneHeaderHeight).
-				-1.
-				0 }.
-			laneBands add: { lane. y. y + needed }.
-			self
-				layoutChildrenOf: lane
-				depth: 0
-				top: y + self laneHeaderHeight
-				rangeStart: range first
-				span: span
-				width: w.
-			y := y + needed + self laneGap]]
+		frames add: { lane.
+			(0 @ y extent: w @ self laneHeaderHeight).
+			-1.
+			0 }.
+		laneBands add: { lane. y. y + needed }.
+		self
+			layoutChildrenOf: lane
+			depth: 0
+			top: y + self laneHeaderHeight
+			rangeStart: range first
+			span: span
+			width: w.
+		y := y + needed + self laneGap].
+	contentHeight := y
 ]
 
 {
@@ -403,16 +612,64 @@ SWATraceMorph >> flushLayout [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> frameAt: aLocalPoint [
 	"The frame under a local point. Scanned in REVERSE so the deepest box wins:
 	frames are emitted parent-before-child, and a child is drawn on the row below its
 	parent rather than over it, but merged runs and lane headers can overlap edges."
+	| p |
 	frames ifNil: [^ nil].
+	"Frames are in CONTENT coordinates; the point is in mine. One conversion, the same
+	#laneOffset the drawing uses -- hit-testing against a different mapping than the one
+	that painted the picture is how a view ends up looking right and feeling wrong."
+	p := aLocalPoint - (0 @ self laneOffset).
 	frames reverseDo: [:f |
-		((f second) containsPoint: aLocalPoint) ifTrue: [^ f]].
+		((f second) containsPoint: p) ifTrue: [^ f]].
 	^ nil
+]
+
+{
+	#category : #steps,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:09'
+}
+SWATraceMorph >> gcNotesWithin: aNode [
+	"The names of the GC marks overlapping aNode's interval, joined, or '' if none.
+	The marks live in a lane of their own, so the only way to connect a slow step to the
+	collection that caused it is to intersect the two time ranges -- which is exactly
+	what you want to know first about a 145 ms cycle."
+	| gcLane hits |
+	gcLane := rootNode ifNil: [^ ''] ifNotNil: [:r |
+		r children detect: [:l | l name = 'GC'] ifNone: [nil]].
+	gcLane ifNil: [^ ''].
+	hits := gcLane children select: [:m |
+		m startMicros < aNode stopMicros and: [m stopMicros > aNode startMicros]].
+	hits isEmpty ifTrue: [^ ''].
+	^ String streamContents: [:s |
+		s nextPutAll: '   incl. '.
+		hits do: [:m | s nextPutAll: m name] separatedBy: [s nextPutAll: ' + ']]
+]
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:40'
+}
+SWATraceMorph >> graphBandHeight [
+	"Height of ONE continuous band (fps, memory). Tall enough for a shape to be a shape,
+	short enough that two of them do not evict a lane from a small window."
+	^ 40
+]
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:40'
+}
+SWATraceMorph >> graphBandsHeight [
+	"Vertical space the continuous bands take off the top, and therefore where the lanes
+	start. Zero when the run has no samples -- a trace collected without step boundaries
+	(no Morphic running) draws exactly as it did before."
+	rootNode ifNil: [^ 0].
+	^ rootNode series isEmpty ifTrue: [0] ifFalse: [2 * self graphBandHeight]
 ]
 
 {
@@ -424,6 +681,54 @@ SWATraceMorph >> handlesMouseMove: evt [
 ]
 
 {
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:05'
+}
+SWATraceMorph >> holdColumns: cols [
+	"SAMPLE AND HOLD -- for MEMORY ONLY. Step time is left exactly where
+	#columnSeriesIn: painted it.
+
+	The two need opposite treatment, and giving them the same one was the bug. Committed
+	memory is sampled at instants, and between two samples it is the last measured
+	figure because nothing observed it change: holding is what the value DID, not an
+	interpolation. Step time is already painted across the interval its cycle occupied,
+	so holding it would smear every cycle over the following one -- exactly the
+	one-step shift this pass used to introduce. Where no cycle was running the step
+	band is empty, and that gap is the inter-cycle pause: information, not a hole.
+
+	Leading columns are held BACKWARDS from the first reading, so the memory band
+	reaches the left edge instead of starting after the first cycle."
+	| out lastMem firstIdx first |
+	out := Array new: cols size.
+	lastMem := nil.
+	1 to: cols size do: [:i |
+		| c step |
+		c := cols at: i.
+		(c notNil and: [c second notNil]) ifTrue: [lastMem := c].
+		step := c ifNil: [nil] ifNotNil: [:x | x first].
+		(step notNil or: [lastMem notNil]) ifTrue: [
+			out at: i put: (Array
+				with: step
+				with: (lastMem ifNil: [nil] ifNotNil: [:m | m second])
+				with: (lastMem ifNil: [nil] ifNotNil: [:m | m third])
+				with: (lastMem ifNil: [nil] ifNotNil: [:m | m fourth]))]].
+	firstIdx := (1 to: out size)
+		detect: [:i | (out at: i) notNil and: [(out at: i) second notNil]]
+		ifNone: [nil].
+	firstIdx ifNil: [^ out].
+	first := out at: firstIdx.
+	1 to: firstIdx - 1 do: [:i |
+		| c |
+		c := out at: i.
+		out at: i put: (Array
+			with: (c ifNil: [nil] ifNotNil: [:x | x first])
+			with: first second
+			with: first third
+			with: first fourth)].
+	^ out
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:27'
 }
@@ -432,6 +737,18 @@ SWATraceMorph >> initialize [
 	rowHeight := 14.
 	measure := #time.
 	colorMode := #method
+]
+
+{
+	#category : #steps,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:18'
+}
+SWATraceMorph >> isStepSpan: aNode [
+	"True if aNode is a Morphic cycle -- the span the step-time band measures, and the
+	one worth reading in frame terms. Recognised by its cross-ref key: the cycle sits in
+	the ordinary process lane among every other call, so there is no lane to ask and no
+	flag on the node to keep in sync."
+	^ self stepSpanKeys includes: aNode crossRefKey
 ]
 
 {
@@ -486,8 +803,19 @@ SWATraceMorph >> laneOf: aNode do: aBlock [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:26'
+}
+SWATraceMorph >> laneOffset [
+	"Where content y = 0 lands in my local coordinates: below the bands, moved up by the
+	scroll position. Frames are laid out from 0 so that the layout survives scrolling
+	untouched -- one place converts, here."
+	^ self graphBandsHeight - (scrollY ifNil: [0])
+]
+
+{
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:11'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> layoutChildrenOf: aNode depth: d top: top rangeStart: t0 span: span width: w [
 	"Lay out aNode's children as boxes on the time axis, merging runs of adjacent
@@ -503,7 +831,10 @@ SWATraceMorph >> layoutChildrenOf: aNode depth: d top: top rangeStart: t0 span: 
 	Children are already in start order from reconstruction, so one left-to-right
 	pass suffices and no sorting is needed."
 	| runStart runEnd runCount runHidden |
-	top + rowHeight > (self height - self axisHeight) ifTrue: [
+	"Depth is bounded by #maxContentHeight, not by my own height: what does not fit on
+	screen is now reached by SCROLLING, so the only thing left to guard against is a
+	pathologically deep tree turning into a hundred thousand frames nobody will look at."
+	top + rowHeight > self maxContentHeight ifTrue: [
 		hiddenCount := hiddenCount + (self countUnder: aNode).
 		^ self].
 	runStart := nil. runEnd := nil. runCount := 0. runHidden := 0.
@@ -514,7 +845,8 @@ SWATraceMorph >> layoutChildrenOf: aNode depth: d top: top rangeStart: t0 span: 
 		(x2 < 0 or: [x1 > w])
 			ifTrue: ["entirely outside the view -- not hidden, just not now"]
 			ifFalse: [
-				x2 - x1 < self minSpanPixels
+				(x2 - x1 < self minSpanPixels
+					and: [c markerKind isNil and: [c hasMarkers not]])
 					ifTrue: [
 						"too narrow to draw: start or extend the merged run"
 						(runStart notNil and: [x1 - runEnd > self minSpanPixels]) ifTrue: [
@@ -531,6 +863,16 @@ SWATraceMorph >> layoutChildrenOf: aNode depth: d top: top rangeStart: t0 span: 
 							self emitMergedFrom: runStart to: runEnd count: runCount
 								hidden: runHidden depth: d top: top.
 							runStart := nil. runCount := 0. runHidden := 0].
+						"A GC marker is an ANNOTATION, not a call: it is never merged away
+						and never drawn narrower than #markerMinPixels. A 0.4 ms scavenge
+						is sub-pixel at any useful zoom, and a mark you cannot see or
+						click is not a mark. The label carries the real number."
+						c markerKind ifNotNil: [x2 := x2 max: x1 + self markerMinPixels].
+						"...and a step that CONTAINS a marker is never merged away either
+						(the test above), and is widened enough to hold it. Otherwise the
+						100 ms full GC would be invisible precisely because the cycle that
+						paid for it did nothing else and is two pixels wide."
+						c hasMarkers ifTrue: [x2 := x2 max: x1 + self markerMinPixels + 2].
 						frames add: { c.
 							((x1 max: 0) @ top corner: ((x2 min: w) max: x1 + 1) @ (top + rowHeight - 1)).
 							d.
@@ -543,14 +885,65 @@ SWATraceMorph >> layoutChildrenOf: aNode depth: d top: top rangeStart: t0 span: 
 ]
 
 {
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:55'
+}
+SWATraceMorph >> markerMinPixels [
+	"Narrowest box a GC marker is drawn as, whatever its real duration. Wide enough to
+	see and to hit with the mouse; narrow enough that nobody mistakes it for a
+	millisecond. Real GC pauses are wider than this on their own and are unaffected."
+	^ 4
+]
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
+}
+SWATraceMorph >> maxContentHeight [
+	"Ceiling on laid-out content, in pixels. Roughly 400 rows: deep enough that no real
+	call stack reaches it, shallow enough that a runaway recursion cannot turn the
+	layout into an unbounded amount of work. What is cut off is counted into
+	#hiddenCount and reported in the breadcrumb."
+	^ rowHeight * 400
+]
+
+{
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:36'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:18'
 }
 SWATraceMorph >> metaInfoString [
 	"Details of the selected span: where it is in the run, how long it took, how much
 	of that was its own, and how many instrumented calls it made."
 	| n |
 	n := selectedNode ifNil: [^ metaInfo ifNil: ['']].
+	"A marker is not a call: 'self time' and 'direct calls' would both be 0 and both be
+	meaningless. Say instead what is actually known -- and what is not."
+	n markerKind ifNotNil: [
+		^ String streamContents: [:s |
+			s nextPutAll: n name; nextPutAll: '   detected at ';
+				nextPutAll: (SWATraceNode stringForMicros: n stopMicros - self traceZero).
+			n parent ifNotNil: [:p |
+				s nextPutAll: '   at the end of '; nextPutAll: (p name ifNil: ['?'])].
+			s nextPutAll: '   [GC: the VM reports only that it happened during this step, not when]']].
+	"A STEP is read as a frame, so give it in frame terms: how long it took, what rate
+	that is if every frame cost the same, how many 60 fps budgets it ate, and which
+	collection (if any) happened inside it. 'took 145.706 ms' alone leaves you doing
+	that arithmetic in your head every time."
+	(self isStepSpan: n) ifTrue: [
+		^ String streamContents: [:s |
+			| d |
+			d := n durationMicros max: 1.
+			s nextPutAll: n name; nextPutAll: '   at ';
+				nextPutAll: (SWATraceNode stringForMicros: n startMicros - self traceZero);
+				nextPutAll: '   took ';
+				nextPutAll: (SWATraceNode stringForMicros: n durationMicros);
+				nextPutAll: '   = ';
+				nextPutAll: ((1000000.0 / d) printShowingDecimalPlaces: 1);
+				nextPutAll: ' fps   ';
+				nextPutAll: ((d / 16667.0) printShowingDecimalPlaces: 1);
+				nextPutAll: ' x 16.7 ms budget'.
+			s nextPutAll: (self gcNotesWithin: n).
+			s nextPutAll: '   '; print: n children size; nextPutAll: ' direct calls']].
 	^ String streamContents: [:s |
 		s nextPutAll: n name; nextPutAll: '   at ';
 			nextPutAll: (SWATraceNode stringForMicros: n startMicros - self traceZero);
@@ -593,7 +986,7 @@ SWATraceMorph >> minZoomUnits [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> mouseDown: evt [
 	"Left on a span: select it. Left on a MERGED run: zoom into its time range, which
@@ -603,7 +996,17 @@ SWATraceMorph >> mouseDown: evt [
 	self takeKeyboardFocusFrom: evt.
 	local := evt position - self position.
 	evt yellowButtonPressed ifTrue: [^ self showMenuAt: evt].
+	"The scrollbar gutter first: it overlays the right edge of every lane, and a click
+	there means scroll, not select."
+	(self handleScrollMouseDown: evt) ifTrue: [^ self].
 	dragStart := local. dragNow := nil.
+	"Inside the continuous bands there are no frames to hit, but there IS a step under
+	the cursor -- the one whose interval covers this x. Selecting it makes the bands
+	clickable in the obvious way: point at the spike, read what it cost. Dragging still
+	works, because dragStart is left set."
+	local y < self graphBandsHeight ifTrue: [
+		(self stepSpanAtTime: (self timeAtX: local x)) ifNotNil: [:step |
+			^ self selectNode: step]].
 	f := self frameAt: local.
 	f ifNil: [^ self].
 	f third = -1 ifTrue: [^ self].
@@ -623,9 +1026,10 @@ SWATraceMorph >> mouseDown: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> mouseMove: evt [
+	(self handleScrollMouseMove: evt) ifTrue: [^ self].
 	dragStart ifNil: [^ self].
 	dragNow := evt position - self position.
 	self changed
@@ -633,12 +1037,13 @@ SWATraceMorph >> mouseMove: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> mouseUp: evt [
 	"A drag wider than a few pixels is a range zoom; narrower was a click, already
 	handled in #mouseDown:."
 	| a b |
+	(self handleScrollMouseUp: evt) ifTrue: [^ self].
 	(dragStart notNil and: [dragNow notNil and: [(dragNow x - dragStart x) abs > 3]])
 		ifTrue: [
 			a := self timeAtX: dragStart x.
@@ -675,16 +1080,56 @@ SWATraceMorph >> printTrace [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:32'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
 }
 SWATraceMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	"Background, spans, then the time axis on top. Rendered once into a cached Form
 	and blitted (SWATemporalView>>drawOn:); only the drag band is live."
 	self ensureLayout.
 	aCanvas fillRectangle: (anOrigin extent: self extent) color: (Color gray: 0.12).
-	frames ifNil: [^ self].
-	frames do: [:f | self drawFrame: f on: aCanvas at: anOrigin].
+	"Lanes are drawn SCROLLED and CLIPPED to their viewport; the bands above and the
+	axis below are painted afterwards, unscrolled, so they always sit on top."
+	frames ifNotNil: [
+		aCanvas
+			clipBy: ((anOrigin x @ (anOrigin y + self graphBandsHeight))
+				extent: self width @ self scrollViewportHeight)
+			during: [:c |
+				| off |
+				off := anOrigin + (0 @ self laneOffset).
+				frames do: [:f | self drawFrame: f on: c at: off]]].
+	self drawGraphBandsOn: aCanvas at: anOrigin.
 	self drawAxisOn: aCanvas at: anOrigin
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:26'
+}
+SWATraceMorph >> scrollChanged [
+	"The lanes are blitted from a cached Form, so a new scroll position needs a new
+	Form. The LAYOUT is untouched -- frames are in content coordinates and the scroll
+	offset is applied at draw and hit-test time -- so this is a repaint, not a relayout."
+	cachedForm := nil
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:26'
+}
+SWATraceMorph >> scrollViewportHeight [
+	"What is left for the lanes once the bands have the top and the time axis the bottom."
+	^ (self height - self graphBandsHeight - self axisHeight) max: 1
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:26'
+}
+SWATraceMorph >> scrollViewportTop [
+	"The lanes scroll; the continuous bands above them do not. They are the reference
+	the lanes are read against, so scrolling them away would be like scrolling away the
+	axis -- which also stays put, at the bottom."
+	^ self top + self graphBandsHeight
 ]
 
 {
@@ -708,7 +1153,7 @@ SWATraceMorph >> selectedSourceString [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:31'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
 }
 SWATraceMorph >> showMenuAt: evt [
 	"Right-click: zoom control, colour meaning, and the two PRINT paths -- the
@@ -717,7 +1162,10 @@ SWATraceMorph >> showMenuAt: evt [
 	written viewer is how you check that this one is drawing the truth."
 	| menu |
 	menu := MenuMorph new defaultTarget: self.
+	menu add: 'zoom in' selector: #zoomIn argument: nil.
 	menu add: 'zoom out' selector: #zoomOut argument: nil.
+	menu add: 'pan left' selector: #panLeft argument: nil.
+	menu add: 'pan right' selector: #panRight argument: nil.
 	menu add: 'reset zoom' selector: #resetZoom argument: nil.
 	menu addLine.
 	self colorModeOptions do: [:pair |
@@ -737,7 +1185,7 @@ SWATraceMorph >> showMenuAt: evt [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:29'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:55'
 }
 SWATraceMorph >> spanColorFor: aNode [
 	"Colour a span. Two modes matter here and neither is the inherited heat ramp:
@@ -752,6 +1200,13 @@ SWATraceMorph >> spanColorFor: aNode [
 
 	Dataset metric modes still route through SWAView's machinery via super."
 	| h |
+	"GC markers are not code and are not comparable to the spans around them, so they
+	keep ONE fixed colour in every mode -- the same coral/seafoam the SWA Memory Stats
+	graph uses for full GCs and tenures, so the two tools read the same way."
+	aNode markerKind ifNotNil: [:mk |
+		^ mk == #gcFull
+			ifTrue: [GcGraph coralColor]
+			ifFalse: [GcGraph seafoamColor]].
 	colorMode == #duration ifTrue: [
 		| max |
 		max := (rootNode ifNil: [^ Color gray: 0.5]) durationMicros max: 1.
@@ -762,6 +1217,47 @@ SWATraceMorph >> spanColorFor: aNode [
 		h: h \\ 360
 		s: 0.42 + ((h // 360 \\ 25) / 100.0)
 		v: 0.78 + ((h // 9000 \\ 18) / 100.0)
+]
+
+{
+	#category : #steps,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:18'
+}
+SWATraceMorph >> stepSpanAtTime: t [
+	"The Morphic cycle whose interval covers t, or nil -- t may land in the pause
+	between two cycles, where nothing was running.
+
+	A walk rather than a scan, because the cycle now lives in the process lane at
+	whatever depth the traced call graph puts it. Only branches whose interval contains
+	t are entered, so it touches a handful of nodes, and it runs once per click."
+	rootNode ifNil: [^ nil].
+	^ self stepSpanAtTime: t under: rootNode
+]
+
+{
+	#category : #steps,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:18'
+}
+SWATraceMorph >> stepSpanAtTime: t under: aNode [
+	"Depth-first search for the cycle covering t, pruned to branches that contain t."
+	aNode children ifNil: [^ nil].
+	aNode children do: [:c |
+		(c startMicros <= t and: [c stopMicros >= t]) ifTrue: [
+			(self isStepSpan: c) ifTrue: [^ c].
+			(self stepSpanAtTime: t under: c) ifNotNil: [:found | ^ found]]].
+	^ nil
+]
+
+{
+	#category : #steps,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:17'
+}
+SWATraceMorph >> stepSpanKeys [
+	"Cross-ref keys of the spans the step-time band measures -- the Morphic cycle.
+	Derived from SWACoverage class>>stepProbeMethods rather than written out, so the
+	two cannot drift apart."
+	^ SWACoverage stepProbeMethods
+		collect: [:m | m methodClass name , '>>' , m selector]
 ]
 
 {

@@ -42,7 +42,11 @@ Class {
 		'searchQuery',
 		'searchMatchSet',
 		'markedNodesCache',
-		'suppressMetricColor'
+		'suppressMetricColor',
+		'zoomBar',
+		'scrollY',
+		'contentHeight',
+		'scrollThumbDragOffset'
 	],
 	#classVars : [
 		'DatasetContainerTint'
@@ -111,7 +115,7 @@ SWAView class >> viewKindLabelFor: aSymbol [
 
 {
 	#category : #styling,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:54'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:11'
 }
 SWAView >> aboutToStyle: aStyler [
 	"Shout styling hook (this morph is the source pane's model). Give the styler the
@@ -121,7 +125,13 @@ SWAView >> aboutToStyle: aStyler [
 	Subclasses may override to suppress styling (e.g. while showing a diff)."
 	| cls |
 	cls := self styleClassForSelection.
-	(cls notNil and: [aStyler respondsTo: #classOrMetaClass:])
+	"NO CLASS, NO STYLING. Shout parses the text as a method either way, so without a
+	class every instance variable is an undeclared name and gets painted RED -- in a
+	method with a few ivars that is most of the text, and it reads as if the code were
+	broken. Plain black is the honest rendering of 'I do not know what this text is';
+	coloured-but-wrong is worse than uncoloured."
+	cls ifNil: [^ false].
+	(aStyler respondsTo: #classOrMetaClass:)
 		ifTrue: [aStyler classOrMetaClass: cls].
 	^ true
 ]
@@ -378,6 +388,16 @@ SWAView >> containerColorFor: aNode metric: aMetric [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:27'
+}
+SWAView >> contentHeight [
+	"Total height of the scrollable content in content coordinates, or nil for a view
+	that does not scroll. Set by #ensureLayout in the views that do."
+	^ contentHeight
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
 }
@@ -540,6 +560,22 @@ SWAView >> deactivateCoverageProvenance [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> drawScrollIndicatorOn: aCanvas [
+	"A thumb on the right edge. Not a ScrollPane: these views own their own y mapping
+	(zoom, virtualisation, lane bands), and wrapping one in a ScrollPane would mean
+	maintaining the same arithmetic in two places."
+	| thumb |
+	thumb := self thumbRect ifNil: [^ self].
+	aCanvas fillRectangle: self scrollBarTrackRect color: (Color gray: 0.18).
+	aCanvas
+		fillRectangle: (thumb insetBy: 2)
+		color: (self isDraggingScrollThumb ifTrue: [Color gray: 0.75] ifFalse: [Color gray: 0.5])
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
 }
@@ -561,6 +597,45 @@ SWAView >> effectiveWeightOf: aNode [
 		cw ifNotNil: [w := w isNil ifTrue: [cw] ifFalse: [w max: cw]]].
 	effectiveWeights at: aNode put: w.
 	^ w
+]
+
+{
+	#category : #'zoom bar',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:22'
+}
+SWAView >> ensureZoomBar [
+	"A floating control strip, kept in the top-right corner. Built once from
+	#zoomBarSpecs, which is where a subclass says what its buttons do; a view that
+	answers none gets no bar, and pays nothing for having the option.
+
+	Repositioned from #drawOn: rather than from a resize hook, for exactly the reason
+	the layout is validated there too: SWAPane resizes its view through a layout policy
+	that never sends #extent:, so there is no resize hook to trust.
+
+	Called from the subclass's #drawOn:, not from here, because SWAView does not own
+	that method -- every view draws itself its own way."
+	| target specs |
+	zoomBar ifNil: [
+		specs := self zoomBarSpecs.
+		specs isEmpty ifTrue: [^ self].
+		zoomBar := AlignmentMorph newRow
+			color: (Color gray: 0.2);
+			borderWidth: 1;
+			borderColor: (Color gray: 0.35);
+			cellInset: 2;
+			layoutInset: 3;
+			hResizing: #shrinkWrap;
+			vResizing: #shrinkWrap;
+			yourself.
+		specs do: [:spec |
+			| b |
+			b := PluggableButtonMorphPlus on: self getState: nil action: spec second.
+			b label: spec first; setBalloonText: spec third.
+			zoomBar addMorphBack: b].
+		self addMorphFront: zoomBar].
+	target := (self right - self zoomBarRightInset - zoomBar width - 4)
+		@ (self top + 4).
+	zoomBar position = target ifFalse: [zoomBar position: target]
 ]
 
 {
@@ -608,6 +683,52 @@ SWAView >> flushMarksCache [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
+}
+SWAView >> handleScrollMouseDown: evt [
+	"Consume a click in the scrollbar gutter: grab the thumb, or page toward a click on
+	the track. Answers whether it was consumed, so a subclass's #mouseDown: can open
+	with 'ifTrue: [^ self]' and otherwise carry on exactly as before."
+	| thumb |
+	self isScrollable ifFalse: [^ false].
+	(self scrollBarTrackRect containsPoint: evt position) ifFalse: [^ false].
+	thumb := self thumbRect.
+	(thumb notNil and: [thumb containsPoint: evt position])
+		ifTrue: [scrollThumbDragOffset := evt position y - thumb top]
+		ifFalse: [
+			scrollThumbDragOffset := nil.
+			self scrollBy: (evt position y < (thumb ifNil: [self bounds]) top
+				ifTrue: [self scrollViewportHeight negated]
+				ifFalse: [self scrollViewportHeight])].
+	self changed.
+	^ true
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
+}
+SWAView >> handleScrollMouseMove: evt [
+	"Continue a thumb drag. Answers whether it was consumed."
+	scrollThumbDragOffset ifNil: [^ false].
+	self scrollToThumbTop: evt position y - scrollThumbDragOffset.
+	^ true
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
+}
+SWAView >> handleScrollMouseUp: evt [
+	"End a thumb drag. Answers whether it was consumed."
+	scrollThumbDragOffset ifNil: [^ false].
+	scrollThumbDragOffset := nil.
+	self changed.
+	^ true
+]
+
+{
 	#category : #'event handling',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
 }
@@ -616,6 +737,17 @@ SWAView >> handlesKeyboard: evt [
 	(the view grabs keyboard focus on mouseDown -- see #mouseDown: in subclasses /
 	#takeKeyboardFocusFrom:)."
 	^ true
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> handlesMouseWheel: evt [
+	"Only when there is something to scroll -- a view that never sets #contentHeight
+	should not swallow the wheel from whatever is underneath it. Subclasses that also
+	use the wheel for zooming override this to answer true unconditionally."
+	^ self isScrollable
 ]
 
 {
@@ -775,6 +907,17 @@ SWAView >> intrinsicColorMode [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> isDraggingScrollThumb [
+	"Whether the thumb is currently being dragged, for the highlight in
+	#drawScrollIndicatorOn:. The flow tracks this in its own drag-mode state machine
+	and overrides."
+	^ scrollThumbDragOffset notNil
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:37'
 }
@@ -799,6 +942,18 @@ SWAView >> isFilteredOut: aNode [
 SWAView >> isNodeMarked: aNode [
 	"Is aNode currently marked in the global mark set?"
 	^ aNode notNil and: [SWAMarkSet default includes: aNode markKey]
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> isScrollable [
+	"True when there is more content than viewport. Answers false for every view that
+	never sets #contentHeight, which is how the treemaps opt out of all of this without
+	knowing it exists."
+	self ensureLayout.
+	^ (contentHeight ifNil: [0]) > self scrollViewportHeight
 ]
 
 {
@@ -942,6 +1097,33 @@ SWAView >> metricsByMode [
 	per metric of every loaded dataset; the symbol-based color/size machinery
 	dispatches through this."
 	^ metricsByMode ifNil: [metricsByMode := Dictionary new]
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
+}
+SWAView >> mouseWheel: evt [
+	"Wheel scrolls; CTRL-wheel (or CMD) zooms -- the convention everywhere else, and it
+	keeps the two gestures from fighting. What zooming MEANS is the subclass's business
+	(#wheelZoomBy:at:); by default it means nothing and the wheel just scrolls."
+	| localY step up |
+	(evt isWheelUp or: [evt isWheelDown]) ifFalse: [^ self].
+	up := evt isWheelUp.
+	localY := evt position y - self top.
+	"EITHER modifier zooms. This VM's Alt/Ctrl/Command mapping is tangled (Alt arrives
+	as command + blue button; see the 2026-07-23b journal), so insisting on control
+	alone means the gesture silently does nothing on some keyboards. The zoom buttons
+	exist for the same reason -- a modifier should never be the only way to reach a
+	function."
+	(evt controlKeyPressed or: [evt commandKeyPressed]) ifTrue: [
+		^ self wheelZoomBy: (up ifTrue: [1.25] ifFalse: [0.8]) at: localY].
+	"#verticalScrollDelta: converts the platform's scroll units into an increment for
+	the notch size we ask for, and always answers a POSITIVE magnitude -- the direction
+	comes from #isWheelUp. That is what makes a trackpad's fine-grained scrolling and a
+	notched wheel both feel right."
+	step := evt verticalScrollDelta: 60.
+	self scrollBy: (up ifTrue: [step negated] ifFalse: [step])
 ]
 
 {
@@ -1106,6 +1288,105 @@ SWAView >> rebuildSearchMatches [
 }
 SWAView >> rootNode [
 	^ rootNode
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollBarTrackRect [
+	"The scrollbar gutter, in GLOBAL coordinates, spanning the scrollable area only."
+	^ (self right - self scrollBarWidth) @ self scrollViewportTop
+		corner: self right @ (self scrollViewportTop + self scrollViewportHeight)
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollBarWidth [
+	"Wide enough to hit. The 4px indicator this replaced was undraggable in practice
+	even before it was undraggable in principle."
+	^ 12
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollBy: aNumber [
+	self scrollTo: (scrollY ifNil: [0]) + aNumber
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollChanged [
+	"Hook: the scroll position moved. Views that draw straight to the canvas (the flow)
+	need nothing; views that blit a CACHED FORM (the temporal ones) must drop it, or
+	they scroll by redrawing the same picture."
+	^ self
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollHome [
+	self scrollTo: 0
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollTo: aNumber [
+	| max |
+	self ensureLayout.
+	max := (contentHeight ifNil: [0]) - self scrollViewportHeight max: 0.
+	"ROUNDED: the thumb maps a pixel to a Fraction of the content, and letting that
+	through makes scrollY a Fraction that then propagates into every row rectangle --
+	exact, slower, and pointless when the destination is a pixel grid."
+	scrollY := ((aNumber max: 0) min: max) rounded.
+	self scrollChanged.
+	self changed
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollToThumbTop: aGlobalY [
+	"Inverse of #thumbRect: given where the thumb's TOP should be, answer the scroll
+	position that puts it there."
+	| track h span |
+	self isScrollable ifFalse: [^ self].
+	track := self scrollBarTrackRect.
+	h := ((track height * self scrollViewportHeight / contentHeight) max: 24) min: track height.
+	span := contentHeight - self scrollViewportHeight.
+	(track height - h) <= 0 ifTrue: [^ self scrollTo: 0].
+	self scrollTo: (aGlobalY - track top) * span / (track height - h)
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollViewportHeight [
+	"Height of the scrollable area -- what #contentHeight is compared against and what
+	one page means. My whole height, unless a subclass pins chrome above or below it."
+	^ self height
+]
+
+{
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> scrollViewportTop [
+	"GLOBAL y of the top of the scrollable area. My whole top edge, unless a subclass
+	keeps something pinned up there -- SWATraceMorph's continuous bands do not scroll."
+	^ self top
 ]
 
 {
@@ -1361,6 +1642,25 @@ SWAView >> testFilterKeys [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
+}
+SWAView >> thumbRect [
+	"Thumb geometry, in GLOBAL coordinates, and the single source of truth for both
+	drawing and hit testing -- drawing one rectangle and hit-testing another is how a
+	scrollbar ends up looking right and feeling wrong."
+	| track h span top |
+	self isScrollable ifFalse: [^ nil].
+	track := self scrollBarTrackRect.
+	"Integer arithmetic throughout, for the same reason as the rows: a Fraction
+	rectangle does not blit."
+	h := ((track height * self scrollViewportHeight // contentHeight) max: 24) min: track height.
+	span := contentHeight - self scrollViewportHeight.
+	top := track top + ((track height - h) * (scrollY ifNil: [0]) // span).
+	^ track left @ top extent: track width @ h
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
 }
@@ -1434,6 +1734,15 @@ SWAView >> viewKindLabel [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:25'
+}
+SWAView >> wheelZoomBy: aFactor at: localY [
+	"CTRL-wheel. No-op unless a subclass has something to zoom."
+	^ self
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:34'
 }
@@ -1446,4 +1755,27 @@ SWAView >> withoutMetricColorDo: aBlock [
 	saved := suppressMetricColor.
 	suppressMetricColor := true.
 	^ aBlock ensure: [suppressMetricColor := saved]
+]
+
+{
+	#category : #'zoom bar',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:28'
+}
+SWAView >> zoomBarRightInset [
+	"Pixels to keep clear at my right edge when parking the zoom bar: the scrollbar
+	gutter, when there is one. Asked of #isScrollable rather than hardcoded per view,
+	so a view that only sometimes scrolls does not permanently reserve the space."
+	^ self isScrollable ifTrue: [self scrollBarWidth] ifFalse: [0]
+]
+
+{
+	#category : #'zoom bar',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:22'
+}
+SWAView >> zoomBarSpecs [
+	"{ label. selector. balloon } per button, left to right. Empty here: a view opts IN
+	to the floating zoom bar by overriding this. The selectors are sent to the view
+	itself, so they are the same ones its context menu uses -- the bar is a shortcut for
+	the menu, never a second implementation of it."
+	^ #()
 ]

@@ -746,6 +746,30 @@ SWACoverage class >> spawnBisectForPackages: pkgGlobs tag: aTag [
 ]
 
 {
+	#category : #tracing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:16'
+}
+SWACoverage class >> stepProbeMethods [
+	"The method a trace hangs its step MEASUREMENT off: the Morphic cycle, and nothing
+	else. Wrapped with SWAStepTraceWrapper on every trace run, whether or not Morphic is
+	in the package set, and never evicted.
+
+	It is a MEASUREMENT POINT, not extra content. Its span is recorded exactly like any
+	other traced call, in the process's own lane, because if Morphic is captured it
+	would have been recorded there anyway -- an earlier version gave the steps a lane of
+	their own and wrapped #runStepMethods and #displayWorldSafely: too, which duplicated
+	rows the call graph already had. What the wrapper adds is the per-cycle memory sample
+	and the GC-counter drain, and those need exactly one place to happen: the end of the
+	cycle.
+
+	Guarded by #includesSelector: so a refactored or absent Morphic drops the probe
+	instead of breaking every trace."
+	^ (WorldState includesSelector: #doOneCycleNowFor:)
+		ifTrue: [Array with: WorldState >> #doOneCycleNowFor:]
+		ifFalse: [#()]
+]
+
+{
 	#category : #exclusions,
 	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:26'
 }
@@ -1325,7 +1349,7 @@ SWACoverage >> instrumentTiming [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:07'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:17'
 }
 SWACoverage >> instrumentTrace [
 	"TRACE mode: everything #instrumentTiming does, plus an EVENT LOG. Each wrapped
@@ -1357,16 +1381,29 @@ SWACoverage >> instrumentTrace [
 	install.
 
 	The log itself is UNBOUNDED (chunked, never truncated) -- eviction is the bound."
+	| steps |
 	kind := #trace.
 	SWATimingWrapper resetFrames.
 	self captureCallTree
 		ifTrue: [SWATallyWrapper beginCallTreeFor: methods]
 		ifFalse: [SWATallyWrapper resetCallTree].
 	SWATraceWrapper armTrace.
+	steps := SWACoverage stepProbeMethods.
+	methods := methods reject: [:m | steps includes: m].
 	wrappers := methods collect: [:m |
 		(SWATraceWrapper new
 			onClass: m methodClass selector: m selector evictAt: evictAt)
 			installNoFlush; yourself].
+	"The step probe goes in LAST and with evictAt: nil -- always present, never evicted.
+	It takes the place of the ordinary wrapper on the Morphic cycle (hence the reject:
+	above; wrapping it twice would LAYER two wrappers) and records the same span the
+	ordinary one would, plus the per-cycle memory sample and the GC drain. See
+	SWACoverage class>>stepProbeMethods."
+	wrappers := wrappers asOrderedCollection.
+	steps do: [:m |
+		wrappers add: ((SWAStepTraceWrapper new
+			onClass: m methodClass selector: m selector evictAt: nil)
+			installNoFlush; yourself)].
 	SWAMethodWrapper flushSystemCache.
 	wallMicros := Time utcMicrosecondClock.
 	^ self

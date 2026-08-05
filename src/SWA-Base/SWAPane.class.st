@@ -55,6 +55,7 @@ Class {
 	],
 	#classVars : [
 		'CallTallyCounter',
+		'CodeMapWorkingSet',
 		'LastTallyDoit',
 		'SampleTallyDuration',
 		'TopicK',
@@ -63,6 +64,43 @@ Class {
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:13'
+}
+SWAPane class >> abandonTraceUntilStop: aCoverage [
+	"The run window was closed without pressing STOP. Throw the run away, but leave
+	NOTHING instrumented: an abandoned trace that keeps its wrappers is how you get a
+	permanently slow image and DNUs in unrelated tools weeks later.
+
+	#uninstall is guarded because the window can be closed before the deferred
+	instrumentation has run, in which case this SWACoverage never installed anything and
+	does not know it."
+	[aCoverage isTraceRun ifTrue: [aCoverage uninstall]]
+		ensure: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			SWATallyWrapper resetCallTree.
+			SWATimingWrapper resetFrames.
+			SWATraceWrapper resetTrace]
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:19'
+}
+SWAPane class >> afterMilliseconds: millis doInUI: aBlock [
+	"Evaluate aBlock in the UI process, but not before millis have passed AND not before
+	the cycle we were called from has finished drawing.
+
+	Both halves matter. The delay must run in a forked process, because waiting in the
+	UI process is the thing we are trying to avoid; the block must then be handed BACK
+	to the UI process, because it touches Morphs. And because a deferred message is
+	drained at the start of a cycle's step phase, the queue itself is the guarantee that
+	the previous cycle's #displayWorldSafely: has already run."
+	^ [(Delay forMilliseconds: millis) wait.
+		WorldState addDeferredUIMessage: aBlock] fork
+]
 
 {
 	#category : #generation,
@@ -82,6 +120,56 @@ SWAPane class >> autoJsonPathFor: aKind [
 		  << (t minute printPaddedWith: $0 to: 2)
 		  << (t second truncated printPaddedWith: $0 to: 2)].
 	^ FileDirectory default fullNameFor: 'swa-', aKind, '-squeak-', stamp, '.json'
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:45'
+}
+SWAPane class >> codeMapWorkingSet [
+	"The package scope the Apps-menu 'SWA Code Map' opens on: a comma-separated list of
+	String>>match: globs, e.g. 'Raylib, Morphic, SqueakXR, SWAGame'. This is the WORKING
+	SET -- the handful of packages you are currently developing in. The old default was
+	'*' (every package in the image), which is slow to build and too coarse to read.
+
+	Change it here, in the Preferences browser (category 'SWA'), or -- the intended way --
+	interactively from a live code map: pane menu (hamburger, far left) > Add / Remove
+	package, then 'Set as default working set'."
+	<preference: 'Code Map working set (packages)'
+		category: 'SWA'
+		description: 'Comma-separated package globs the SWA Code Map opens on, e.g. ''Raylib, SqueakXR, SWAGame''. Use ''*'' for the whole image.'
+		type: #String>
+	^ CodeMapWorkingSet ifNil: [self defaultCodeMapWorkingSet]
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+}
+SWAPane class >> codeMapWorkingSet: aStringOrCollection [
+	"Store the working set the Apps-menu code map opens on. Accepts the comma-separated
+	glob String or a collection of package names/globs (which is joined for you).
+	nil or empty restores #defaultCodeMapWorkingSet."
+	| s |
+	s := aStringOrCollection isNil
+		ifTrue: ['']
+		ifFalse: [aStringOrCollection isString
+			ifTrue: [aStringOrCollection withBlanksTrimmed]
+			ifFalse: [String streamContents: [:st |
+				aStringOrCollection do: [:each | st nextPutAll: each asString]
+					separatedBy: [st nextPutAll: ', ']]]].
+	CodeMapWorkingSet := s isEmpty ifTrue: [nil] ifFalse: [s].
+	^ self codeMapWorkingSet
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:45'
+}
+SWAPane class >> defaultCodeMapWorkingSet [
+	"Fallback working set, used until someone stores one. These are the packages this
+	image is actually developed in; deliberately NOT '*', which drags in ~400 packages."
+	^ 'Raylib, Morphic, SqueakXR, SWAGame'
 ]
 
 {
@@ -122,6 +210,45 @@ SWAPane class >> enforceMinimumWidthOn: aWindow [
 		detect: [:m | m isKindOf: SWAPane]
 		ifFound: [:p | p enforceMinimumWindowWidth]
 		ifNone: []
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:19'
+}
+SWAPane class >> finishTraceUntilStop: aCoverage panel: aPanel scope: aScopeString [
+	"STOP pressed: harvest the run, UNINSTALL, drop the buffers, and open the trace.
+
+	The ensure: is the same full sweep the other collect paths use and is not optional:
+	the lanes strongly hold every wrapper they recorded, and each wrapper holds a
+	CompiledMethod, so a skipped reset leaves megabytes alive until the next run. The
+	span tree survives it -- #collectTrace has already moved it into the SWACoverage,
+	which is exactly why #collectTraceRoot is an accessor and not a builder."
+	| win |
+	"STOP inside the arming window (#openTraceUntilStop holds it back two beats, and a
+	big working set takes seconds to select). Nothing is installed and nothing was
+	recorded, so say that rather than harvesting a run that never started."
+	aCoverage isTraceRun ifFalse: [
+		aPanel onClose: nil.
+		aPanel closeWindow.
+		SWAMethodWrapper uninstallAllStrayWrappers.
+		^ UIManager default inform: 'SWA Trace: stopped before the trace was armed -- nothing recorded.'].
+	[aCoverage collectTrace. aCoverage uninstall]
+		ensure: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			SWATallyWrapper resetCallTree.
+			SWATimingWrapper resetFrames.
+			SWATraceWrapper resetTrace].
+	aPanel onClose: nil.
+	aPanel closeWindow.
+	win := self
+		openTraceOn: aCoverage
+		labelled: 'SWA Trace: ', aScopeString
+		info: nil.
+	win ifNil: [
+		UIManager default inform: 'SWA Trace: nothing was recorded.
+Nothing in ', aScopeString, ' ran between Start and Stop.'].
+	^ win
 ]
 
 {
@@ -212,7 +339,7 @@ SWAPane class >> generateSqueakTopicJson [
 
 {
 	#category : #'class initialization',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 18:43'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:13'
 }
 SWAPane class >> initialize [
 	"Register the Apps-menu entry for the code map. The 'SWA ' label prefix
@@ -223,7 +350,11 @@ SWAPane class >> initialize [
 	TheWorldMenu registerOpenCommand: {
 		'SWA Code Map'.
 		{self. #open}.
-		'Open a treemap of all packages, classes as leaves' }
+		'Open a treemap of your working-set packages, down to methods' }.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Trace (until stop)'.
+		{self. #openTraceUntilStop}.
+		'Trace the working-set packages until you press Stop, then show the trace' }
 ]
 
 {
@@ -270,11 +401,19 @@ SWAPane class >> on: aViewMorph [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:51'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
 }
 SWAPane class >> open [
-	"Apps-menu action: open the whole-image code map (all packages, classes as leaves)."
-	^ self openOnPackageNamed: '*' leafKind: #class
+	"Apps-menu action: open the code map on the current WORKING SET (see
+	#codeMapWorkingSet), rendered all the way down to methods.
+
+	This used to open on '*' with classes as leaves -- every package in the image. That
+	is a slow build and an unreadable map: the packages you care about are a few pixels
+	wide next to Etoys and Morphic. Now it opens on the handful of packages you are
+	working in, and you edit that set from the map itself (pane menu > Add / Remove
+	package > Set as default working set). For the whole image, set the working set to
+	'*' or use 'SWAPane openOnPackageNamed: ''*'' leafKind: #class'."
+	^ self openOnPackageNamed: self codeMapWorkingSet leafKind: #method
 ]
 
 {
@@ -461,16 +600,17 @@ SWAPane class >> openOnPackageNamed: aPackageName [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
 }
 SWAPane class >> openOnPackageNamed: aPackageGlob leafKind: aKindOrNil [
 	"Open a code-structure treemap (root -> packages -> classes -> categories ->
 	methods) wrapped in a SWAPane, with Back/Browse/Show/Depth/Full chrome.
 
 	aPackageGlob is a String>>match: glob matched against all package names. A plain
-	name ('Kernel') simply matches one package; 'Morphic*' or '*' match many. We
-	always build an aggregate SWACodeRootNode, so the single- and multi-package cases
-	share one path.
+	name ('Kernel') simply matches one package; 'Morphic*' or '*' match many; a
+	COMMA-SEPARATED list ('Raylib, SqueakXR, SWAGame') matches the union -- that last
+	form is the working set the Apps-menu entry opens on. We always build an aggregate
+	SWACodeRootNode, so the single- and multi-package cases share one path.
 
 	aKindOrNil stops *rendering* at nodes of that #kind (#package/#class/#category/
 	#method); the full tree and all metric roll-ups are still built. nil renders the
@@ -550,6 +690,94 @@ SWAPane class >> openTopics: aTopicFileName onPackageNamed: aPackageGlob [
 ]
 
 {
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:12'
+}
+SWAPane class >> openTraceOn: aCoverage labelled: aLabel info: anInfoOrNil [
+	"Open a FLAME CHART -- not a flamegraph, not a treemap -- on the span tree of a
+	COLLECTED trace, in the shared SWAPane chrome. Answers the window, or nil if
+	nothing was recorded.
+
+	anInfoOrNil is the header line; nil takes the default, which puts WALL time next to
+	the trace summary. Those two must be read together: wall is what the run actually
+	cost, the trace covers only the instrumented packages, and the gap between them is
+	everything else plus the tracing overhead."
+	| chart panel root |
+	root := aCoverage collectTraceRoot.
+	root ifNil: [^ nil].
+	chart := SWATraceMorph on: root.
+	chart metaInfo: (anInfoOrNil ifNil: [
+		(SWASamplingTallyNode formatMicros: aCoverage wallMicros), ' wall',
+		'   ', aCoverage traceStatus,
+		'   ', aCoverage resultMap size printString, ' methods called']).
+	panel := SWAPane on: chart.
+	"Sized before the window enters the world, so the XR SRMorphPanel that
+	SRPasteUpMorph>>addedMorph: builds captures the real extent, not a guess."
+	^ panel
+		openInWindowLabeled: aLabel
+		bounds: (((Display extent - (1200 @ 800)) // 2) extent: 1200 @ 800)
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:19'
+}
+SWAPane class >> openTraceUntilStop [
+	"Apps-menu action: trace the WORKING SET until you press Stop, then open the trace
+	view on what was recorded. Answers the run panel.
+
+	This is the shortcut the working set makes possible. The old route to a trace was
+	'open a code map, wait for it to tile, pick Data > Generate: call trace, press Stop,
+	then find Tree > Trace' -- four steps and a treemap you did not want, all of it only
+	there to answer the question 'which packages?'. The working set already answers that,
+	so the map is not needed and neither is the pane it lived in.
+
+	THE STOP BUTTON GOES UP FIRST, and arming is held back behind it in TWO beats
+	(#afterMilliseconds:doInUI:, #traceArmDelayMillis each):
+
+	  window up, status 'Instrumenting...'  ->  beat 1: select methods, set the final
+	  status  ->  beat 2: install the wrappers and start recording.
+
+	Why not simply instrument straight away? Two reasons, and only the first is obvious.
+	Wrapping a few thousand methods takes a noticeable moment in which Morphic does not
+	redraw, so doing it up front leaves the user looking at a frozen image with no way
+	to stop what they just started. The second: the working set usually CONTAINS Morphic,
+	so whatever the screen is still busy drawing when recording starts lands in the
+	trace -- and the first thing anyone would find at the head of their trace would be
+	this tool painting its own STOP button. Hence the second beat: the status line is
+	written, drawn, and finished with BEFORE the wrappers go in.
+
+	Neither beat can race the STOP button: they arrive as deferred UI messages, so they
+	run in the UI process in queue order, and once STOP has closed the panel the guard
+	on #world drops any beat still in flight.
+
+	Closing the window instead of pressing STOP abandons the run and uninstalls, so
+	instrumentation never lingers."
+	| cov panel globs scope |
+	scope := self codeMapWorkingSet.
+	globs := SWACodeRootNode globsFrom: scope.
+	cov := SWACoverage new.
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'SWA Trace -- do the ONE thing, then Stop';
+		yourself.
+	panel status: 'Instrumenting ', scope, ' ...'.
+	panel
+		onStop: [self finishTraceUntilStop: cov panel: panel scope: scope];
+		onClose: [self abandonTraceUntilStop: cov].
+	self afterMilliseconds: self traceArmDelayMillis doInUI: [
+		"Gone already? Then #onClose: has run and there is nothing to instrument."
+		panel world ifNotNil: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			cov captureCallTree: true; methodsForPackages: globs.
+			cov evictAt: 1000.
+			panel status: 'Tracing ', cov methods size printString, ' methods in ',
+				scope, '. Do the one thing, then press STOP.'.
+			self afterMilliseconds: self traceArmDelayMillis doInUI: [
+				panel world ifNotNil: [cov instrumentTrace]]]].
+	^ panel
+]
+
+{
 	#category : #'xr frame profiling',
 	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:58'
 }
@@ -581,7 +809,7 @@ SWAPane class >> openXRFrameFlamegraphOn: aCoverage frames: aCount [
 
 {
 	#category : #'xr profiling',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:12'
 }
 SWAPane class >> openXRFrameTraceOn: aCoverage frames: aCount [
 	"Open a FLAME CHART -- not a flamegraph, not a treemap -- on the span tree of a
@@ -593,22 +821,14 @@ SWAPane class >> openXRFrameTraceOn: aCoverage frames: aCount [
 	instrumented packages, and the gap is everything else plus the tracing overhead.
 	Truncation, if any, is in the trace summary AND on the lane header -- at frame
 	scale it is the likely outcome, not an edge case, so it is said twice."
-	| chart panel window root |
-	root := aCoverage collectTraceRoot.
-	root ifNil: [^ nil].
-	chart := SWATraceMorph on: root.
-	chart metaInfo: aCount printString, ' frame(s)',
-		'   ', (SWASamplingTallyNode formatMicros: aCoverage wallMicros), ' wall',
-		'   ', aCoverage traceStatus,
-		'   ', aCoverage resultMap size printString, ' methods called'.
-	panel := SWAPane on: chart.
-	"Sized before the window enters the world, so the XR SRMorphPanel that
-	SRPasteUpMorph>>addedMorph: builds captures the real extent, not a guess."
-	window := panel
-		openInWindowLabeled: 'XR Frame Trace: ', aCount printString, ' frame(s)  (',
+	^ self
+		openTraceOn: aCoverage
+		labelled: 'XR Frame Trace: ', aCount printString, ' frame(s)  (',
 			(SWASamplingTallyNode formatMicros: aCoverage wallMicros), ')'
-		bounds: (((Display extent - (1200 @ 800)) // 2) extent: 1200 @ 800).
-	^ window
+		info: aCount printString, ' frame(s)',
+			'   ', (SWASamplingTallyNode formatMicros: aCoverage wallMicros), ' wall',
+			'   ', aCoverage traceStatus,
+			'   ', aCoverage resultMap size printString, ' methods called'
 ]
 
 {
@@ -854,6 +1074,18 @@ SWAPane class >> topicSweeps [
 SWAPane class >> topicSweeps: aNumber [
 	"Set the Topic model Gibbs sweep count. Backs the #topicSweeps preference."
 	TopicSweeps := aNumber
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:18'
+}
+SWAPane class >> traceArmDelayMillis [
+	"How long #openTraceUntilStop waits between putting its own UI on screen and arming
+	the trace. One Morphic cycle would do at 60 fps; this is three of them, because the
+	cost is invisible to the user and the failure it prevents is not -- a trace whose
+	first frames are the tool drawing its own STOP button."
+	^ 50
 ]
 
 {
@@ -1297,6 +1529,34 @@ SWAPane >> addGitChurnDataset: aGitChurnData name: aName [
 	self treemapCoverageStatus: ds name, ': ', aGitChurnData summaryString.
 	self refresh.
 	^ ds
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+}
+SWAPane >> addPackageToCodeMap [
+	"Pane menu: interactively add a whole package to THIS live map. Offers every package
+	not already shown, plus a free-text entry for bulk globs like 'Morphic*'. The map is
+	rebuilt in place; the stored working set is untouched until you pick 'Set as default
+	working set'."
+	| root shown candidates choice glob |
+	root := self codeRoot ifNil: [^ self].
+	shown := root packageNames asSet.
+	candidates := ((PackageInfo allPackages collect: [:p | p packageName])
+		reject: [:n | shown includes: n]) asSortedCollection asArray.
+	choice := UIManager default
+		chooseFrom: (Array with: 'Glob or comma list...'), candidates
+		values: (Array with: #glob), candidates
+		title: 'Add package to this code map'.
+	choice ifNil: [^ self].
+	glob := choice == #glob
+		ifTrue: [UIManager default request: 'Package glob(s) to add' initialAnswer: '']
+		ifFalse: [choice].
+	(glob isNil or: [glob withBlanksTrimmed isEmpty]) ifTrue: [^ self].
+	root addPackages: glob.
+	self renameCodeRootToItsPackages.
+	self rebuildCodeMap
 ]
 
 {
@@ -3633,7 +3893,7 @@ SWAPane >> openTallyStopWindow [
 
 {
 	#category : #'pane menu',
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:28'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:47'
 }
 SWAPane >> paneMenu: aMenu [
 	"The generic per-pane overflow menu, opened from the hamburger icon at the FAR
@@ -3644,6 +3904,12 @@ SWAPane >> paneMenu: aMenu [
 	(view isKindOf: SWACodeTreemapMorph) ifTrue: [
 		aMenu add: 'Export...' target: self selector: #exportCoverage.
 		aMenu add: 'Load...' target: self selector: #importData].
+	self codeRoot ifNotNil: [:root |
+		aMenu addLine.
+		aMenu add: 'Add package...' target: self selector: #addPackageToCodeMap.
+		aMenu add: 'Remove package...' target: self selector: #removePackageFromCodeMap.
+		aMenu add: 'Set as default working set' target: self selector: #saveCodeMapWorkingSet.
+		aMenu add: 'Reset to default working set' target: self selector: #resetCodeMapToWorkingSet].
 	aMenu addLine.
 	aMenu add: 'Remove all instrumentation wrappers'
 		target: self selector: #cleanupAllWrappers.
@@ -3905,6 +4171,39 @@ SWAPane >> provenanceList [
 ]
 
 {
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+}
+SWAPane >> rebuildCodeMap [
+	"Re-tile this code map after its root's package set changed. Node building + layout
+	can take seconds on a big package, so it runs under the same two-phase progress bar
+	as the initial open (see SWACodeNode>>openTreemapLeafKind:). #setRoot: does the
+	invalidation: drops the layout, flushes the marks cache, rebuilds the cross-ref key
+	index -- marks are keyed by cross-ref key, so they survive as long as their node does."
+	| tm root total done |
+	tm := self treemap ifNil: [^ self].
+	root := self codeRoot ifNil: [^ self].
+	total := (root estimatedNodeCount max: 1) * 2.
+	('Code map: ', root name) displayProgressFrom: 0 to: total during: [:bar |
+		bar value: 'Building nodes + counting LOC...'.
+		done := 0.
+		root prewarmDo: [:n |
+			done := done + 1.
+			(done \\ 64 = 0) ifTrue: [bar value: done]].
+		tm setRoot: root.
+		bar value: 'Laying out treemap...'.
+		tm layoutProgress: [:n |
+			done := done + 1.
+			(done \\ 64 = 0) ifTrue: [bar value: (done min: total)]].
+		tm ensureLayout.
+		tm layoutProgress: nil.
+		bar value: total].
+	self updateCodeMapWindowLabel.
+	self refresh.
+	tm changed
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
 }
@@ -3930,6 +4229,27 @@ SWAPane >> refreshMorphPanel [
 	"Re-measure and repaint the SRMorphPanel showing this pane in XR; no-op elsewhere.
 	See SWAPane class>>refreshMorphPanelFor:."
 	self class refreshMorphPanelFor: self
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+}
+SWAPane >> removePackageFromCodeMap [
+	"Pane menu: interactively drop a whole package from THIS live map. Refuses to empty
+	the map -- a treemap of nothing is a bug report waiting to happen."
+	| root shown choice |
+	root := self codeRoot ifNil: [^ self].
+	shown := root packageNames asSortedCollection asArray.
+	shown size <= 1 ifTrue: [
+		^ self treemapCoverageStatus: 'Packages: cannot remove the last package'].
+	choice := UIManager default
+		chooseFrom: shown values: shown
+		title: 'Remove package from this code map'.
+	choice ifNil: [^ self].
+	root removePackages: choice.
+	self renameCodeRootToItsPackages.
+	self rebuildCodeMap
 ]
 
 {
@@ -3964,6 +4284,24 @@ SWAPane >> removedMorph: aMorph [
 	super removedMorph: aMorph.
 	((aMorph isKindOf: MenuMorph) or: [aMorph isKindOf: DialogWindow])
 		ifTrue: [self refreshMorphPanel]
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+}
+SWAPane >> renameCodeRootToItsPackages [
+	"After an interactive add/remove the root's displayName still says whatever glob the
+	map was opened on ('Raylib, SqueakXR'), which is now a lie. Rewrite it to the literal
+	comma list of packages actually shown. That name is not just a label: mark provenance
+	records it as 'scopeGlob' and SWAPane class>>spawnFromProvenance: re-opens the map
+	from it, so it must stay a valid argument to #openOnPackageNamed:."
+	| root |
+	root := self codeRoot ifNil: [^ self].
+	root name: (String streamContents: [:st |
+		root packageNames asSortedCollection
+			do: [:n | st nextPutAll: n]
+			separatedBy: [st nextPutAll: ', ']])
 ]
 
 {
@@ -4018,6 +4356,21 @@ SWAPane >> requestMultiLine: aPromptString initialAnswer: aString answerHeight: 
 		initialAnswer: aString
 		answerExtent: FillInTheBlankMorph defaultAnswerExtent x @ aNumber
 		acceptOnCR: false
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:47'
+}
+SWAPane >> resetCodeMapToWorkingSet [
+	"Pane menu: throw away this map's ad-hoc package selection and go back to the stored
+	working set. Useful after wandering into 'Kernel' to look at one thing."
+	| root |
+	root := self codeRoot ifNil: [^ self].
+	root removePackages: '*'.
+	root addPackages: SWAPane codeMapWorkingSet.
+	root name: SWAPane codeMapWorkingSet.
+	self rebuildCodeMap
 ]
 
 {
@@ -4098,6 +4451,22 @@ SWAPane >> runSearch: aString [
 	the match computation and redraw (see SWAView>>searchFor:)."
 	view ifNil: [^ self].
 	(view respondsTo: #searchFor:) ifTrue: [view searchFor: aString]
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:47'
+}
+SWAPane >> saveCodeMapWorkingSet [
+	"Pane menu: make THIS map's package list the default the Apps-menu 'SWA Code Map'
+	opens on (SWAPane class>>codeMapWorkingSet, also editable in the Preferences browser).
+	Stores the concrete package names rather than any glob you typed, so what you see is
+	exactly what comes back."
+	| root |
+	root := self codeRoot ifNil: [^ self].
+	SWAPane codeMapWorkingSet: root packageNames asSortedCollection asArray.
+	self treemapCoverageStatus:
+		'Working set saved: ', SWAPane codeMapWorkingSet
 ]
 
 {
@@ -4582,6 +4951,22 @@ SWAPane >> treemapCoverageStatus: aString [
 SWAPane >> treemapOverlay [
 	"The wrapped view's event/menu overlay, or nil if it has none."
 	^ (view respondsTo: #overlayMorph) ifTrue: [view overlayMorph] ifFalse: [nil]
+]
+
+{
+	#category : #'code map - working set',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+}
+SWAPane >> updateCodeMapWindowLabel [
+	"Re-derive the window title from the current root + render depth, matching the format
+	SWACodeNode>>openTreemapLeafKind: uses at open time."
+	| root tm win |
+	root := self codeRoot ifNil: [^ self].
+	tm := self treemap ifNil: [^ self].
+	win := self enclosingWindow ifNil: [^ self].
+	win setLabel: (tm leafKind
+		ifNil: ['Code Treemap: ', root name, '  (LOC)']
+		ifNotNil: [:k | 'Code Treemap: ', root name, '  (LOC, to ', k, ')'])
 ]
 
 {

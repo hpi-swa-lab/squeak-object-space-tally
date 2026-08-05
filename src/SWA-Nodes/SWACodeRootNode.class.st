@@ -31,15 +31,36 @@ Class {
 }
 
 {
-	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 10:02'
+	#category : #scope,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:45'
 }
-SWACodeRootNode >> addPackages: aGlobOrName [
-	"Add every package whose name matches aGlobOrName (a String>>match: glob, e.g.
-	'Morphic*' or '*'). Returns self for chaining. Re-invalidates built children,
-	the category-owner map, and the package-nesting map."
-	| matches |
-	matches := self allPackageInfos select: [:p | aGlobOrName match: p packageName].
+SWACodeRootNode class >> globsFrom: aGlobOrList [
+	"Normalize a package scope into an Array of individual String>>match: globs.
+	Accepts a single glob String ('Morphic*', '*'), a COMMA-SEPARATED list of globs
+	in one String ('Raylib, SqueakXR, SWAGame' -- the working-set form stored in
+	SWAPane class>>codeMapWorkingSet), or an already-split collection of globs.
+	Blank entries are dropped, so a trailing comma is harmless.
+
+	(SWACodeRootNode globsFrom: 'Raylib, SqueakXR') --> #('Raylib' 'SqueakXR')"
+	aGlobOrList isString ifFalse: [^ aGlobOrList asArray].
+	^ (((aGlobOrList findTokens: ',') collect: [:s | s withBlanksTrimmed])
+		reject: [:s | s isEmpty]) asArray
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:45'
+}
+SWACodeRootNode >> addPackages: aGlobOrList [
+	"Add every package whose name matches aGlobOrList. That is a String>>match: glob
+	(e.g. 'Morphic*' or '*'), a COMMA-SEPARATED list of such globs ('Raylib, SqueakXR,
+	SWAGame' -- the working-set form stored in SWAPane class>>codeMapWorkingSet), or an
+	already-split collection of globs. Returns self for chaining. Re-invalidates built
+	children, the category-owner map, and the package-nesting map."
+	| matches globs |
+	globs := self class globsFrom: aGlobOrList.
+	matches := self allPackageInfos select: [:p |
+		globs anySatisfy: [:g | g match: p packageName]].
 	matches do: [:p | (packages includes: p) ifFalse: [packages add: p]].
 	children := nil.
 	categoryOwners := nil.
@@ -211,12 +232,17 @@ SWACodeRootNode >> packageParents [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 10:02'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:45'
 }
-SWACodeRootNode >> removePackages: aGlobOrName [
-	"Remove every currently-selected package whose name matches aGlobOrName (a
-	String>>match: glob, e.g. 'Kernel*'). Returns self for chaining."
-	packages := packages reject: [:p | aGlobOrName match: p packageName].
+SWACodeRootNode >> removePackages: aGlobOrList [
+	"Remove every currently-selected package whose name matches aGlobOrList: a
+	String>>match: glob (e.g. 'Kernel*'), a COMMA-SEPARATED list of such globs, or a
+	collection of globs. 'removePackages: ''*''' empties the scope. Returns self for
+	chaining."
+	| globs |
+	globs := self class globsFrom: aGlobOrList.
+	packages := packages reject: [:p |
+		globs anySatisfy: [:g | g match: p packageName]].
 	children := nil.
 	categoryOwners := nil.
 	packageParents := nil.

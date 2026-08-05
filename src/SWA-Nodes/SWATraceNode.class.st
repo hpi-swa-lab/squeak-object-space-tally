@@ -43,7 +43,10 @@ Class {
 		'key',
 		'startMicros',
 		'stopMicros',
-		'process'
+		'process',
+		'markerKind',
+		'hasMarkers',
+		'series'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
@@ -79,7 +82,7 @@ SWATraceNode class >> attachRemaining: pending to: laneRoot [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:06'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:54'
 }
 SWATraceNode class >> fromLane: lane [
 	"Rebuild ONE process's spans from its chunked, exit-ordered event log. Answer a
@@ -123,6 +126,7 @@ SWATraceNode class >> fromLane: lane [
 			node := self new
 				name: wrapper crossRefKey;
 				crossRefKey: wrapper crossRefKey;
+				markerKind: wrapper traceMarkerKind;
 				start: t0 stop: t1;
 				yourself.
 			kids := pending at: d + 2.
@@ -141,7 +145,7 @@ SWATraceNode class >> fromLane: lane [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:04'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
 }
 SWATraceNode class >> fromLanes: aCollectionOfLanes [
 	"Rebuild the whole trace: one lane root per process that ran instrumented code,
@@ -162,15 +166,25 @@ SWATraceNode class >> fromLanes: aCollectionOfLanes [
 			(self fromLane: lane) ifNotNil: [:r | acc add: r].
 			acc].
 	roots isEmpty ifTrue: [^ nil].
-	roots := roots asSortedCollection: [:a :b | a startMicros <= b startMicros].
+	"SYNTHETIC lanes first ('Morphic steps', 'GC'), then the real processes by first
+	event. They are the frame grid everything else is read against, and a grid at the
+	bottom of a six-lane view is a grid nobody looks at."
+	roots := roots asSortedCollection: [:a :b |
+		a isSyntheticLane = b isSyntheticLane
+			ifTrue: [a startMicros <= b startMicros]
+			ifFalse: [a isSyntheticLane]].
 	root := self new name: 'trace'; yourself.
 	roots do: [:r | root addChildNode: r].
+	"The continuous companion of the spans -- memory per Morphic cycle. Read here, while
+	the run's state is still up, because SWATraceWrapper class>>resetTrace drops it
+	immediately after collection along with the lanes."
+	root series: SWATraceSeries samples.
 	^ root
 ]
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:09'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
 }
 SWATraceNode class >> laneNameFor: aProcess [
 	"Label for a lane. The PRIORITY is part of it, not decoration: in this image the
@@ -179,6 +193,10 @@ SWATraceNode class >> laneNameFor: aProcess [
 	out. An unnamed process falls back to its hash, which at least stays stable within
 	a run."
 	| n |
+	"A SYNTHETIC lane (SWATraceWrapper class>>syntheticLaneNamed:) holds its label here
+	instead of a Process -- 'Morphic steps', 'GC'. It belongs to no process and has no
+	priority, so it is its own name and nothing more."
+	aProcess isString ifTrue: [^ aProcess].
 	n := [aProcess name] on: Error do: [:e | nil].
 	n ifNil: [n := 'Process ', aProcess hash printString].
 	^ n , ' [prio ' , aProcess priority printString , ']'
@@ -207,11 +225,16 @@ SWATraceNode class >> stringForMicros: micros [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:00'
 }
 SWATraceNode >> addChildNode: aNode [
+	"Adopt a child span. Adopting a MARKER also raises #hasMarkers on this node, which
+	the trace view reads to keep a span drawable even when it is too narrow to draw:
+	a GC marker is only visible if the step that contains it is visible, and the step
+	that just lost 100 ms to a full GC is frequently the shortest one in the run."
 	children ifNil: [children := OrderedCollection new].
 	children add: aNode.
+	aNode markerKind ifNotNil: [hasMarkers := true].
 	aNode parent: self.
 	^ aNode
 ]
@@ -374,6 +397,27 @@ SWATraceNode >> eventTimeStamp [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:00'
+}
+SWATraceNode >> hasMarkers [
+	"True if a marker span (GC) hangs directly off this one. Markers are always direct
+	children of the step boundary that detected them, so one level is the whole answer."
+	^ hasMarkers == true
+]
+
+{
+	#category : #testing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
+}
+SWATraceNode >> isSyntheticLane [
+	"True for a lane root that belongs to no process -- 'Morphic steps', 'GC'. These are
+	the reference grid the rest of the trace is read against, so they are pinned above
+	the process lanes rather than sorted in among them by first event."
+	^ process isString
+]
+
+{
 	#category : #exporting,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:06'
 }
@@ -389,6 +433,26 @@ SWATraceNode >> jsonString: aString on: aStream [
 			ifTrue: [aStream nextPutAll: '\u'; nextPutAll: ((c value printStringBase: 16) padded: #left to: 4 with: $0)]
 			ifFalse: [aStream nextPut: c]]]].
 	aStream nextPut: $"
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:54'
+}
+SWATraceNode >> markerKind [
+	"nil for an ordinary call span. #gcFull / #gcScavenge for a synthetic span that no
+	call produced -- see SWATraceMarker. The trace view colours these apart instead of
+	giving them a per-name hue, because they are not code and are not comparable to the
+	spans around them."
+	^ markerKind
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:54'
+}
+SWATraceNode >> markerKind: aSymbolOrNil [
+	markerKind := aSymbolOrNil
 ]
 
 {
@@ -409,10 +473,14 @@ SWATraceNode >> name: aString [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:04'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:54'
 }
 SWATraceNode >> nodeKind [
-	^ key isNil ifTrue: [#traceLane] ifFalse: [#traceSpan]
+	"#traceLane for a process root, #traceMarker for a synthetic (GC) span,
+	#traceSpan for an actual call."
+	key isNil ifTrue: [^ #traceLane].
+	markerKind ifNotNil: [^ #traceMarker].
+	^ #traceSpan
 ]
 
 {
@@ -498,6 +566,24 @@ SWATraceNode >> selfSize [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
+}
+SWATraceNode >> series [
+	"On a TRACE ROOT: the per-cycle memory samples collected alongside the spans (see
+	SWATraceSeries), oldest first, or an empty Array. nil everywhere else."
+	^ series ifNil: [#()]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
+}
+SWATraceNode >> series: anArrayOfSamples [
+	series := anArrayOfSamples
+]
+
+{
 	#category : #testing,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:07'
 }
@@ -542,6 +628,23 @@ SWATraceNode >> stopMicros [
 	self children isEmpty ifTrue: [^ self startMicros].
 	^ stopMicros := self children inject: self children first stopMicros into: [:m :c |
 		m max: c stopMicros]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:11'
+}
+SWATraceNode >> styleClassOrNil [
+	"The class (or metaclass) whose method this span is a call of, so Shout can style
+	the source pane in the right context. Without it every instance variable in the
+	method is an undeclared name and Shout paints it RED -- which, in a method with a
+	few ivars, is most of the text.
+
+	Same key parsing as SWATraceMorph>>selectedSourceString: 'Foo>>bar' or
+	'Foo class>>bar'. nil for markers and lane roots, whose key is not a method at all."
+	key ifNil: [^ nil].
+	(key includesSubstring: '>>') ifFalse: [^ nil].
+	^ Smalltalk classNamed: (key copyUpToLast: $>) allButLast
 ]
 
 {
