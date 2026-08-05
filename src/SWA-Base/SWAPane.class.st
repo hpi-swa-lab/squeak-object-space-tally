@@ -580,6 +580,38 @@ SWAPane class >> openXRFrameFlamegraphOn: aCoverage frames: aCount [
 ]
 
 {
+	#category : #'xr profiling',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:01'
+}
+SWAPane class >> openXRFrameTraceOn: aCoverage frames: aCount [
+	"Open a FLAME CHART -- not a flamegraph, not a treemap -- on the span tree of a
+	frame trace, in the shared SWAPane chrome. Answers the window, or nil if nothing
+	was recorded.
+
+	The header carries WALL time next to the trace summary, and they must be read
+	together: wall is what the frames actually cost, the trace covers only the
+	instrumented packages, and the gap is everything else plus the tracing overhead.
+	Truncation, if any, is in the trace summary AND on the lane header -- at frame
+	scale it is the likely outcome, not an edge case, so it is said twice."
+	| chart panel window root |
+	root := aCoverage collectTraceRoot.
+	root ifNil: [^ nil].
+	chart := SWATraceMorph on: root.
+	chart metaInfo: aCount printString, ' frame(s)',
+		'   ', (SWASamplingTallyNode formatMicros: aCoverage wallMicros), ' wall',
+		'   ', aCoverage traceStatus,
+		'   ', aCoverage resultMap size printString, ' methods called'.
+	panel := SWAPane on: chart.
+	"Sized before the window enters the world, so the XR SRMorphPanel that
+	SRPasteUpMorph>>addedMorph: builds captures the real extent, not a guess."
+	window := panel
+		openInWindowLabeled: 'XR Frame Trace: ', aCount printString, ' frame(s)  (',
+			(SWASamplingTallyNode formatMicros: aCoverage wallMicros), ')'
+		bounds: (((Display extent - (1200 @ 800)) // 2) extent: 1200 @ 800).
+	^ window
+]
+
+{
 	#category : #'marks-show',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
 }
@@ -825,6 +857,85 @@ SWAPane class >> topicSweeps: aNumber [
 ]
 
 {
+	#category : #'xr profiling',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:01'
+}
+SWAPane class >> traceXRFrames: aCount [
+	"Trace aCount frames of the running XR world over #defaultXRProfilePackages.
+
+	  (SWAPane traceXRFrames: 1)"
+	^ self traceXRFrames: aCount packages: self defaultXRProfilePackages
+]
+
+{
+	#category : #'xr profiling',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:10'
+}
+SWAPane class >> traceXRFrames: aCount packages: aGlobCollection [
+	"Trace exactly aCount frames of the running XR world and open a FLAME CHART on the
+	result. Answers the window, or nil when the trace was deferred (see below) or no
+	world is running.
+
+	  (SWAPane traceXRFrames: 1 packages: #('SqueakXR'))
+
+	Read alongside #profileXRFrames:packages:, which is the same shape with the same
+	placement rules -- everything inside SRWorld>>runBetweenFrames:, in the world
+	process, at a frame boundary with the render loop blocked -- and answers the same
+	question in the other currency. The profile says which methods a frame spends its
+	time in; the trace says what a frame DOES, in order: which call ran twice, where
+	the gap was, what the UI process was doing across the same milliseconds.
+
+	The log is unbounded; what bounds it is per-method eviction after
+	SWACoverage>>evictAt calls. An evicted method stops appearing and its callees
+	reattach one level up, which the window subtitle reports as a count."
+	| world |
+	world := SRWorld current.
+	world ifNil: [^ nil].
+	^ world runBetweenFrames: [
+		self
+			openXRFrameTraceOn: (self traceXRFrames: aCount packages: aGlobCollection in: world)
+			frames: aCount]
+]
+
+{
+	#category : #'xr profiling',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:00'
+}
+SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
+	"Trace twin of #measureXRFrames:packages:in:: instrument aGlobCollection with
+	TRACE wrappers, render EXACTLY aCount frames, uninstall, answer the SWACoverage --
+	which now carries the individual calls, in order, as well as the totals.
+
+	Same two hard requirements as the timing twin, for the same reasons: it MUST run
+	inside SRWorld>>runBetweenFrames:, because it drives the frames itself with
+	#doOneCycle (so the loop has to be blocked and nothing may render while the
+	wrappers go in), and the wrappers come off in an ensure: (a stranded wrapper on
+	the render path is far worse than a lost measurement).
+
+	One requirement of its own: the lanes are freed in that same ensure:, because they
+	strongly hold every wrapper they recorded.
+
+	WHY THIS IS THE ONE THAT WANTS FRAME-EXACTNESS MOST. A timing profile of ten
+	frames gives you ten frames' worth of averages, and averages survive a stray
+	frame. A trace does not average -- it shows the actual sequence -- so an extra
+	frame at either end is a visible, misleading extra block. #doOneCycle called from
+	the world process is exact: aCount sends are aCount frames."
+	| cov |
+	cov := SWACoverage new
+		captureCallTree: true;
+		methodsForPackages: aGlobCollection.
+	cov instrumentTrace.
+	[aCount timesRepeat: [aWorld doOneCycle]]
+		ensure: [
+			[cov collectTrace. cov uninstall]
+				ensure: [
+					SWAMethodWrapper uninstallAllStrayWrappers.
+					SWATallyWrapper resetCallTree.
+					SWATraceWrapper resetTrace]].
+	^ cov
+]
+
+{
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:52'
 }
@@ -929,8 +1040,55 @@ SWAPane class >> xrMenuProfileThousandFrames: aMenu [
 ]
 
 {
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:01'
+}
+SWAPane class >> xrMenuTraceOneFrame: aMenu [
+	<xrMenu: #(world profile) label: 'trace 1 frame' priority: 160>
+	"Trace a single frame and open a flame chart on it: every call that frame made, in
+	the order it made them, on a real time axis.
+
+	ONE frame is the honest default for a trace. The profile entries above answer 'what
+	is slow' and average over frames to do it; this answers 'what happened', and the
+	moment you record more than one frame the picture is a repetition you have to scroll
+	past. Reach for it when a frame is intermittently slow and the averages look fine.
+
+	Like the profile entries, the menu action runs in the world process, so the work is
+	deferred to the next frame boundary -- the frame this click is part of is NOT the one
+	traced. The pragma is only ever scanned by SRMenuRegistry, so this method is inert in
+	an image without SqueakXR."
+	^ self traceXRFrames: 1
+]
+
+{
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:10'
+}
+SWAPane class >> xrMenuTraceTenFrames: aMenu [
+	<xrMenu: #(world profile) label: 'trace 10 frames' priority: 170>
+	"Ten frames traced. The reason to want this over one frame is precisely that a trace
+	does not average: ten frames side by side make a PER-FRAME pattern visible -- the
+	step that only runs every third frame, the upload that happens once and then never,
+	the frame that took four times as long as its neighbours -- none of which a
+	single-frame trace or a ten-frame profile can show.
+
+	The price is EVICTION, not truncation: the log is unbounded, but each method drops
+	out after 1000 calls (SWACoverage>>instrumentTrace). Over ten frames the hot inner
+	methods will hit that, so the later frames are drawn with those levels missing --
+	their callees reattach one level up rather than disappearing. The window subtitle
+	says how many methods it happened to. That is the right trade for a trace: it
+	spends the budget on the repetitive tail of hot methods instead of on the end of
+	the run.
+
+	There is deliberately no 100- or 1000-frame trace to match the profile entries. A
+	profile can average over a thousand frames and say something true; a trace cannot
+	average, and a thousand frames of spans is not a picture anyone reads."
+	^ self traceXRFrames: 10
+]
+
+{
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:24'
 }
 SWAPane >> abandonInvocationTally [
 	"Tear down a live invocation tally WITHOUT collecting or touching the treemap/UI.
@@ -944,6 +1102,7 @@ SWAPane >> abandonInvocationTally [
 	self closeTallyStopWindow.
 	SWATallyWrapper resetCallTree.
 	SWATimingWrapper resetFrames.
+	SWATraceWrapper resetTrace.
 	SWAMethodWrapper uninstallAllStrayWrappers
 ]
 
@@ -1056,6 +1215,33 @@ SWAPane >> addCallTimingDataset: aSWACoverage name: aName [
 		aSWACoverage resultMap size printString, ' methods, ',
 		(SWASamplingTallyNode formatMicros: summedSelf), ' attributed of ',
 		(SWASamplingTallyNode formatMicros: aSWACoverage wallMicros), ' wall'.
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:32'
+}
+SWAPane >> addCallTraceDataset: aSWACoverage name: aName [
+	"Turn a collected TRACE run into a retained, named SWADataset and make it active.
+
+	Colouring follows the timing twin (self time), because the treemap is still a
+	treemap -- the trace lives in the dataset's #trace STRUCTURE, reached from the
+	Tree menu, not in the colouring.
+
+	The status line reports the trace's own summary next to the timing one, TRUNCATION
+	INCLUDED. That is the number most likely to invalidate what you are about to
+	conclude, so it goes where the conclusions are drawn."
+	| ds tm selfMetric |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset callTraceFrom: aSWACoverage named: aName).
+	tm selectDataset: ds.
+	selfMetric := ds metrics detect: [:m | m id == #selfTime] ifNone: [nil].
+	selfMetric ifNotNil: [tm colorMode: selfMetric modeSymbol].
+	self treemapCoverageStatus: 'Call Trace (', ds name, '): ',
+		aSWACoverage resultMap size printString, ' methods, ',
+		aSWACoverage traceStatus, ' -- open it from Tree > Trace (calls over time)'.
 	self refresh.
 	^ ds
 ]
@@ -1514,7 +1700,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:24'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -1545,12 +1731,16 @@ SWAPane >> codeMapGeneratorEntries [
 			entries add: { 'Generate: call tally (instrument + exercise, then Stop)'. #generateCallTallyDataset }.
 			entries add: { 'Generate: call tally (instrument + doit)'. #generateCallTallyDoitDataset }.
 			entries add: { 'Generate: call TIMING (instrument + exercise, then Stop)'. #generateCallTimingDataset }.
-			entries add: { 'Generate: call TIMING (instrument + doit)'. #generateCallTimingDoitDataset }]
+			entries add: { 'Generate: call TIMING (instrument + doit)'. #generateCallTimingDoitDataset }.
+			entries add: { 'Generate: call TRACE (instrument + exercise, then Stop)'. #generateCallTraceDataset }]
 		ifFalse: [
-			"One live run at a time, of either kind; the label says which is waiting."
-			entries add: { liveTally isTimingRun
-				ifTrue: ['Generate: call TIMING -- COLLECT now']
-				ifFalse: ['Generate: call tally -- COLLECT now']. #generateCallTallyDataset }].
+			"One live run at a time, of any kind; the label says which is waiting.
+			Ask #isTraceRun first -- a trace also answers #isTimingRun."
+			entries add: { liveTally isTraceRun
+				ifTrue: ['Generate: call TRACE -- COLLECT now']
+				ifFalse: [liveTally isTimingRun
+					ifTrue: ['Generate: call TIMING -- COLLECT now']
+					ifFalse: ['Generate: call tally -- COLLECT now']]. #generateCallTallyDataset }].
 	entries add: { 'Generate: sample tally (', self class sampleTallyDuration printString, 's CPU heat)'. #generateSampleTallyDataset }.
 	entries add: { 'Generate: topic model (k=', self class topicK printString, ')'. #generateTopicDataset }.
 	SWAGitHistory workingCopies isEmpty ifFalse: [
@@ -1617,7 +1807,7 @@ SWAPane >> collapseSource [
 
 {
 	#category : #coverage,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:24'
 }
 SWAPane >> collectInvocationTally [
 	"Read invocation counts from the live tally, uninstall the wrappers, close the STOP
@@ -1631,6 +1821,11 @@ SWAPane >> collectInvocationTally [
 	leaked run -- NOTHING is left instrumented (the Git-tool DNU came from orphaned
 	wrappers).
 
+	THREE kinds of run now arrive here through one ivar, so the dispatch asks
+	#isTraceRun BEFORE #isTimingRun: a trace IS a timing run (SWATraceWrapper is a
+	SWATimingWrapper and fills the same maps), so testing timing first would harvest
+	it correctly but silently throw the event log away.
+
 	That same ensure: also DROPS the shared call-tree capture state
 	(SWATallyWrapper resetCallTree). #collectTally has just moved the finished tree
 	into the SWACoverage, so nothing is lost -- but CallTreeWatched strongly holds
@@ -1638,19 +1833,23 @@ SWAPane >> collectInvocationTally [
 	and every method recompiled since), and it used to survive until the NEXT tally.
 	Cleanup belongs in the ensure:, not after the early ^, precisely because the
 	dataset branch below returns non-locally."
-	| n tm cov timing |
+	| n tm cov timing tracing |
 	liveTally ifNil: [^ self].
 	cov := liveTally.
 	"ONE ivar holds either flavour of live run, so ask the run itself which harvest
 	it needs: a TIMING run (SWATimingWrapper) must be read with #collectTiming, which
 	also freezes the wall clock and the microsecond maps."
+	tracing := cov isTraceRun.
 	timing := cov isTimingRun.
-	[timing ifTrue: [cov collectTiming] ifFalse: [cov collectTally].
+	[tracing
+		ifTrue: [cov collectTrace]
+		ifFalse: [timing ifTrue: [cov collectTiming] ifFalse: [cov collectTally]].
 	 cov uninstall]
 		ensure: [
 			SWAMethodWrapper uninstallAllStrayWrappers.
 			SWATallyWrapper resetCallTree.
-			SWATimingWrapper resetFrames].
+			SWATimingWrapper resetFrames.
+			SWATraceWrapper resetTrace].
 	self closeTallyStopWindow.
 	n := cov resultMap size.
 	tm := self treemap.
@@ -1658,6 +1857,8 @@ SWAPane >> collectInvocationTally [
 		ifTrue: [
 			tallyAsDataset := false.
 			liveTally := nil.
+			tracing ifTrue: [
+				^ self addCallTraceDataset: cov name: self nextCallTraceName].
 			^ timing
 				ifTrue: [self addCallTimingDataset: cov name: self nextCallTimingName]
 				ifFalse: [self addCallTallyDataset: cov name: self nextCallTallyName]].
@@ -2122,6 +2323,42 @@ SWAPane >> generateCallTimingDoitDataset [
 	self addCallTimingDataset: cov name: self nextCallTimingName.
 	failure ifNotNil: [
 		self treemapCoverageStatus: 'Call Timing (doit FAILED: ', failure, ') -- partial times kept']
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:23'
+}
+SWAPane >> generateCallTraceDataset [
+	"Data-menu GENERATE: the TRACE mode. Same two-phase shape as the tally and the
+	timing -- instrument, exercise, press STOP -- but what comes back is the run
+	itself, call by call, on a wall-clock axis, instead of a summary of it.
+
+	  1st pick -- instrument the shown packages with SWATraceWrapper AND pop up the
+	              STOP window;
+	  2nd phase -- press STOP to collect, UNINSTALL, and retain the result as a named
+	               SWADataset carrying the Timeline (trace) structure alongside the
+	               ordinary timing flamegraph.
+
+	When to reach for this rather than the timing mode: use TIMING to find which
+	method is slow, TRACE to find out WHY a particular moment was slow -- the call
+	that ran twice when it should have run once, the gap where nothing instrumented
+	was running, the render frame that the UI process preempted. Timing answers with
+	a distribution; tracing answers with a story, and only tracing can show two
+	processes interleaving.
+
+	Costs the most of the three: no eviction, work on every call, and 32 bytes of
+	buffer per call with a hard cap. Keep the scope and the exercise small.
+
+	If a run is already live this just collects it, whichever kind it is (idempotent
+	with the Stop button)."
+	| root |
+	liveTally ifNotNil: [^ self collectInvocationTally].
+	root := self codeRoot.
+	root ifNil: [^ self treemapCoverageStatus: 'Call Trace: only on a Code Map'].
+	tallyAsDataset := true.
+	self startInvocationTrace: root.
+	self openTallyStopWindow
 ]
 
 {
@@ -3232,6 +3469,18 @@ SWAPane >> nextCallTimingName [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:23'
+}
+SWAPane >> nextCallTraceName [
+	"Mint a unique name for a generated Call Trace run. Shares CallTallyCounter with
+	the tally and timing names, for the reason given in #nextCallTimingName: they land
+	in the same dataset list and must not collide."
+	CallTallyCounter := (CallTallyCounter ifNil: [0]) + 1.
+	^ 'Call Trace ', CallTallyCounter printString
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:58'
 }
@@ -3340,26 +3589,46 @@ SWAPane >> openSource [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:23'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
 }
 SWAPane >> openTallyStopWindow [
 	"Pop up a small window with a single STOP button that collects the live call tally.
 	STOP -> #collectInvocationTally; closing without stopping -> #abandonInvocationTally.
-	Retained so #collectInvocationTally can close it."
-	| timing |
+	Retained so #collectInvocationTally can close it.
+
+	THREE kinds of run share this window, and the wording is not decoration: what you
+	are allowed to do while it is open differs. A tally decays as hot methods evict; a
+	timing run does not and keeps the image slow; a TRACE evicts like the tally but
+	KEEPS every call it did see, so its cost is memory that grows with what you do.
+	The trace label says so, because 'exercise the system' is bad advice when the
+	honest advice is 'do the one thing you want to look at'."
+	| kind |
 	liveTally ifNil: [^ self].
-	timing := liveTally isTimingRun.
+	kind := liveTally isTraceRun
+		ifTrue: [#trace]
+		ifFalse: [liveTally isTimingRun ifTrue: [#timing] ifFalse: [#tally]].
 	tallyStopPanel := SWACoverageRunPanel new
 		onStop: [self collectInvocationTally];
 		onClose: [self abandonInvocationTally];
-		openInWindowTitled: (timing
-			ifTrue: ['Call Timing -- exercise, then Stop']
-			ifFalse: ['Call Tally -- exercise, then Stop']);
+		openInWindowTitled: (kind == #trace
+			ifTrue: ['Call Trace -- do the ONE thing, then Stop']
+			ifFalse: [kind == #timing
+				ifTrue: ['Call Timing -- exercise, then Stop']
+				ifFalse: ['Call Tally -- exercise, then Stop']]);
 		yourself.
-	tallyStopPanel status: (timing ifTrue: ['Timing '] ifFalse: ['Tallying ']),
+	tallyStopPanel status:
+		(kind == #trace
+			ifTrue: ['Tracing ']
+			ifFalse: [kind == #timing ifTrue: ['Timing '] ifFalse: ['Tallying ']]),
 		liveTally methods size printString,
 		' methods. Exercise the system, then press STOP to collect.',
-		(timing ifTrue: [' (no eviction: the image stays slow until you do)'] ifFalse: [''])
+		(kind == #trace
+			ifTrue: [' (each method drops out after ',
+				(liveTally evictAt ifNil: [0]) printString,
+				' calls; the log itself is unbounded, so keep it short)']
+			ifFalse: [kind == #timing
+				ifTrue: [' (no eviction: the image stays slow until you do)']
+				ifFalse: ['']])
 ]
 
 {
@@ -4107,6 +4376,36 @@ SWAPane >> startInvocationTiming: aCodeRoot [
 		methodsForPackages: aCodeRoot packageNames.
 	liveTally instrumentTiming.
 	self treemapCoverageStatus: 'Timing ', liveTally methods size printString,
+		' methods -- exercise, then press STOP to collect'
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
+}
+SWAPane >> startInvocationTrace: aCodeRoot [
+	"Event-log twin of #startInvocationTiming:: install live SWATraceWrappers on the
+	shown packages, so every call is not only counted and timed but RECORDED, with its
+	own start and end, in its own process's lane. They stay installed while you
+	exercise the system; the STOP window collects them.
+
+	The extra cost over timing is about 100 ns and 32 bytes PER CALL (measured on an
+	empty method: 340 ns/call for timing, 440 for tracing). The bytes are bounded not
+	by a buffer cap but by EVICTION -- each method drops out after evictAt calls -- so
+	the worst case is evictAt x methods events, and the typical case is far less.
+	Still: instrument a package, not the image.
+
+	Same CRITICAL stray sweep first as both twins: installing on top of a prior run's
+	wrappers LAYERS them, and collecting the new layer then restores and strands the
+	old one."
+	liveTally ifNotNil: [^ self collectInvocationTally].
+	SWAMethodWrapper uninstallAllStrayWrappers.
+	liveTally := SWACoverage new
+		captureCallTree: true;
+		methodsForPackages: aCodeRoot packageNames.
+	liveTally evictAt: 1000.
+	liveTally instrumentTrace.
+	self treemapCoverageStatus: 'Tracing ', liveTally methods size printString,
 		' methods -- exercise, then press STOP to collect'
 ]
 

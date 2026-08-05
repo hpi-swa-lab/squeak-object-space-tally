@@ -45,7 +45,10 @@ Class {
 		'callTreeRoot',
 		'timeMap',
 		'selfTimeMap',
-		'wallMicros'
+		'wallMicros',
+		'traceRoot',
+		'traceEvictedCount',
+		'traceEventCount'
 	],
 	#classVars : [
 		'CurrentTestName',
@@ -930,6 +933,44 @@ SWACoverage class >> timePackages: packageNames while: aBlock [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:06'
+}
+SWACoverage class >> tracePackages: packageNames while: aBlock [
+	"SYNCHRONOUS call TRACING: the event-log twin of #timePackages:while:. Instrument
+	every method of packageNames with SWATraceWrapper, evaluate aBlock, and collect
+	the moment it returns. Answers the collected SWACoverage, which holds everything a
+	timing run holds PLUS #collectTraceRoot -- the individual calls, in order, with
+	their own start and end times, one lane per process.
+
+	Same safety contract as the timing twin, with one addition: SWATraceWrapper
+	resetTrace joins the ensure:. The lanes strongly hold every wrapper they recorded,
+	so a busy run leaves megabytes behind if the reset is skipped -- and the reset
+	must be in the ensure:, not after, because an error in aBlock must not leak them
+	either.
+
+	Grab the tree BEFORE the ensure: has run? No: #collectTrace moves it into the
+	SWACoverage, so it survives the reset. That indirection is the whole reason
+	#collectTraceRoot is an accessor and not a builder.
+
+	Caveat, inherited: the block runs INSIDE the instrumented world, so the caller's
+	own calls into packageNames are traced too -- they appear in the caller's lane."
+	| cov |
+	SWAMethodWrapper uninstallAllStrayWrappers.
+	cov := self new
+		captureCallTree: true;
+		methodsForPackages: packageNames.
+	cov instrumentTrace.
+	[aBlock value] ensure: [
+		[cov collectTrace.
+		 cov uninstall] ensure: [
+			SWAMethodWrapper uninstallAllStrayWrappers.
+			SWATallyWrapper resetCallTree.
+			SWATraceWrapper resetTrace]].
+	^ cov
+]
+
+{
 	#category : #'forked child',
 	#'squeak_changestamp' : 'MCPServer 6/26/2026 10:50'
 }
@@ -1057,6 +1098,52 @@ SWACoverage >> collectTiming [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
+}
+SWACoverage >> collectTrace [
+	"Harvest a TRACE run: everything #collectTiming produces (counts, inclusive and
+	self microseconds, wall time, call tree) PLUS the reconstructed span tree.
+
+	DISARM FIRST. Uninstalling tens of thousands of wrappers is itself tens of
+	thousands of sends, and every one of them would otherwise be appended to the log
+	-- the tool measuring its own teardown. Disarming only stops appending; the lanes
+	stay readable.
+
+	Does not uninstall and does not free the lanes. The caller must send #uninstall
+	and, in an ensure:, SWATraceWrapper resetTrace -- the buffers strongly hold every
+	wrapper they recorded, so a full-capacity run is megabytes that would otherwise
+	survive until the next one."
+	| lanes |
+	SWATraceWrapper disarmTrace.
+	self collectTiming.
+	lanes := SWATraceWrapper traceLanes.
+	traceEventCount := lanes
+		inject: 0
+		into: [:s :lane | s + (SWATraceWrapper laneEventCount: lane)].
+	"Not 'truncated' any more -- the log is unbounded. What is incomplete is the set of
+	METHODS still being recorded at the end, so count the ones that evicted. Their
+	counts and times are lower bounds and their calls stop appearing in the tree."
+	traceEvictedCount := wrappers ifNil: [0] ifNotNil: [:ws | ws count: [:w | w evicted]].
+	traceRoot := SWATraceNode fromLanes: lanes.
+	^ resultMap
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:05'
+}
+SWACoverage >> collectTraceRoot [
+	"The reconstructed span tree (a SWATraceNode 'trace' with one lane per process),
+	or nil if this was not a trace run or nothing was recorded.
+
+	A pure accessor, like #collectCallTree: #collectTrace has already moved the tree
+	out of SWATraceWrapper's class variables into this instance, so the lanes can be
+	dropped in the collecting ensure: without taking the tree with them."
+	^ traceRoot
+]
+
+{
 	#category : #'boolean coverage',
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:54'
 }
@@ -1075,6 +1162,16 @@ SWACoverage >> describeException: e [
 	broken #messageText (some exceptions raise while describing themselves)."
 	^ [e class name, ': ', (e messageText ifNil: ['<no message>'])]
 		on: Error do: [:e2 | e class name, ' (messageText failed)']
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
+}
+SWACoverage >> evictAt [
+	"After how many calls a wrapper uninstalls itself, or nil for never. Read by the
+	UI so it can say what the bound on a run actually is."
+	^ evictAt
 ]
 
 {
@@ -1227,6 +1324,55 @@ SWACoverage >> instrumentTiming [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:07'
+}
+SWACoverage >> instrumentTrace [
+	"TRACE mode: everything #instrumentTiming does, plus an EVENT LOG. Each wrapped
+	call additionally appends {method. start. stop. depth} to its process's lane, so
+	the run can be rebuilt as individual spans on a wall-clock axis (a flame CHART)
+	instead of only as aggregates (a flame GRAPH). See the SWATraceWrapper comment.
+
+	EVICTION IS ON, unlike the timing twin, and it is what makes the log affordable.
+	Each method drops out after #evictAt calls (1000 by default), so the log costs
+	1000 x methods at worst instead of growing with the run. The alternative -- a
+	buffer cap -- spends the budget in exactly the wrong place: it keeps the beginning
+	and loses the END, which is where you were going. Eviction loses the repetitive
+	TAIL of hot methods, which is the part a trace has least to say about.
+
+	Three consequences, all deliberate:
+	  * an evicted method is invisible for the rest of the run;
+	  * its callees reattach one level up (see SWATraceNode class>>fromLane:) -- a
+	    level vanishes, nothing is misattributed;
+	  * #timeMap / #selfTimeMap / #resultMap become LOWER BOUNDS for evicted methods,
+	    because their wrapper stopped counting and stopped timing at the cut. So the
+	    timing metrics on a trace dataset are not interchangeable with those from a
+	    real timing run. #traceStatus says how many methods this affected.
+
+	ORDER MATTERS. #armTrace comes BEFORE the wrappers are installed, because the
+	install itself must not be recorded, and #wallMicros starts AFTER, because
+	instrumenting tens of thousands of methods takes seconds of setup that is not
+	part of what was exercised. The trace's own zero is SWATraceWrapper's
+	#traceStartMicros, set in #armTrace, so the two clocks agree to within the
+	install.
+
+	The log itself is UNBOUNDED (chunked, never truncated) -- eviction is the bound."
+	kind := #trace.
+	SWATimingWrapper resetFrames.
+	self captureCallTree
+		ifTrue: [SWATallyWrapper beginCallTreeFor: methods]
+		ifFalse: [SWATallyWrapper resetCallTree].
+	SWATraceWrapper armTrace.
+	wrappers := methods collect: [:m |
+		(SWATraceWrapper new
+			onClass: m methodClass selector: m selector evictAt: evictAt)
+			installNoFlush; yourself].
+	SWAMethodWrapper flushSystemCache.
+	wallMicros := Time utcMicrosecondClock.
+	^ self
+]
+
+{
 	#category : #exclusions,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 15:33'
 }
@@ -1247,7 +1393,7 @@ SWACoverage >> isSubstrate: aPackageName [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/29/2026 17:25'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:02'
 }
 SWACoverage >> isTimingRun [
 	"True if this run was instrumented with SWATimingWrapper, so #collectTiming (not
@@ -1260,7 +1406,24 @@ SWACoverage >> isTimingRun [
 	hand without going through #instrumentTiming."
 	#tally == kind ifTrue: [^ false].
 	#timing == kind ifTrue: [^ true].
+	"A TRACE run is a superset of a timing run -- SWATraceWrapper is a
+	SWATimingWrapper and fills the same three maps -- so it answers true here too.
+	Callers that want the event log as well must ask #isTraceRun FIRST."
+	#trace == kind ifTrue: [^ true].
 	^ wrappers notNil and: [wrappers notEmpty and: [wrappers first isKindOf: SWATimingWrapper]]
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:01'
+}
+SWACoverage >> isTraceRun [
+	"True if this run was instrumented with SWATraceWrapper, so #collectTrace is the
+	right harvest. #kind is authoritative and set at instrument time so the answer
+	survives #uninstall (which empties #wrappers), exactly as in #isTimingRun."
+	#trace == kind ifTrue: [^ true].
+	kind notNil ifTrue: [^ false].
+	^ wrappers notNil and: [wrappers notEmpty and: [wrappers first isKindOf: SWATraceWrapper]]
 ]
 
 {
@@ -1599,6 +1762,30 @@ SWACoverage >> timeMap [
 	"'Class>>selector' -> INCLUSIVE microseconds, filled by #collectTiming. Empty
 	Dictionary for a run that was not a timing run."
 	^ timeMap ifNil: [timeMap := Dictionary new]
+]
+
+{
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
+}
+SWACoverage >> traceStatus [
+	"One line about the captured trace, EVICTION INCLUDED. A method that evicted stops
+	appearing in the tree and its count and times stop growing, so a run with heavy
+	eviction looks like a run that quietly got simpler. This string is meant to be
+	shown, not just available."
+	| lanes |
+	traceRoot ifNil: [^ 'Trace: nothing recorded'].
+	lanes := traceRoot children size.
+	^ String streamContents: [:s |
+		s nextPutAll: 'Trace: ';
+			print: (traceEventCount ifNil: [0]);
+			nextPutAll: ' calls in ';
+			print: lanes;
+			nextPutAll: (lanes = 1 ifTrue: [' process'] ifFalse: [' processes']).
+		(traceEvictedCount ifNil: [0]) > 0 ifTrue: [
+			s nextPutAll: ' -- '; print: traceEvictedCount;
+			nextPutAll: ' methods evicted after '; print: (evictAt ifNil: [0]);
+			nextPutAll: ' calls (their counts/times are lower bounds)']]
 ]
 
 {

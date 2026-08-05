@@ -1200,6 +1200,25 @@ SWAView >> selectedNode [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:35'
+}
+SWAView >> selectedNode: aNodeOrNil [
+	"Set the selected node and refresh the chrome.
+
+	This lived only on SWATreemapMorph, but #selectNodeForKey: -- the cross-view
+	navigation every view is supposed to answer -- sends it unconditionally. So
+	cross-referencing INTO a flamegraph, timeline, calendar or trace raised a DNU
+	instead of selecting anything (visible in the image as
+	'MessageNotUnderstood: SWATimelineMorph>>selectedNode:'). The generic behaviour
+	belongs here; the treemap's override adds its provenance-filter side effect on
+	top."
+	selectedNode := aNodeOrNil.
+	self flushCache.
+	self refreshChrome
+]
+
+{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
 }

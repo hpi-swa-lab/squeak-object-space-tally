@@ -54,6 +54,23 @@ SWANode >> depth [
 
 {
 	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:03'
+}
+SWANode >> eventDurationMicros [
+	"How LONG this node lasted, in microseconds, or nil for an instant.
+
+	This is the one piece the existing temporal contract was missing. A commit or a
+	change is a point on the axis and needs only #eventTimeStamp; a CALL is an
+	interval, and an interval is what turns a histogram of instants
+	(SWATimelineMorph) into a flame chart. Implementing this -- plus #eventMicros --
+	is the whole contract a node family needs to be drawn as spans.
+
+	nil by default: almost nothing is an interval."
+	^ nil
+]
+
+{
+	#category : #temporal,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:33'
 }
 SWANode >> eventGroupKey [
@@ -62,6 +79,29 @@ SWANode >> eventGroupKey [
 	'commits' measure, which counts distinct acts rather than individual changes.
 	nil by default."
 	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:03'
+}
+SWANode >> eventMicros [
+	"WHEN this node happened, as absolute microseconds on the utcMicrosecondClock, or
+	nil if it has no position in time.
+
+	The microsecond twin of #eventTimeStamp, added for the TRACE view. Both exist on
+	purpose: #eventTimeStamp is a DateAndTime, which is the right currency for a
+	change set or a commit and the wrong one for a call that lasted 40 us -- the
+	existing temporal views truncate it with #asSeconds, which at trace scale rounds
+	every event in a run to the same instant. Nodes that are only dated to the second
+	implement #eventTimeStamp; nodes that are timed implement this.
+
+	Default derives from #eventTimeStamp when there is one, so any existing node
+	family is placeable on a microsecond axis for free (at second resolution), and
+	nil otherwise."
+	^ self eventTimeStamp
+		ifNil: [nil]
+		ifNotNil: [:t | t asSeconds * 1000000]
 ]
 
 {

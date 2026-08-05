@@ -99,6 +99,35 @@ SWADataset class >> callTimingFrom: aSWACoverage named: aString [
 
 {
 	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:31'
+}
+SWADataset class >> callTraceFrom: aSWACoverage named: aString [
+	"Turn a COLLECTED TRACE run into a retained, named dataset. A superset of
+	#callTimingFrom:named: -- same counts, same microsecond maps, same metrics, so
+	every existing view keeps working -- plus the STRUCTURE that only a trace can
+	offer: the calls themselves, in order, on a wall clock.
+
+	The trace structure is listed FIRST because it is the reason the run was made;
+	the flamegraph and the class treemap are the aggregates you could have got more
+	cheaply from a timing run, and they stay because a trace is also a timing run and
+	throwing them away would make tracing a strictly worse choice for half the
+	questions.
+
+	Pure construction -- no treemap, no UI."
+	| ds traceRoot structures |
+	ds := self callTimingFrom: aSWACoverage named: aString.
+	traceRoot := aSWACoverage collectTraceRoot.
+	traceRoot ifNil: [^ ds].
+	structures := OrderedCollection new.
+	structures add: (SWAStructure key: #trace label: 'Trace (calls over time)'
+		view: SWATraceMorph rootBlock: [traceRoot]).
+	structures addAll: ds structures.
+	ds structures: structures asArray.
+	^ ds
+]
+
+{
+	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
 }
 SWADataset class >> coverageFrom: aSWACoverageData named: aString [
