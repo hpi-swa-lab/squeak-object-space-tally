@@ -185,6 +185,15 @@ GSMetadata {
 				#name : 'SWA-Timeline'
 			},
 			#path : @58
+		},
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'SqueakSQLite3'
+			},
+			#path : FSAbsolutePath [
+				'src'
+			]
 		}
 	],
 	#name : 'squeak-object-space-tally'

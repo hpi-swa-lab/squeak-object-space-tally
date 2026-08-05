@@ -1,0 +1,227 @@
+"
+I connect to sqlite3 databases.
+
+To create an in-memory database, set the fileName to ':memory:'.  See ""http://www.sqlite.org/c3ref/open.html"" for more info.
+"
+Class {
+	#name : #SQLiteConnection,
+	#superclass : #Object,
+	#instVars : [
+		'reference',
+		'fileName',
+		'txn'
+	],
+	#classInstVars : [
+		'registry'
+	],
+	#category : #'SqueakSQLite3-Core-Public',
+	#'squeak_changestamp' : 'spd 5/19/2010 14:50'
+}
+
+{
+	#category : #'instance creation',
+	#'squeak_changestamp' : 'ab 12/16/2002 00:27'
+}
+SQLiteConnection class >> fileNamed: aString [
+	^ self new fileName: aString
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'tbn 1/25/2010 19:58'
+}
+SQLiteConnection class >> registry [
+	^ registry ifNil: [registry := WeakRegistry new]
+]
+
+{
+	#category : #finalization,
+	#'squeak_changestamp' : 'tbn 1/25/2010 19:58'
+}
+SQLiteConnection >> actAsExecutor [
+	super actAsExecutor.
+	fileName := nil
+]
+
+{
+	#category : #public,
+	#'squeak_changestamp' : 'ab 1/31/2003 16:20'
+}
+SQLiteConnection >> changedRows [
+	^ self isOpen
+		ifTrue: [SqliteLibrary default changedRows: reference]
+		ifFalse: [0]
+	
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'tbn 1/25/2010 19:58'
+}
+SQLiteConnection >> close [
+	self unregister.
+	self isOpen ifTrue: [SqliteLibrary default close: reference].
+	reference := nil.
+
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'ar 12/12/2011 20:50'
+}
+SQLiteConnection >> commit [
+	txn := false.
+	self execute: 'COMMIT' args: {}.
+
+]
+
+{
+	#category : #'prepared statements',
+	#'squeak_changestamp' : 'ar 12/9/2011 19:23'
+}
+SQLiteConnection >> execute: query args: args [
+	^Array streamContents:[:s|
+		self execute: query args: args do:[:result| s nextPut: result].
+	].
+]
+
+{
+	#category : #'prepared statements',
+	#'squeak_changestamp' : 'ar 12/12/2011 19:04'
+}
+SQLiteConnection >> execute: query args: args do: aBlock [
+
+	self isOpen ifFalse: [self open].
+	^SqliteLibrary default execute: query args: args on: reference do: aBlock.
+
+]
+
+{
+	#category : #public,
+	#'squeak_changestamp' : 'ab 1/29/2003 16:37'
+}
+SQLiteConnection >> executeQuery: aString [
+	^ self withResultForQuery: aString do:
+		[:result |
+		Array streamContents:
+			[:s |
+			result do: [:row | s nextPut: row]]]
+]
+
+{
+	#category : #public,
+	#'squeak_changestamp' : 'ab 12/16/2002 00:27'
+}
+SQLiteConnection >> fileName [
+	^ fileName
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'spd 5/19/2010 14:52'
+}
+SQLiteConnection >> fileName: aString [
+	"* Macs (tested OS 10.6.2) require an absolute file path to the database, Windows and Ubuntu do not
+	 * To create an in-memory database, pass ':memory:' as the argument."
+
+	fileName := aString
+]
+
+{
+	#category : #finalization,
+	#'squeak_changestamp' : 'ab 2/22/2003 23:15'
+}
+SQLiteConnection >> finalize [
+	self close.
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'ab 12/16/2002 00:28'
+}
+SQLiteConnection >> isOpen [
+	^ reference notNil and: [reference getHandle anySatisfy: [:i | i > 0]]
+]
+
+{
+	#category : #public,
+	#'squeak_changestamp' : 'ab 12/16/2002 00:34'
+}
+SQLiteConnection >> lastInsertId [
+	^ self isOpen
+		ifTrue: [SqliteLibrary default lastInsertId: reference]
+		ifFalse: [0]
+	
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'tbn 1/25/2010 19:58'
+}
+SQLiteConnection >> open [
+	reference := SqliteLibrary default open: fileName.
+	self register.
+
+]
+
+{
+	#category : #finalization,
+	#'squeak_changestamp' : 'ab 2/22/2003 22:31'
+}
+SQLiteConnection >> register [
+	self class registry add: self
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'ar 12/12/2011 20:51'
+}
+SQLiteConnection >> rollback [
+	txn := false.
+	self execute: 'ROLLBACK' args: {}.
+
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'ar 12/12/2011 20:50'
+}
+SQLiteConnection >> transact [
+	txn := true.
+	self execute: 'BEGIN TRANSACTION' args: {}.
+
+]
+
+{
+	#category : #public,
+	#'squeak_changestamp' : 'ar 12/12/2011 20:51'
+}
+SQLiteConnection >> transaction: aBlock [
+	"Wrap the given block inside a transaction"
+	| result |
+	txn ifNotNil:[^aBlock value].
+	[self transact.
+	result := aBlock value.
+	self commit.
+	] ifCurtailed:[self rollback].
+	^result
+]
+
+{
+	#category : #finalization,
+	#'squeak_changestamp' : 'ab 2/22/2003 22:32'
+}
+SQLiteConnection >> unregister [
+	self class registry remove: self ifAbsent: []
+]
+
+{
+	#category : #public,
+	#'squeak_changestamp' : 'tbn 1/25/2010 19:58'
+}
+SQLiteConnection >> withResultForQuery: aString do: aBlock [
+	|result|
+	self isOpen ifFalse: [self open].
+	result := SqliteLibrary default resultForQuery: aString on: reference.
+	^ [aBlock value: result] ensure: [result free]
+]
