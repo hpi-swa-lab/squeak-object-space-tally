@@ -9,7 +9,12 @@ Class {
 	#instVars : [
 		'reference',
 		'fileName',
-		'txn'
+		'txn',
+		'sessionStamp'
+	],
+	#classVars : [
+		'SessionCanary',
+		'SessionStamp'
 	],
 	#classInstVars : [
 		'registry'
@@ -17,6 +22,32 @@ Class {
 	#category : #'SqueakSQLite3-Core-Public',
 	#'squeak_changestamp' : 'spd 5/19/2010 14:50'
 }
+
+{
+	#category : #sessions,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:51'
+}
+SQLiteConnection class >> currentSessionStamp [
+	"A number that CHANGES whenever the image is resumed in a new OS process.
+	Connections remember the stamp they were opened under; anything carrying an
+	older one holds a pointer belonging to a process that no longer exists.
+
+	WHY A CANARY AND NOT A startUp: HOOK. The obvious implementation -- bump a
+	counter from #startUp: -- is unsafe here, and unsafely in the exact way that
+	already cost one image: the finalization process runs at userInterruptPriority,
+	ABOVE the process that walks the startUp list, so a connection can be finalized
+	BEFORE any hook of ours has run. A stamp must therefore be derivable on demand,
+	from the environment, with no setup having happened.
+
+	SessionCanary is an ExternalAddress, and the VM nulls every ExternalAddress on
+	snapshot. So `isNull` is a reliable 'we are in a new process' signal that is
+	true from the very first message send after load. One 1-byte allocation per
+	session, never freed -- the old one belonged to the old process anyway."
+	(SessionCanary isNil or: [SessionCanary isNull]) ifTrue: [
+		SessionCanary := ExternalAddress allocate: 1.
+		SessionStamp := (SessionStamp ifNil: [0]) + 1].
+	^ SessionStamp
+]
 
 {
 	#category : #'instance creation',
@@ -136,11 +167,35 @@ SQLiteConnection >> finalize [
 ]
 
 {
+	#category : #sessions,
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:51'
+}
+SQLiteConnection >> isFromDeadSession [
+	"True when this connection's sqlite3* was obtained by a PREVIOUS process, i.e.
+	the image has been saved and reloaded since it was opened.
+
+	Such a handle cannot be detected by looking at it. SqliteReference is an
+	ExternalStructure, so its handle is a ByteArray, and a ByteArray survives the
+	snapshot with every byte intact -- the stale pointer comes back looking exactly
+	like a live one and the nil/isNull tests of doc/FFI-startUp-handles.md all pass.
+	Handing it to sqlite3_close is an immediate SIGSEGV."
+	reference ifNil: [^ false].
+	^ sessionStamp ~= self class currentSessionStamp
+]
+
+{
 	#category : #private,
-	#'squeak_changestamp' : 'ab 12/16/2002 00:28'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:51'
 }
 SQLiteConnection >> isOpen [
-	^ reference notNil and: [reference getHandle anySatisfy: [:i | i > 0]]
+	"Guarded against the image having been saved and reloaded. The byte test alone
+	is NOT enough: the handle is a ByteArray, so its bytes survive a snapshot and a
+	pointer from a dead process passes it (see #isFromDeadSession). Answering false
+	here is what makes #close skip sqlite3_close, and what makes the next query
+	reopen instead of crashing the VM."
+	^ reference notNil
+		and: [self isFromDeadSession not
+		and: [reference getHandle anySatisfy: [:i | i > 0]]]
 ]
 
 {
@@ -156,10 +211,11 @@ SQLiteConnection >> lastInsertId [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'tbn 1/25/2010 19:58'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:51'
 }
 SQLiteConnection >> open [
 	reference := SqliteLibrary default open: fileName.
+	sessionStamp := self class currentSessionStamp.
 	self register.
 
 ]

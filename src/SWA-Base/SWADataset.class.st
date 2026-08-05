@@ -333,7 +333,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:02'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -443,6 +443,35 @@ SWADataset >> buildMetrics [
 			dataset: self; id: #gitAuthors; label: 'By number of authors (git)';
 			axes: #(#color #size); rollup: #max;
 			scale: (self spaceTallyScaleForMax: source maxAuthorCount); yourself)].
+	"OPENCODE ACCESS: one scan of an agent's conversation history, five questions.
+	Reads, writes and total touches SUM up the tree (a class's accesses are its
+	methods' accesses). Sessions and recency do NOT: summing session counts would
+	count one sitting once per method it touched, so a class edited ten times in a
+	single session would read as ten sessions; and summing timestamps is arithmetic
+	on the wrong kind of thing. Both roll up with #max, exactly as git churn's
+	author and recency metrics do."
+	kind == #openCodeAccess ifTrue: [
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #openCodeTouches; label: 'By accesses (opencode)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #touches)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #openCodeWrites; label: 'By writes (opencode)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #writes)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #openCodeReads; label: 'By reads (opencode)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #reads)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #openCodeSessions; label: 'By number of sessions (opencode)';
+			axes: #(#color #size); rollup: #max;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #sessions)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #openCodeRecency; label: 'By recency of last access (opencode)';
+			axes: #(#color); rollup: #max;
+			scale: (self gitRecencyScaleFrom: source minLastTouchSeconds
+				to: (source maxOf: #last)); yourself)].
 	^ ms
 ]
 
@@ -462,7 +491,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -505,12 +534,19 @@ SWADataset >> defaultBindings [
 	collapse everything the window did not touch."
 	kind == #gitChurn ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+	"openCodeAccess: colour by TOTAL accesses, the first metric. 'How much attention
+	did this get' is the question people arrive with; reads-only, writes-only,
+	sessions and recency are one menu pick away. Size stays intrinsic (LOC) per the
+	rule above -- sizing by accesses would collapse every method the agent never
+	opened, which is most of the image and the whole point of the comparison."
+	kind == #openCodeAccess ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
 	^ d
 ]
 
 {
 	#category : #scale,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
 }
 SWADataset >> defaultScale [
 	"A good out-of-the-box raw-value -> Color mapping chosen by #kind. Each metric
@@ -520,6 +556,7 @@ SWADataset >> defaultScale [
 	kind == #spaceTally ifTrue: [^ self spaceTallyScaleForMax: source maxSelf].
 	kind == #peer ifTrue: [^ self spaceTallyScaleForMax: source maxWeight].
 	kind == #gitChurn ifTrue: [^ self spaceTallyScaleForMax: (source maxOf: #commits)].
+	kind == #openCodeAccess ifTrue: [^ self spaceTallyScaleForMax: (source maxOf: #touches)].
 	^ [:v | Color gray: 0.3]
 ]
 

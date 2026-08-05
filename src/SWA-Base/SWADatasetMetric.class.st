@@ -271,7 +271,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -294,6 +294,11 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	id == #gitChurnLines ifTrue: [^ dataset source churnFor: aCrossRefKey].
 	id == #gitRecency ifTrue: [^ dataset source lastChangeSecondsFor: aCrossRefKey].
 	id == #gitAuthors ifTrue: [^ dataset source authorCountFor: aCrossRefKey].
+	id == #openCodeTouches ifTrue: [^ dataset source touchesFor: aCrossRefKey].
+	id == #openCodeWrites ifTrue: [^ dataset source writesFor: aCrossRefKey].
+	id == #openCodeReads ifTrue: [^ dataset source readsFor: aCrossRefKey].
+	id == #openCodeSessions ifTrue: [^ dataset source sessionCountFor: aCrossRefKey].
+	id == #openCodeRecency ifTrue: [^ dataset source lastTouchSecondsFor: aCrossRefKey].
 	^ nil
 ]
 

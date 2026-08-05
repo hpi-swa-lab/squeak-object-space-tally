@@ -256,7 +256,7 @@ SqliteLibrary >> apiStep: hStmt [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'ar 12/8/2011 15:11'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:58'
 }
 SqliteLibrary >> bindArg: arg at: index in: stmt [
 
@@ -264,7 +264,9 @@ SqliteLibrary >> bindArg: arg at: index in: stmt [
 	arg == false ifTrue:[^self apiBindInt: stmt with: index with: 0].
 	arg ==  nil ifTrue:[^self apiBindNull: stmt with: index].
 
-	arg isInteger ifTrue:[^self apiBindInt: stmt with: index with: arg].
+	"int64 for the same reason #execute:args:on:do: reads int64: binding a value
+	above 2^31 through sqlite3_bind_int wraps it, silently matching the wrong row."
+	arg isInteger ifTrue:[^self apiBindInt64: stmt with: index with: arg].
 	arg isFloat ifTrue:[^self apiBindDouble: stmt with: index with: arg].
 	arg isString ifTrue:[^self apiBindText: stmt with: index with: arg with: arg size with: -1].
 	(arg isKindOf: DateAndTime) ifTrue:[ | string |
@@ -328,7 +330,7 @@ SqliteLibrary >> close: anSqliteRef [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:11'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:58'
 }
 SqliteLibrary >> execute: query args: args on: sqliteRef do: aBlock [
 	"Execute the given query, binding the arguments as needed"
@@ -358,7 +360,9 @@ SqliteLibrary >> execute: query args: args on: sqliteRef do: aBlock [
 		1 to: colCount do:[:i| | colIdx |
 			colIdx := i-1.
 			(self apiColumnType: hStmt with: colIdx) caseOf: {
-				[1] -> [value := self apiColumnInt: hStmt with: colIdx].
+				"int64, NOT int: sqlite3_column_int truncates to 32 bits silently,
+				which turns every millisecond timestamp into a negative number."
+				[1] -> [value := self apiColumnInt64: hStmt with: colIdx].
 				[2] -> [value := self apiColumnDouble: hStmt with: colIdx].
 				[3] -> [value := self apiColumnText: hStmt with: colIdx].
 				[4] -> [self error: 'Blobs are not supported'].
