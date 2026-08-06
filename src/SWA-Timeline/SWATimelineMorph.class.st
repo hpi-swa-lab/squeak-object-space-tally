@@ -21,11 +21,26 @@ Class {
 	#name : #SWATimelineMorph,
 	#superclass : #SWATemporalView,
 	#instVars : [
-		'bars'
+		'bars',
+		'spans',
+		'layoutMode'
 	],
 	#category : #'SWA-Timeline',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:30'
+}
+SWATimelineMorph >> anyEventAnswers: aMeasure [
+	"Does any event have a value for aMeasure? Cached per measure: this decides
+	whether a menu entry appears, and the menu is rebuilt on every right-click."
+	| known |
+	known := self valueOfProperty: #measuresAnswered ifAbsentPut: [Dictionary new].
+	^ known at: aMeasure ifAbsentPut: [
+		self events anySatisfy: [:n | (n eventValueFor: aMeasure) notNil]]
+]
 
 {
 	#category : #layout,
@@ -62,7 +77,7 @@ SWATimelineMorph >> barWidth [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:50'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
 }
 SWATimelineMorph >> breadcrumbString [
 	"The visible time window, how much is in it, and what the height means."
@@ -71,13 +86,23 @@ SWATimelineMorph >> breadcrumbString [
 	"The panel asks for this while rebuilding its chrome, which can happen before
 	the first draw -- so make sure the buckets exist rather than reporting 0."
 	self ensureLayout.
+	self layoutMode == #spans ifTrue: [
+		^ String streamContents: [:s |
+			s nextPutAll: (TimeStamp fromSeconds: range first truncated) asDate printString;
+				nextPutAll: ' '; nextPutAll: (TimeStamp fromSeconds: range first truncated) asTime print24;
+				nextPutAll: '  ->  ';
+				nextPutAll: (TimeStamp fromSeconds: range second truncated) asDate printString;
+				nextPutAll: ' '; nextPutAll: (TimeStamp fromSeconds: range second truncated) asTime print24.
+			s nextPutAll: '   '; print: (spans ifNil: [#()]) size; nextPutAll: ' spans'.
+			s nextPutAll: '   w: duration   h: '; nextPutAll: self measureLabel.
+			s nextPutAll: '   [drag to zoom, right-click for options]']].
 	shown := bars ifNil: [#()] ifNotNil: [:b | b].
 	^ String streamContents: [:s |
-		s nextPutAll: (TimeStamp fromSeconds: range first) asDate printString;
-			nextPutAll: ' '; nextPutAll: (TimeStamp fromSeconds: range first) asTime print24;
+		s nextPutAll: (TimeStamp fromSeconds: range first truncated) asDate printString;
+			nextPutAll: ' '; nextPutAll: (TimeStamp fromSeconds: range first truncated) asTime print24;
 			nextPutAll: '  ->  ';
-			nextPutAll: (TimeStamp fromSeconds: range second) asDate printString;
-			nextPutAll: ' '; nextPutAll: (TimeStamp fromSeconds: range second) asTime print24.
+			nextPutAll: (TimeStamp fromSeconds: range second truncated) asDate printString;
+			nextPutAll: ' '; nextPutAll: (TimeStamp fromSeconds: range second truncated) asTime print24.
 		s nextPutAll: '   '; print: (shown inject: 0 into: [:a :b | a + b third size]);
 			nextPutAll: ' events'.
 		s nextPutAll: '   y: '; nextPutAll: self measureLabel.
@@ -166,13 +191,21 @@ SWATimelineMorph >> drawOn: aCanvas [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:50'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
 }
 SWATimelineMorph >> drawScaleLegendOn: aCanvas at: anOrigin [
 	"Without this the bar heights are relative to an invisible maximum, so the plot
 	shows shape but no magnitude. Label the top of the scale with the tallest
 	bucket's value and what it measures."
 	| font |
+	self layoutMode == #spans ifTrue: [
+		spans isEmptyOrNil ifTrue: [^ self].
+		^ aCanvas
+			drawString: (self formatSpanValue: self maxSpanValue), '  ', self measureLabel,
+				'   (width = duration)'
+			at: (4 @ 2) + anOrigin
+			font: Preferences standardSystemFont
+			color: (Color gray: 0.55)].
 	bars isEmpty ifTrue: [^ self].
 	font := Preferences standardSystemFont.
 	aCanvas
@@ -184,13 +217,21 @@ SWATimelineMorph >> drawScaleLegendOn: aCanvas at: anOrigin [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:36'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:20'
 }
 SWATimelineMorph >> drawSelectionOn: aCanvas at: anOrigin [
 	"Yellow frame around the bucket holding the selection. The selected event itself
 	is often a sub-pixel band, so highlighting its bar is what actually reads."
 	| bar |
 	selectedNode ifNil: [^ self].
+	"In span mode the event IS a box, so frame the box itself -- no proxy needed."
+	self layoutMode == #spans ifTrue: [
+		spans ifNil: [^ self].
+		^ (spans detect: [:e | e first == selectedNode] ifNone: [nil]) ifNotNil: [:e |
+			aCanvas
+				frameRectangle: ((e second expandBy: 1) translateBy: anOrigin)
+				width: 1
+				color: Color yellow]].
 	bar := bars detect: [:b | b third includes: selectedNode] ifNone: [nil].
 	bar ifNil: [^ self].
 	aCanvas
@@ -200,10 +241,45 @@ SWATimelineMorph >> drawSelectionOn: aCanvas at: anOrigin [
 ]
 
 {
-	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:36'
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
 }
-SWATimelineMorph >> ensureLayout [
+SWATimelineMorph >> drawSpansOn: aCanvas at: anOrigin [
+	"Every event as a box standing on the baseline, in time order so a later one
+	overlapping an earlier is drawn on top.
+
+	SEMI-TRANSPARENT fill: overlapping events are a real feature of the data, and an
+	opaque box would hide the one underneath entirely. Through the wash you can see
+	that two things ran at once, which is the point."
+	| font |
+	font := self labelFont.
+	spans do: [:e |
+		| r c |
+		r := e second.
+		c := self colorForNode: e first.
+		aCanvas fillRectangle: (r translateBy: anOrigin) color: (c alpha: 0.75).
+		(r width >= 2 and: [r height >= 3]) ifTrue: [
+			aCanvas
+				frameRectangle: (r translateBy: anOrigin)
+				width: 1
+				color: (c lighter alpha: 0.9)]].
+	"Labels last, so a wide box's name is never painted over by the box after it."
+	spans do: [:e |
+		| r |
+		r := e second.
+		(r width > 30 and: [r height >= font height]) ifTrue: [
+			aCanvas
+				drawString: (e first name truncateTo: (r width - 4) // (font widthOf: $m))
+				at: ((r left + 2) @ (r top + 1)) + anOrigin
+				font: font
+				color: (Color gray: 0.95)]]
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:18'
+}
+SWATimelineMorph >> ensureBucketLayout [
 	"Bucket the events in the current view range into fixed-width columns, and give
 	each bucket a rectangle scaled to the tallest bucket. Nothing here depends on
 	colour, so recolouring never runs it."
@@ -239,6 +315,59 @@ SWATimelineMorph >> ensureLayout [
 ]
 
 {
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:18'
+}
+SWATimelineMorph >> ensureLayout [
+	"Two layouts over the same events -- see #layoutMode."
+	self layoutMode == #spans
+		ifTrue: [^ self ensureSpanLayout]
+		ifFalse: [^ self ensureBucketLayout]
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:28'
+}
+SWATimelineMorph >> ensureSpanLayout [
+	"Build `spans` -- a flat list of { node. rect } -- one box per event on ONE time
+	axis: x from its start, WIDTH from its duration, HEIGHT from the measure.
+
+	One axis, not a band per kind. Lanes answer 'who was doing this', which the
+	colour already says; splitting the height axis between them costs the chart the
+	one thing it is for. With everything on a single baseline the silhouette is the
+	session's shape over time and the heights are directly comparable -- a four
+	second tool call next to a message that cost three cents.
+
+	Boxes may OVERLAP where events do. That is not a defect to pack around: two
+	things running at once is a fact about the session, and the honest way to draw
+	it is two boxes in the same place, drawn in time order so the later one is on
+	top."
+	| range span w plotH t0 maxV |
+	spans ifNotNil: [^ self].
+	spans := OrderedCollection new.
+	range := self viewRange ifNil: [^ self].
+	t0 := range first.
+	span := (range second - t0) max: 1/1000.
+	w := self width max: 1.
+	plotH := (self height - self axisHeight) max: 1.
+	maxV := self maxSpanValue.
+	self events do: [:n |
+		| secs dur x1 x2 v h |
+		secs := self secondsOf: n.
+		(secs notNil and: [secs >= t0 and: [secs <= range second]]) ifTrue: [
+			dur := (self durationSecondsOf: n) ifNil: [0].
+			x1 := ((secs - t0) / span * w) rounded.
+			x2 := (((secs + dur) - t0) / span * w) rounded max: x1 + self minSpanPixels.
+			v := self spanValueFor: n.
+			"A MINIMUM of one pixel, and never zero: an event we have no value for
+			(a user message has no cost) still happened, and a box of no height is
+			indistinguishable from a gap in the session."
+			h := ((v / maxV) * plotH) rounded max: 1.
+			spans add: {n. (x1 @ (plotH - h) corner: x2 @ plotH)}]]
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:37'
 }
@@ -248,11 +377,49 @@ SWATimelineMorph >> exploreSelected [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:36'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
 }
 SWATimelineMorph >> flushLayout [
 	bars := nil.
+	spans := nil.
+	"Derived from #measure, so they must die when it changes."
+	self removeProperty: #maxSpanValue.
+	self removeProperty: #groupSizes.
 	super flushLayout
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
+}
+SWATimelineMorph >> formatSpanValue: aNumber [
+	"Readable top-of-scale label. #duration arrives in MICROSECONDS and #cost in
+	dollars, and printing either raw ('4300000', '0.0187185') tells you nothing at a
+	glance."
+	self measure == #duration ifTrue: [
+		aNumber < 1000 ifTrue: [^ aNumber rounded printString , ' us'].
+		aNumber < 1000000 ifTrue: [^ ((aNumber / 1000.0) roundTo: 0.1) printString , ' ms'].
+		^ ((aNumber / 1000000.0) roundTo: 0.01) printString , ' s'].
+	self measure == #cost ifTrue: [^ '$' , ((aNumber roundTo: 0.0001) printString)].
+	^ aNumber rounded printString
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:28'
+}
+SWATimelineMorph >> groupSizeOf: aNode [
+	"How many events share aNode's #eventGroupKey. Counted in ONE pass over the
+	events and cached, because a per-event scan would make the layout quadratic."
+	| counts |
+	aNode eventGroupKey ifNil: [^ 1].
+	counts := self valueOfProperty: #groupSizes ifAbsentPut: [
+		| d |
+		d := Dictionary new.
+		self events do: [:n |
+			n eventGroupKey ifNotNil: [:k | d at: k put: (d at: k ifAbsent: [0]) + 1]].
+		d].
+	^ (counts at: aNode eventGroupKey ifAbsent: [1]) max: 1
 ]
 
 {
@@ -273,17 +440,65 @@ SWATimelineMorph >> initialize [
 ]
 
 {
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:19'
+}
+SWATimelineMorph >> labelFont [
+	^ self valueOfProperty: #labelFont ifAbsentPut: [
+		[StrikeFont familyName: 'DejaVu Sans Mono' size: 9]
+			on: Error do: [:e | Preferences standardSystemFont]]
+]
+
+{
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:37'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:22'
 }
 SWATimelineMorph >> labelForSeconds: secs step: aStep [
 	"Tick label at the granularity the step implies: below a day show the clock,
 	below a month show the date, above that show month and year."
 	| ts |
-	ts := TimeStamp fromSeconds: secs.
+	"TRUNCATED: the axis is now in fractional seconds (see
+	SWATemporalView>>secondsOf:), and TimeStamp wants a whole number."
+	ts := TimeStamp fromSeconds: secs truncated.
 	aStep < 86400 ifTrue: [^ ts asTime print24].
 	aStep < 2592000 ifTrue: [^ ts asDate monthIndex printString, '/', ts asDate dayOfMonth printString].
 	^ ts asDate monthName copyFrom: 1 to: (3 min: ts asDate monthName size)
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:23'
+}
+SWATimelineMorph >> layoutMode [
+	"#buckets -- the histogram: events bucketed into fixed-width columns, height =
+	measure. Answers 'how much activity around this time'. Every event is a PEAK.
+
+	#spans -- each event drawn as a box from its start to its end, in a band per
+	#eventLaneKey. Answers 'what was happening, and for how long'.
+
+	Defaults to #buckets, and is switched by the CALLER rather than auto-detected.
+	Auto-detection on 'do the events have durations' looked right and was wrong: the
+	whole-project timeline spans three months of tool calls that each lasted a few
+	seconds, so every span is at the minimum width and the result is a field of
+	identical ticks -- strictly less informative than the histogram it replaced.
+	Whether spans help depends on the ratio of event length to window length, which
+	only the opener knows. It stays one menu pick away either way."
+	^ layoutMode ifNil: [#buckets]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:31'
+}
+SWATimelineMorph >> layoutMode: aSymbol [
+	layoutMode := aSymbol.
+	self flushLayout.
+	"The two modes have different measure catalogues (#measureOptions), so a mode
+	switch can strand the view on a measure the new mode cannot plot -- #commits
+	means nothing without buckets, #duration means nothing as a bucket total. Fall
+	back to the first the new mode offers rather than drawing a flat line."
+	(self measureOptions anySatisfy: [:p | p first == self measure]) ifFalse: [
+		self measureOptions ifNotEmpty: [:opts | self measure: opts first first]]
 ]
 
 {
@@ -296,8 +511,77 @@ SWATimelineMorph >> maxBarValue [
 ]
 
 {
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:30'
+}
+SWATimelineMorph >> maxSpanValue [
+	"Tallest event under the current measure, which sets the vertical scale.
+
+	Over the WHOLE data, not over the visible window: rescaling as you pan would
+	make two moments in the same session incomparable, which is the one thing a
+	timeline has to get right.
+
+	No floor of 1. A cost is a fraction of a dollar, and clamping the scale to 1
+	made every message exactly one pixel tall -- the Cost axis drew a flat line and
+	looked like missing data. The only thing that needs guarding is division by
+	zero, which is what the epsilon is for."
+	^ self valueOfProperty: #maxSpanValue ifAbsentPut: [
+		(self events inject: 0 into: [:m :n | m max: (self spanValueFor: n)])
+			max: 0.000000001]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:30'
+}
+SWATimelineMorph >> measureLabel [
+	"The label from whichever catalogue is in force -- the span measures are not
+	the bucket measures, and the inherited lookup only knows the latter."
+	^ (self measureOptions detect: [:p | p first == self measure] ifNone: [nil])
+		ifNotNil: [:p | p second]
+		ifNil: [super measureLabel]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
+}
+SWATimelineMorph >> measureOptions [
+	"In SPAN mode the measure is the HEIGHT of each box, so the catalogue is
+	different: duration and cost are the two questions a session raises, and
+	#commits -- a count of distinct group keys within a bucket -- has no meaning
+	when there are no buckets.
+
+	Offered only where the nodes actually answer them, so a change-set timeline
+	never shows a Cost entry that would draw a flat line."
+	| opts |
+	self layoutMode == #spans ifFalse: [^ super measureOptions].
+	opts := OrderedCollection new.
+	{{#duration. 'Duration'}.
+	 {#cost. 'Cost'}.
+	 {#tokens. 'Tokens'}.
+	 {#context. 'Context (input+cache)'}.
+	 {#loc. 'Content size'}.
+	 {#count. 'Uniform'}} do: [:pair |
+		(self anyEventAnswers: pair first) ifTrue: [opts add: pair]].
+	^ opts asArray
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:19'
+}
+SWATimelineMorph >> minSpanPixels [
+	"Narrowest box a span is drawn as, whatever its real duration -- and the width
+	an INSTANT gets, since an event with no recorded end is still something that
+	happened and must not vanish. The label and the tooltip carry the real number;
+	widening is a drawing decision, not a claim about the data."
+	^ 2
+]
+
+{
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:37'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:19'
 }
 SWATimelineMorph >> mouseDown: evt [
 	"Left: select the event under the cursor (and start a possible range drag).
@@ -307,6 +591,13 @@ SWATimelineMorph >> mouseDown: evt [
 	local := evt position - self position.
 	evt yellowButtonPressed ifTrue: [^ self showMenuAt: evt].
 	dragStart := local. dragNow := nil.
+	self layoutMode == #spans ifTrue: [
+		node := self spanAt: local.
+		node ifNil: [^ self].
+		evt shiftPressed ifTrue: [
+			self toggleMark: node.
+			^ self flushCache].
+		^ self selectNode: node].
 	bar := self barAt: local.
 	bar ifNil: [^ self].
 	node := self nodeInBar: bar at: local.
@@ -375,7 +666,7 @@ SWATimelineMorph >> nodeInBar: aBar at: aLocalPoint [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:50'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:29'
 }
 SWATimelineMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	"Background, then the axis, then one stacked bar per bucket."
@@ -383,6 +674,11 @@ SWATimelineMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	aCanvas fillRectangle: (anOrigin extent: self extent) color: (Color gray: 0.12).
 	plotH := (self height - self axisHeight) max: 1.
 	self drawAxisOn: aCanvas at: anOrigin plotHeight: plotH.
+	self layoutMode == #spans ifTrue: [
+		spans ifNil: [^ self].
+		self drawSpansOn: aCanvas at: anOrigin.
+		self drawScaleLegendOn: aCanvas at: anOrigin.
+		^ self drawSelectionOn: aCanvas at: anOrigin].
 	bars ifNil: [^ self].
 	bars do: [:b | self drawBar: b on: aCanvas at: anOrigin].
 	self drawScaleLegendOn: aCanvas at: anOrigin.
@@ -402,7 +698,7 @@ SWATimelineMorph >> secondsAtX: anX [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:37'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:20'
 }
 SWATimelineMorph >> showMenuAt: evt [
 	"Right-click menu: zoom control plus the two axes that make this view
@@ -411,6 +707,11 @@ SWATimelineMorph >> showMenuAt: evt [
 	menu := MenuMorph new defaultTarget: self.
 	menu add: 'zoom out' selector: #zoomOut argument: nil.
 	menu add: 'reset zoom' selector: #resetZoom argument: nil.
+	menu addLine.
+	{{#spans. 'Spans (start .. end)'}. {#buckets. 'Histogram (bucketed peaks)'}} do: [:pair |
+		menu
+			add: (self layoutMode == pair first ifTrue: ['* '] ifFalse: ['   ']), pair second
+			selector: #layoutMode: argument: pair first].
 	menu addLine.
 	self measureOptions do: [:pair |
 		menu
@@ -425,6 +726,57 @@ SWATimelineMorph >> showMenuAt: evt [
 		menu addLine.
 		menu add: 'explore event' selector: #exploreSelected argument: nil].
 	menu popUpEvent: evt in: self world
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:19'
+}
+SWATimelineMorph >> spanAt: aLocalPoint [
+	"The span whose box contains the point. Searched LAST-FIRST so that when two
+	boxes were forced to overlap (both widened to #minSpanPixels at the same
+	instant) the click picks the one drawn on top, which is the one you saw."
+	spans ifNil: [^ nil].
+	spans reverseDo: [:e |
+		(e second containsPoint: aLocalPoint) ifTrue: [^ e first]].
+	^ nil
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:28'
+}
+SWATimelineMorph >> spanValueFor: aNode [
+	"What this event's HEIGHT stands for, under the current measure. 0 when the node
+	knows nothing about it.
+
+	Per-GROUP measures (cost, tokens -- accounted per message, repeated on each of
+	its parts) are divided by the number of events sharing the group, so that a
+	message's cost is spread across its parts instead of being drawn once per part
+	and multiplying the session's total by five."
+	| v |
+	v := aNode eventValueFor: self measure.
+	v ifNil: [^ 0].
+	(aNode eventValueIsPerGroup: self measure)
+		ifTrue: [^ v / (self groupSizeOf: aNode)].
+	^ v
+]
+
+{
+	#category : #spans,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:18'
+}
+SWATimelineMorph >> spansAvailable [
+	"Do enough events carry a duration for a span view to be worth offering?
+
+	A THIRD, not one: a session where only the tool calls are timed still reads
+	well as spans, but a change set with one accidentally-timed entry does not, and
+	silently switching that view to a row of ticks would be a regression."
+	| evts timed |
+	evts := self events.
+	evts isEmpty ifTrue: [^ false].
+	timed := evts count: [:n | (self durationSecondsOf: n) notNil].
+	^ timed * 3 >= evts size
 ]
 
 {

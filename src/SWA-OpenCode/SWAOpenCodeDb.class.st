@@ -91,6 +91,46 @@ SWAOpenCodeDb class >> onPath: aFileName [
 ]
 
 {
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:34'
+}
+SWAOpenCodeDb >> allPartsForProject: aProjectId do: aSevenArgBlock [
+	"Evaluate aSevenArgBlock with (partId, sessionId, messageId, timeCreated,
+	docPrefix, byteSize, fields) for EVERY part of a project -- not just the tool calls
+	#toolPartsForProject:do: returns. `fields` is { messageFields . partFields }:
+	{ role . cost . modelID . agent . tokens.total } and { input.class . input.name }.
+
+	NO json_extract OF THE PART DOCUMENT for the type. The document is what makes
+	this expensive (a tool part carries whole files), and `type` is always its FIRST
+	key -- so a 64-character SUBSTR carries the type and, for a tool part, the tool
+	name, read out by #partKindFromPrefix: without parsing anything.
+
+	Everything else IS extracted, and measured before it was written:
+
+		role only                       4417 ms
+		+ cost, model, agent             4455 ms   (same message parse)
+		+ the tool call's target class   4969 ms
+
+	80128 rows either way. A shallow json_extract short-circuits, which is why the
+	target class costs 500 ms here and not the 16 s the eleven-path tool scan takes.
+	There is nothing here worth caching or loading in the background."
+	| sql |
+	sql := 'select p.id, p.session_id, p.message_id, p.time_created, substr(p.data, 1, 64), length(p.data),'
+		, ' json_extract(m.data, ''$.role'', ''$.cost'', ''$.modelID'', ''$.agent'', ''$.tokens.total''),'
+		, ' json_extract(p.data, ''$.state.input.class'', ''$.state.input.name'')'
+		, ' from part p join message m on m.id = p.message_id'
+		, ' where p.session_id in (select id from session where project_id = ?)'
+		, ' order by p.time_created'.
+	^ self query: sql args: (Array with: aProjectId) do: [:pid :sid :mid :tc :prefix :len :mjson :pjson |
+		"A brace array, not Array with:...: the class-side constructor stops at SIX
+		arguments and this needs seven."
+		aSevenArgBlock valueWithArguments: {
+			pid. sid. mid. tc. prefix. len.
+			{(mjson ifNil: [Array new: 5] ifNotNil: [Json readFrom: mjson readStream]).
+			 (pjson ifNil: [Array new: 2] ifNotNil: [Json readFrom: pjson readStream])}}]
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:28'
 }
@@ -101,6 +141,22 @@ SWAOpenCodeDb >> connection [
 	(FileDirectory default fileExists: path)
 		ifFalse: [self error: 'No opencode store at ' , path].
 	^ connection := SQLiteConnection readOnlyFileNamed: path
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:32'
+}
+SWAOpenCodeDb >> countPartsForProject: aProjectId [
+	"How many parts the project has. ~300 ms, which is worth paying to give
+	#allPartsForProject:do: a real progress bar instead of a spinner that cannot say
+	how far along it is."
+	| n |
+	n := 0.
+	self query: 'select count(*) from part p where p.session_id in (select id from session where project_id = ?)'
+		args: (Array with: aProjectId)
+		do: [:c | n := c].
+	^ n
 ]
 
 {
@@ -172,7 +228,27 @@ SWAOpenCodeDb >> partDataAt: aPartId [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:45'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:28'
+}
+SWAOpenCodeDb >> partKindFromPrefix: aString [
+	"{ type . tool } read straight out of the opening characters of a part document,
+	without a JSON parse -- see #allPartsForProject:do: for why.
+
+	Answers nil for a STEP MARKER. Those documents open with `snapshot` or `reason`
+	rather than `type`, which makes them free to identify and free to drop: they are
+	opencode's framing of a message, not something that happened, and there are two
+	per assistant turn."
+	| type tool |
+	aString ifNil: [^ nil].
+	type := self valueAfter: '"type":"' in: aString.
+	type ifNil: [^ nil].
+	tool := self valueAfter: '"tool":"' in: aString.
+	^ {type asSymbol. tool}
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:35'
 }
 SWAOpenCodeDb >> partsForSession: aSessionId do: aBlock [
 	"Metadata for EVERY part of one session -- text, reasoning, tool, step markers --
@@ -190,7 +266,13 @@ SWAOpenCodeDb >> partsForSession: aSessionId do: aBlock [
 		"End times, and BOTH spellings: a tool part carries its interval under
 		$.state.time, a reasoning part carries it at the top level under $.time.
 		Pulling only one of them is why duration was blank for half the parts."
-		, ' ''$.state.time.end'', ''$.time.start'', ''$.time.end''),'
+		, ' ''$.state.time.end'', ''$.time.start'', ''$.time.end'','
+		"WHAT the call was about. The squeak_* MCP tools leave $.state.title
+		EMPTY, so without these a whole conversation of method edits reads as
+		twenty identical rows saying 'squeak_get_source_code'. All three are
+		short identifiers -- unlike $.state.input.source, which is a method
+		body and stays out."
+		, ' ''$.state.input.class'', ''$.state.input.method'', ''$.state.input.name''),'
 		, ' json_extract(m.data, ''$.role''),'
 		, ' length(p.data)'
 		, ' from part p join message m on m.id = p.message_id'
@@ -204,7 +286,7 @@ SWAOpenCodeDb >> partsForSession: aSessionId do: aBlock [
 	^ self query: sql args: (Array with: aSessionId) do: [:pid :mid :tc :json :role :len |
 		aBlock valueWithArguments: (Array
 			with: pid with: mid with: tc
-			with: (json ifNil: [Array new: 9] ifNotNil: [Json readFrom: json readStream])
+			with: (json ifNil: [Array new: 12] ifNotNil: [Json readFrom: json readStream])
 			with: role with: len)]
 ]
 
@@ -360,4 +442,22 @@ SWAOpenCodeDb >> toolPartsForProject: aProjectId do: aTwoArgBlock [
 		aTwoArgBlock value: sid value: (json
 			ifNil: [Array new: self toolPartFieldPaths size]
 			ifNotNil: [Json readFrom: json readStream])]
+]
+
+{
+	#category : #querying,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:28'
+}
+SWAOpenCodeDb >> valueAfter: aKey in: aString [
+	"The JSON string value following aKey, or nil. Deliberately naive: it is applied
+	only to the first 64 characters of a document whose shape we know, where the
+	value cannot contain an escaped quote. Anything more would be a JSON parser,
+	which is exactly the cost this avoids."
+	| i j |
+	i := aString indexOfSubCollection: aKey startingAt: 1.
+	i = 0 ifTrue: [^ nil].
+	i := i + aKey size.
+	j := aString indexOf: $" startingAt: i ifAbsent: [0].
+	j = 0 ifTrue: [^ nil].
+	^ aString copyFrom: i to: j - 1
 ]

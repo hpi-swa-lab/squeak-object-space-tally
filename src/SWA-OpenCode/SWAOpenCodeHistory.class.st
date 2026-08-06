@@ -184,28 +184,35 @@ SWAOpenCodeHistory >> linkSubagents [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:13'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:29'
 }
 SWAOpenCodeHistory >> openCalendar [
 	"Activity per calendar day; click a day to drill into its hours."
 	| view |
-	view := SWACalendarMorph on: (SWAOpenCodeNode sessionTreeFor: self).
+	"#calendarTreeFor:, not #sessionTreeFor: -- the latter carries only tool calls,
+	so a day of long conversations with little tooling read as almost empty."
+	view := SWACalendarMorph on: (SWAOpenCodeNode calendarTreeFor: self).
 	view extent: (Display extent * 0.7) rounded - (0 @ 60).
 	^ self openPane: (SWAPane on: view) labeled: 'opencode calendar: ' , worktree
 ]
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:34'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:32'
 }
 SWAOpenCodeHistory >> openCodeMapFor: aSession [
-	"A Code Map of the packages this session actually worked in, coloured by what
+	"A Code Map of the CLASSES this session actually worked in, coloured by what
 	the session did to them.
 
-	Scoping to the touched packages rather than opening the whole image is the
-	point: the map is then almost entirely code this conversation had an opinion
-	about, and the uncoloured tiles are the neighbours it left alone."
-	| names root view ds overlay |
+	The baseline is deliberately class-grained. Scoping by PACKAGE was still far
+	too coarse: one edited method dragged in its whole package, so a typical
+	session showed a dozen coloured tiles adrift in fifteen hundred grey ones and
+	the reading you came for was invisible. Scoping by METHOD would be too tight
+	in the other direction -- an edit means nothing without the siblings it sits
+	among. So a touched class comes in WHOLE, untouched methods included: those
+	are the context. Classes nobody touched are left out."
+	| names root view ds overlay classes |
+	classes := aSession touchedClasses.
 	names := aSession touchedPackageNames.
 	"Answer nil, not the result of #inform: -- a session that only ran shell
 	commands and greps has no Code Map, and callers need to be able to tell that
@@ -215,6 +222,7 @@ SWAOpenCodeHistory >> openCodeMapFor: aSession [
 		^ nil].
 	root := SWACodeRootNode new name: aSession title; yourself.
 	names do: [:n | root addPackages: n].
+	root classFilter: classes.
 	view := SWACodeTreemapMorph on: root.
 	view extent: (Display extent * 0.7) rounded - (0 @ 60).
 	ds := self datasetForSession: aSession.
@@ -291,6 +299,24 @@ SWAOpenCodeHistory >> openFlowFor: aSession [
 	view setRoot: (SWAOpenCodeNode conversationTreeFor: aSession).
 	view extent: (Display extent * 0.7) rounded - (0 @ 60).
 	pane := self openPane: (SWAPane on: view) labeled: 'opencode flow: ' , aSession title.
+	[pane model openSource] on: Error do: [:e | nil].
+	^ pane
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:05'
+}
+SWAOpenCodeHistory >> openFlowMapFor: aSession [
+	"The conversation as a 2D map of TURNS: your questions across the top, the work
+	each one cost hanging beneath it. See SWAOpenCodeFlowMapMorph -- the sibling of
+	#openFlowFor:, same items, a layout that uses the width of the window instead of
+	spending it on four lanes."
+	| view pane |
+	view := SWAOpenCodeFlowMapMorph new.
+	view setRoot: (SWAOpenCodeNode conversationTreeFor: aSession).
+	view extent: (Display extent * 0.7) rounded - (0 @ 60).
+	pane := self openPane: (SWAPane on: view) labeled: 'flow map: ' , aSession title.
 	[pane model openSource] on: Error do: [:e | nil].
 	^ pane
 ]
@@ -382,6 +408,15 @@ SWAOpenCodeHistory >> printOn: aStream [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:28'
+}
+SWAOpenCodeHistory >> projectId [
+	"opencode's id for this worktree, which is what every project-wide query keys on."
+	^ projectId
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:34'
 }
 SWAOpenCodeHistory >> rootSessions [
@@ -450,6 +485,17 @@ SWAOpenCodeHistory >> scanToolCalls [
 SWAOpenCodeHistory >> sessions [
 	"All sessions, subagents included, oldest first."
 	^ sessions
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:28'
+}
+SWAOpenCodeHistory >> sessionsById [
+	"Session id -> SWAOpenCodeSession, for joining a raw scan back to its sessions.
+	Populated by the same scan that fills #sessions."
+	self sessions.
+	^ sessionsById ifNil: [sessionsById := Dictionary new]
 ]
 
 {

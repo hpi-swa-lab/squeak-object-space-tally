@@ -24,7 +24,8 @@ Class {
 		'packages',
 		'displayName',
 		'categoryOwners',
-		'packageParents'
+		'packageParents',
+		'classFilter'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
@@ -79,15 +80,20 @@ SWACodeRootNode >> allPackageInfos [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 10:00'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:31'
 }
 SWACodeRootNode >> buildChildren [
 	"One SWACodePackageNode per TOP-LEVEL selected package (those with no selected
 	parent package). Sub-packages are nested under their parent by
 	SWACodePackageNode>>buildChildren, so e.g. 'Graphics-Fonts' becomes a child of
 	'Graphics' rather than a sibling. Sorted by name."
-	^ ((self childPackageInfosOf: nil)
-		collect: [:pkg | SWACodePackageNode on: pkg parent: self]) asOrderedCollection
+	| nodes |
+	nodes := ((self childPackageInfosOf: nil)
+		collect: [:pkg | SWACodePackageNode on: pkg parent: self]) asOrderedCollection.
+	"See #classFilter:: a selected package none of whose classes survive the filter
+	is dropped rather than tiled as an empty header."
+	self hasClassFilter ifTrue: [nodes := nodes select: [:n | n children notEmpty]].
+	^ nodes
 ]
 
 {
@@ -104,6 +110,32 @@ SWACodeRootNode >> childPackageInfosOf: aPackageInfoOrNil [
 ]
 
 {
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:30'
+}
+SWACodeRootNode >> classFilter: aBlockOrCollectionOrNil [
+	"Narrow the map to a SUBSET OF CLASSES inside the selected packages. Selecting
+	whole packages is too coarse when the interesting set is 'what one session
+	touched': one edited method drags in its entire package, so the reading you came
+	for is a handful of tiles lost in thousands of neighbours.
+
+	The filter takes a class and answers whether to tile it -- pass a one-arg block,
+	or any collection of classes (turned into a Set membership test), or nil for no
+	filtering. TOUCHED CLASSES ARE ADMITTED WHOLE: every method of an included class
+	is tiled, so the untouched siblings of an edited method still read as its
+	context. It is only the classes nobody touched that disappear."
+	classFilter := aBlockOrCollectionOrNil isNil
+		ifTrue: [nil]
+		ifFalse: [aBlockOrCollectionOrNil isCollection
+			ifTrue: [[:cls | aBlockOrCollectionOrNil includes: cls]]
+			ifFalse: [aBlockOrCollectionOrNil]].
+	children := nil.
+	categoryOwners := nil.
+	packageParents := nil.
+	^ self
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:44'
 }
@@ -117,12 +149,34 @@ SWACodeRootNode >> displayName [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:08'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:31'
 }
 SWACodeRootNode >> estimatedNodeCount [
 	"Cheap estimate: sum of selected packages' class counts (+1 per package + self),
 	without forcing source/LOC."
-	^ 1 + (packages inject: 0 into: [:s :p | s + 1 + p classes size])
+	^ 1 + (packages inject: 0 into: [:s :p |
+		s + 1 + (p classes count: [:cls | self includesClass: cls])])
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:31'
+}
+SWACodeRootNode >> hasClassFilter [
+	"Is a subset-of-classes filter active? Package nodes prune themselves when empty
+	only in that case -- without a filter no package can be empty, and the pruning
+	check would force every package's children to be built up front."
+	^ classFilter notNil
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:30'
+}
+SWACodeRootNode >> includesClass: aClass [
+	"Should aClass be tiled? See #classFilter: -- no filter means every class in the
+	selected packages."
+	^ classFilter isNil or: [classFilter value: aClass]
 ]
 
 {

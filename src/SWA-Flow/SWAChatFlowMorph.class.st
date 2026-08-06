@@ -90,6 +90,18 @@ SWAChatFlowMorph >> byteSizeFor: aNode [
 ]
 
 {
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:59'
+}
+SWAChatFlowMorph >> clampScroll [
+	"Re-clamp after a relayout, inline rather than through #scrollTo: which would
+	recurse back into #ensureLayout. A relayout can shrink the scrollable range --
+	growing the window does exactly that -- and an unclamped scroll then points past
+	the last item, which is one of the ways this view can end up drawing nothing."
+	scrollY := (scrollY max: 0) min: ((contentHeight - self height) max: 0)
+]
+
+{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:42'
 }
@@ -135,6 +147,21 @@ SWAChatFlowMorph >> colorModeOptions [
 ]
 
 {
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:59'
+}
+SWAChatFlowMorph >> computeLayout [
+	"Fill `layout` -- one Rectangle per item of #items, in CONTENT coordinates (y
+	growing downward from 0, x rightward from 0) -- and set `contentHeight`.
+
+	This is the whole of what a concrete flow view has to decide. Everything else
+	in this class works off the rectangles: drawing, hit testing, hover, scrolling.
+	SWAOpenCodeFlowMorph stacks them in one column; SWAOpenCodeFlowMapMorph spreads
+	them over a grid of turns."
+	^ self subclassResponsibility
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:43'
 }
@@ -165,7 +192,7 @@ SWAChatFlowMorph >> contentMode: aSymbol [
 
 {
 	#category : #content,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:43'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:39'
 }
 SWAChatFlowMorph >> contentTextFor: aNode [
 	"#full asks the node for its whole source, which for an opencode part triggers
@@ -173,7 +200,10 @@ SWAChatFlowMorph >> contentTextFor: aNode [
 	in #full mode loads every row you pass. #preview and #label cost nothing."
 	contentMode == #label ifTrue: [^ aNode name].
 	contentMode == #preview ifTrue: [
-		^ (aNode respondsTo: #previewString)
+		"#previewString: WITH the colon -- testing the unary spelling always
+		answered false, so #preview quietly rendered the same bare label as
+		#label and the mode did nothing at all."
+		^ (aNode respondsTo: #previewString:)
 			ifTrue: [aNode previewString: self previewChars]
 			ifFalse: [aNode name]].
 	contentMode == #full ifTrue: [
@@ -279,35 +309,33 @@ SWAChatFlowMorph >> drawEmptyOn: aCanvas [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:24'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
 SWAChatFlowMorph >> drawOn: aCanvas [
-	"VIRTUALISED, and drawn straight to the canvas with no cached Form -- unlike
-	the treemap and temporal views, which cache because they must redraw everything
-	on every change. Here only the rows intersecting the visible band are touched,
-	so a 24000-item flow costs the same as a 30-item one and scrolling stays smooth
+	"VIRTUALISED, and drawn straight to the canvas with no cached Form -- unlike the
+	treemap and temporal views, which cache because they must redraw everything on
+	every change. Here only the items #visibleIndicesDo: yields are touched, so a
+	24000-item flow costs the same as a 30-item one and scrolling stays smooth
 	without any cache to invalidate."
-	| lay top bottom i |
+	| lay off |
 	aCanvas fillRectangle: self bounds color: self color.
 	self ensureZoomBar.
 	lay := self ensureLayout.
 	lay isEmpty ifTrue: [^ self drawEmptyOn: aCanvas].
-	top := scrollY.
-	bottom := scrollY + self height.
-	"CLIPPED: rows at the top and bottom edge are half outside the morph, and
+	off := self position - self scrollOffset.
+	"CLIPPED: items at the edges are half outside the morph, and
 	#drawString:at:font:color: does not clip -- without this the partial rows paint
 	their text over whatever morph happens to sit next to this one."
-	aCanvas clipBy: (self bounds insetBy: 0 @ 0) during: [:c |
-		i := self firstIndexAtOrAfter: top.
-		[i <= lay size and: [(lay at: i) top <= bottom]] whileTrue: [
+	aCanvas clipBy: self bounds during: [:c |
+		self visibleIndicesDo: [:i |
 			| rr |
-			rr := (lay at: i) translateBy: self position - (0 @ scrollY).
-			"Sub-pixel rows still have to be SEEN. Zoomed far out many rows round to
-			zero height; giving each a single pixel is what turns the flow into a
+			rr := (lay at: i) translateBy: off.
+			"Sub-pixel cells still have to be SEEN. Zoomed far out many round to
+			zero; giving each a single pixel is what turns the flow into a
 			continuous band rather than a sparse comb of the few that survived."
 			rr height < 1 ifTrue: [rr := rr origin corner: rr corner + (0 @ 1)].
-			self drawRow: (self items at: i) rect: rr index: i on: c.
-			i := i + 1]].
+			rr width < 1 ifTrue: [rr := rr origin corner: rr corner + (1 @ 0)].
+			self drawRow: (self items at: i) rect: rr index: i on: c]].
 	self drawScrollIndicatorOn: aCanvas
 ]
 
@@ -335,68 +363,28 @@ SWAChatFlowMorph >> drawRow: aNode rect: r index: i on: aCanvas [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:22'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
 SWAChatFlowMorph >> ensureLayout [
-	"One Rectangle per item, in view coordinates with y growing downward from 0.
-	Computed for ALL items (cheap: arithmetic, no drawing) so that scrolling is a
-	lookup rather than a re-layout; only DRAWING is virtualised."
-	| y gap |
-	"VALIDITY IS CHECKED AGAINST THE EXTENT, not against an invalidation hook.
+	"One Rectangle per item, computed for ALL items (cheap: arithmetic, no drawing)
+	so that scrolling is a lookup rather than a re-layout. Only DRAWING is
+	virtualised, through #visibleIndicesDo:.
+
+	VALIDITY IS CHECKED AGAINST THE EXTENT, not against an invalidation hook.
 	Overriding #extent: was NOT enough, and that was the bug: SWAPane resizes its
 	view through a LAYOUT POLICY, which sets bounds via #privateBounds: and never
-	sends #extent:. The layout then silently kept the old geometry while #drawOn:
-	computed the visible band from the new height, so the binary search indexed a
-	layout that no longer described the morph and the view drew almost nothing.
+	sends #extent:. The layout then silently kept the old geometry while drawing
+	computed the visible band from the new height, so the search indexed a layout
+	that no longer described the morph and the view drew almost nothing.
 
 	Stamping the layout with the extent it was built for is correct whichever of
 	Morphic's several bounds-setting paths is used."
 	(layout notNil and: [layoutExtent = self extent]) ifTrue: [^ layout].
 	layout := Array new: self items size.
-	y := self topInset asFloat.
-	gap := self rowGap.
-	"y is a FLOAT accumulator and only the BOUNDARIES are rounded: row i runs from
-	`y rounded` to `(y + h) rounded`. Rounding each height independently would
-	accumulate error over 24000 rows; rounding boundaries cannot drift, and rows
-	still tile exactly even when each is a fraction of a pixel tall. A row that
-	rounds to zero height is kept -- #drawOn: gives it its one pixel."
-	self items doWithIndex: [:n :i |
-		| h topY botY r |
-		h := self rowHeightFor: n.
-		topY := y rounded.
-		botY := (y + h) rounded.
-		r := self rowRectFor: n index: i height: botY - topY.
-		layout at: i put: (r translateBy: 0 @ topY).
-		y := y + h + gap].
-	contentHeight := y rounded + self topInset.
+	self computeLayout.
 	layoutExtent := self extent.
-	"Re-clamp, inline rather than through #scrollTo: which would recurse back into
-	here. A relayout can shrink the scrollable range -- growing the window does
-	exactly that -- and an unclamped scrollY then points past the last row, which
-	is the OTHER way this view could end up drawing nothing."
-	scrollY := (scrollY max: 0) min: ((contentHeight - self height) max: 0).
+	self clampScroll.
 	^ layout
-]
-
-{
-	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:47'
-}
-SWAChatFlowMorph >> firstIndexAtOrAfter: aY [
-	"Binary search for the first row whose bottom reaches aY. The layout is built
-	in increasing y, so it is sorted by construction and this is what makes drawing
-	genuinely O(visible) rather than O(items) -- otherwise every repaint scans all
-	24000 rows to find the thirty that are on screen."
-	| lay lo hi mid |
-	lay := self ensureLayout.
-	lo := 1.
-	hi := lay size.
-	[lo < hi] whileTrue: [
-		mid := lo + hi // 2.
-		((lay at: mid) bottom < aY)
-			ifTrue: [lo := mid + 1]
-			ifFalse: [hi := mid]].
-	^ lo
 ]
 
 {
@@ -460,18 +448,24 @@ SWAChatFlowMorph >> handlesMouseWheel: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:23'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:07'
 }
 SWAChatFlowMorph >> hoverIsUseful [
-	"Only when a row is tall enough for a highlight frame to be visible at all."
-	"Gated on the REPAINT COST, not on the zoom number: what makes hover unaffordable
-	is how many rows are on screen, and that is what a hover repaint has to redraw.
-	Both ends come from the binary search, so this costs O(log n)."
-	| first last |
+	"Gated on the REPAINT COST, not on the zoom number: what makes hover
+	unaffordable is how many cells are on screen, since that is what a hover repaint
+	has to redraw. Zoomed far out a one-pixel hover frame is invisible anyway, so
+	tracking it would buy nothing and cost a repaint per pixel of mouse travel.
+
+	Counts through #visibleIndicesDo: and RETURNS OUT of the block at the limit, so
+	this is O(401) whatever the layout. A layout that can answer the same question
+	in O(log n) should override -- see SWAOpenCodeFlowMorph."
+	| n |
 	self ensureLayout.
-	first := self firstIndexAtOrAfter: scrollY.
-	last := self firstIndexAtOrAfter: scrollY + self height.
-	^ last - first <= 400
+	n := 0.
+	self visibleIndicesDo: [:i |
+		n := n + 1.
+		n > 400 ifTrue: [^ false]].
+	^ true
 ]
 
 {
@@ -704,16 +698,16 @@ SWAChatFlowMorph >> mouseUp: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:24'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
 SWAChatFlowMorph >> nodeAt: aGlobalPoint [
-	"The zoom bar floats OVER the rows; a click on it must not also select whatever
-	row happens to lie beneath."
+	"The zoom bar floats OVER the items; a click on it must not also select whatever
+	happens to lie beneath."
 	| lay p |
 	(zoomBar notNil and: [zoomBar bounds containsPoint: aGlobalPoint])
 		ifTrue: [^ nil].
 	lay := self ensureLayout.
-	p := aGlobalPoint - self position + (0 @ scrollY).
+	p := aGlobalPoint - self position + self scrollOffset.
 	self items doWithIndex: [:n :i |
 		((lay at: i) containsPoint: p) ifTrue: [^ n]].
 	^ nil
@@ -763,108 +757,24 @@ SWAChatFlowMorph >> resetZoom [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:43'
-}
-SWAChatFlowMorph >> rowGap [
-	"Vanishes when zoomed far out: at one pixel per row the gap would be half the
-	picture, and the point of zooming out is a continuous shape, not a dotted line."
-	^ zoom < 0.4 ifTrue: [0] ifFalse: [2]
-]
-
-{
-	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:22'
-}
-SWAChatFlowMorph >> rowHeightFor: aNode [
-	"The Y axis, scaled by zoom.
-
-	#content is on a LOG scale. Item sizes here span four orders of magnitude (a
-	step marker is 75 bytes, a file read is 300000), and a linear mapping would give
-	one item the whole window and everything else a sub-pixel sliver -- which is not
-	a visualisation, it is a scrollbar. The log keeps the ordering visible while
-	still letting a big item read as big."
-	"NO PIXEL FLOOR. A `max: 1` here is what stopped this view zooming out: with
-	24458 items it pinned the content to at least 24458 pixels, so the whole flow
-	could never be brought on screen however far you zoomed.
-
-	Rows may now be a fraction of a pixel tall. #ensureLayout accumulates the exact
-	position and rounds only the BOUNDARIES, so sub-pixel rows still land in the
-	right place and the pixel floor is applied at DRAW time, where it belongs."
-	^ (self rowHeightUnitFor: aNode) * zoom
-]
-
-{
-	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:45'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:01'
 }
 SWAChatFlowMorph >> rowHeightUnitFor: aNode [
-	"Row height at zoom 1, as a FLOAT and with no pixel floor. Factored out of
-	#rowHeightFor: so that height is exactly linear in zoom -- which is what makes
-	#zoomToFit solvable in closed form instead of by searching."
-	| base f max |
-	base := 3.0.
-	yMode == #uniform ifTrue: [^ base * 6].
-	"LINEAR in lines, deliberately NOT logarithmic. #content compresses four orders
-	of magnitude so that everything stays on one screen; this does the opposite --
-	a row is exactly as tall as its text needs, so at zoom 1 with content shown the
-	flow reads as the document it is. The price is an enormous canvas when a tool
-	dumped a whole file, which is what the zoom is for."
-	yMode == #loc ifTrue: [
-		^ (self lineCountFor: aNode) * self contentFont height + 6].
-	"Raw stored length, linear. Differs from #loc wherever lines are long or the
-	document carries a lot of JSON scaffolding, and differs from #content by not
-	compressing -- the same quantity #content shows, told honestly."
-	yMode == #bytes ifTrue: [
-		^ ((self byteSizeFor: aNode) / 24.0) max: 1.0].
-	yMode == #duration ifTrue: [
-		f := (aNode respondsTo: #eventDurationMicros)
-			ifTrue: [(aNode eventDurationMicros ifNil: [0]) / 1000.0]
-			ifFalse: [0].
-		"sqrt of milliseconds: durations span from a 2 ms step marker to a 60 s
-		build, and a linear axis would make everything but the slowest invisible.
-		No hard cap -- the old `min: 60` flattened everything above 3.6 s into one
-		height, which hid exactly the outliers this mode exists to find. Zoom is
-		the right answer to a very tall row, not clipping the data."
-		^ base + (f sqrt * 1.5)].
-	max := self maxItemSize.
-	f := (aNode totalSize max: 1) ln / (max max: 2) ln.
-	^ base + (f * 90)
+	"The Y axis at zoom 1. Kept as a named method because #zoomToFit and the strip
+	layout speak in terms of row HEIGHT; the general form is #sizeUnitFor:mode:."
+	^ self sizeUnitFor: aNode mode: yMode
 ]
 
 {
-	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:18'
+	#category : #scrolling,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:59'
 }
-SWAChatFlowMorph >> rowRectFor: aNode index: i height: h [
-	"The X axis. Answers a rectangle at y = 0; #ensureLayout translates it down.
-
-	#lane is the chat metaphor generalised: items are sorted into columns by
-	#laneIndexFor:, so who-said-what is readable as a shape without reading a word."
-	| w x lanes li right |
-	w := self contentWidth - (self sideInset * 2).
-	xMode == #indent ifTrue: [
-		x := self sideInset + ((aNode depth min: 8) * 14).
-		^ x @ 0 corner: (self contentWidth - self sideInset) @ h].
-	xMode == #metric ifTrue: [
-		| f |
-		f := (aNode totalSize max: 1) ln / (self maxItemSize max: 2) ln.
-		^ self sideInset @ 0 corner: (self sideInset + ((w * f) rounded max: 3)) @ h].
-	xMode == #lane ifTrue: [
-		"INTEGER DIVISION, and each edge derived from a lane BOUNDARY rather than
-		from a width added to an origin. `w * li / lanes` answers a Fraction
-		whenever the width is not a multiple of the lane count, and a Rectangle
-		with Fraction coordinates cannot be blitted -- the view rendered only at
-		widths divisible by 4 and was blank at the other three out of four, which
-		is why resizing by a pixel turned it on and off.
-
-		Deriving both edges from boundaries also stops rounding accumulating, so
-		lanes tile exactly instead of drifting apart by a pixel each."
-		lanes := self laneCount.
-		li := self laneIndexFor: aNode.
-		x := self sideInset + (w * li // lanes).
-		right := self sideInset + (w * (li + 1) // lanes) - 6.
-		^ x @ 0 corner: (right max: x + 3) @ h].
-	^ self sideInset @ 0 corner: (self contentWidth - self sideInset) @ h
+SWAChatFlowMorph >> scrollOffset [
+	"Content coordinates of the top-left corner of the viewport. Vertical only here
+	-- a strip is never wider than its window. A 2D layout overrides this to add its
+	own horizontal scroll, and every user of the layout (drawing, hit testing,
+	hover) then follows without knowing anything changed."
+	^ 0 @ scrollY
 ]
 
 {
@@ -967,6 +877,57 @@ SWAChatFlowMorph >> sideInset [
 
 {
 	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:01'
+}
+SWAChatFlowMorph >> sizeUnitFor: aNode mode: aMode [
+	"How big aNode wants to be along ONE axis under aMode, at zoom 1, as a FLOAT and
+	with no pixel floor.
+
+	Takes the mode as an ARGUMENT rather than reading yMode, so that a 2D view can
+	drive its width and its height from the same catalogue of size modes -- width by
+	duration and height by cost is a perfectly good question, and there is no reason
+	these should have been height-only.
+
+	Exactly linear in zoom, which is what makes #zoomToFit solvable in closed form
+	instead of by searching.
+
+	#content is on a LOG scale. Item sizes span four orders of magnitude (a step
+	marker is 75 bytes, a file read is 300000), and a linear mapping would give one
+	item the whole window and everything else a sub-pixel sliver -- which is not a
+	visualisation, it is a scrollbar. The log keeps the ordering visible while still
+	letting a big item read as big."
+	| base f max |
+	base := 3.0.
+	aMode == #uniform ifTrue: [^ base * 6].
+	"LINEAR in lines, deliberately NOT logarithmic. #content compresses four orders
+	of magnitude so that everything stays on one screen; this does the opposite -- a
+	cell is exactly as big as its text needs, so at zoom 1 with content shown the
+	flow reads as the document it is. The price is an enormous canvas when a tool
+	dumped a whole file, which is what the zoom is for."
+	aMode == #loc ifTrue: [
+		^ (self lineCountFor: aNode) * self contentFont height + 6].
+	"Raw stored length, linear. Differs from #loc wherever lines are long or the
+	document carries a lot of JSON scaffolding, and differs from #content by not
+	compressing -- the same quantity #content shows, told honestly."
+	aMode == #bytes ifTrue: [
+		^ ((self byteSizeFor: aNode) / 24.0) max: 1.0].
+	aMode == #duration ifTrue: [
+		f := (aNode respondsTo: #eventDurationMicros)
+			ifTrue: [(aNode eventDurationMicros ifNil: [0]) / 1000.0]
+			ifFalse: [0].
+		"sqrt of milliseconds: durations span from a 2 ms step marker to a 60 s
+		build, and a linear axis would make everything but the slowest invisible.
+		No hard cap -- a `min: 60` flattened everything above 3.6 s into one size,
+		which hid exactly the outliers this mode exists to find. Zoom is the right
+		answer to a very big cell, not clipping the data."
+		^ base + (f sqrt * 1.5)].
+	max := self maxItemSize.
+	f := (aNode totalSize max: 1) ln / (max max: 2) ln.
+	^ base + (f * 90)
+]
+
+{
+	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:43'
 }
 SWAChatFlowMorph >> topInset [
@@ -975,29 +936,25 @@ SWAChatFlowMorph >> topInset [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:23'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:01'
 }
 SWAChatFlowMorph >> updateHoverAt: aGlobalPoint [
-	"Hover was dead code: #handlesMouseOver: answered true and hoverIndex was only
-	ever set back to nil, so the highlight could never appear."
+	"Hover was dead code once: #handlesMouseOver: answered true and hoverIndex was
+	only ever set back to nil, so the highlight could never appear.
+
+	SUPPRESSED when zoomed far out. Redrawing the fully zoomed-out flow costs ~33 ms
+	because every one of 24458 items is on screen, and at that zoom a one-pixel
+	hover frame is invisible anyway -- so tracking it would buy nothing and cost a
+	repaint per pixel of mouse travel."
 	| lay p found |
-	"Hover is SUPPRESSED when zoomed far out. Redrawing the fully zoomed-out flow
-	costs ~33 ms because every one of 24458 rows is on screen, and at that zoom a
-	one-pixel hover frame is invisible anyway -- so tracking it would buy nothing
-	and cost a repaint per pixel of mouse travel."
 	self hoverIsUseful ifFalse: [
 		hoverIndex ifNotNil: [hoverIndex := nil. self changed].
 		^ self].
 	lay := self ensureLayout.
-	p := aGlobalPoint - self position + (0 @ scrollY).
+	p := aGlobalPoint - self position + self scrollOffset.
 	found := nil.
-	(self firstIndexAtOrAfter: scrollY) to: lay size do: [:i |
-		| r |
-		r := lay at: i.
-		r top > (scrollY + self height) ifTrue: [
-			found ~= hoverIndex ifTrue: [hoverIndex := found. self changed].
-			^ self].
-		(r containsPoint: p) ifTrue: [found := i]].
+	self visibleIndicesDo: [:i |
+		((lay at: i) containsPoint: p) ifTrue: [found := i]].
 	found ~= hoverIndex ifTrue: [hoverIndex := found. self changed]
 ]
 
@@ -1007,6 +964,29 @@ SWAChatFlowMorph >> updateHoverAt: aGlobalPoint [
 }
 SWAChatFlowMorph >> viewKind [
 	^ #chatFlow
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:59'
+}
+SWAChatFlowMorph >> visibleContentRect [
+	"The viewport in CONTENT coordinates -- what #visibleIndicesDo: has to intersect."
+	^ self scrollOffset extent: self extent
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:59'
+}
+SWAChatFlowMorph >> visibleIndicesDo: aBlock [
+	"Evaluate aBlock with the index of each item whose rectangle can be on screen.
+
+	A hook rather than a scan of everything, because this is what keeps a 24000-item
+	flow costing the same as a 30-item one. A layout whose rectangles are sorted can
+	binary-search and stop; one that is not has to test. Only the layout knows which
+	it is, so only the layout can say."
+	^ self subclassResponsibility
 ]
 
 {
@@ -1046,15 +1026,6 @@ SWAChatFlowMorph >> wrap: aString toWidth: w font: aFont max: maxLines [
 	#category : #modes,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
 }
-SWAChatFlowMorph >> xMode: aSymbol [
-	xMode := aSymbol.
-	self flushLayout
-]
-
-{
-	#category : #modes,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
-}
 SWAChatFlowMorph >> yMode: aSymbol [
 	yMode := aSymbol.
 	self flushLayout
@@ -1085,28 +1056,6 @@ SWAChatFlowMorph >> zoomBarSpecs [
 
 {
 	#category : #zooming,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:23'
-}
-SWAChatFlowMorph >> zoomBy: aFactor at: aLocalY [
-	"Zoom the Y axis, KEEPING THE ITEM UNDER THE POINTER PUT. Zooming about the top
-	of the window instead makes the flow shoot away under the cursor and is the
-	difference between a usable zoom and an unusable one."
-	| anchor newZoom oldHeight |
-	oldHeight := contentHeight ifNil: [1].
-	anchor := (scrollY + aLocalY) / (oldHeight max: 1).
-	"Lower bound is now tiny, not 0.05: rows may be sub-pixel, so 'zoomed out' can
-	mean the whole 24000-item flow on one screen."
-	newZoom := (zoom * aFactor) min: 40.0 max: 0.00002.
-	newZoom = zoom ifTrue: [^ self].
-	zoom := newZoom.
-	layout := nil.
-	self ensureLayout.
-	self scrollTo: (anchor * contentHeight) - aLocalY.
-	self changed
-]
-
-{
-	#category : #zooming,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
 }
 SWAChatFlowMorph >> zoomIn [
@@ -1119,26 +1068,4 @@ SWAChatFlowMorph >> zoomIn [
 }
 SWAChatFlowMorph >> zoomOut [
 	self zoomBy: 0.625 at: self height // 2
-]
-
-{
-	#category : #zooming,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:22'
-}
-SWAChatFlowMorph >> zoomToFit [
-	"Bring the WHOLE flow on screen at once -- the overview end of the zoom.
-
-	Solved in closed form rather than searched: #rowHeightUnitFor: is the height at
-	zoom 1 and heights are exactly linear in zoom, so with the inter-row gap zero
-	(it is, below zoom 0.4) the content is `zoom * unitTotal + 2 * topInset` and the
-	zoom that fits follows directly."
-	| unit |
-	self items isEmpty ifTrue: [^ self].
-	unit := self items inject: 0.0 into: [:a :n | a + (self rowHeightUnitFor: n)].
-	unit <= 0 ifTrue: [^ self].
-	zoom := ((self height - (self topInset * 2)) / unit) min: 40.0.
-	layout := nil.
-	self ensureLayout.
-	self scrollTo: 0.
-	self changed
 ]

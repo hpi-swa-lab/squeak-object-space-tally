@@ -32,7 +32,9 @@ Class {
 		'timeCreated',
 		'text',
 		'byteSize',
-		'fullContent'
+		'fullContent',
+		'className',
+		'selector'
 	],
 	#category : #'SWA-OpenCode',
 	#'squeak_changestamp' : '<historical>'
@@ -46,6 +48,31 @@ SWAOpenCodePart >> byteSize [
 	"Length of the stored JSON document. Includes the JSON scaffolding, so it
 	overstates the content -- honest enough to size a box, not a measurement."
 	^ byteSize
+]
+
+{
+	#category : #content,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:37'
+}
+SWAOpenCodePart >> contentBodyOrNil [
+	"The rendered content WITHOUT the banner #renderDocument: puts on top of it, or
+	nil when nothing has been loaded. Fetches nothing.
+
+	The banner repeats the label, the part id and the timestamp -- all of which the
+	surrounding view already shows. In a 400-character preview that header is most
+	of the budget, so the row ends up spelling out an id nobody reads instead of the
+	call's input."
+	| i body |
+	fullContent ifNil: [^ nil].
+	i := fullContent indexOfSubCollection: (String new: 70 withAll: $-) startingAt: 1.
+	i = 0 ifTrue: [^ fullContent].
+	body := (fullContent copyFrom: i + 70 to: fullContent size) withBlanksTrimmed.
+	"'STATUS: completed' too: the headline already carries any status worth
+	reporting, and spending a preview line on the word 'completed' is how a
+	whole column of rows ends up saying the same thing."
+	(body beginsWith: 'STATUS:') ifTrue: [
+		body := (body copyAfter: Character cr) withBlanksTrimmed].
+	^ body
 ]
 
 {
@@ -145,14 +172,22 @@ SWAOpenCodePart >> isContentLoaded [
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:27'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:36'
 }
 SWAOpenCodePart >> label [
 	"Short label for the box. Falls back through what is actually available: a tool
 	part has a title, a text part has its opening words, a step marker has neither."
 	type == #tool ifTrue: [
+		"Prefer the Smalltalk target over $.state.title: the squeak_* MCP tools
+		leave the title empty, so 'squeak_get_source_code' alone was all a row
+		could say. 'squeak_get_source_code SWASpaceTally>>captureDeepUniverse'
+		is the same width and actually names the subject."
 		^ (tool ifNil: ['tool']) asString
-			, (title ifNil: [''] ifNotNil: [:t | ' ' , (t truncateTo: 40)])].
+			, (self targetKey
+				ifNotNil: [:k | ' ' , k]
+				ifNil: [title
+					ifNil: ['']
+					ifNotNil: [:t | t isEmpty ifTrue: [''] ifFalse: [' ' , (t truncateTo: 40)]]])].
 	(type == #text or: [type == #reasoning]) ifTrue: [
 		| p |
 		p := (text ifNil: ['']) copyReplaceAll: (String with: Character cr) with: ' '.
@@ -206,19 +241,28 @@ SWAOpenCodePart >> messageId [
 
 {
 	#category : #printing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:46'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:37'
 }
 SWAOpenCodePart >> previewString: nChars [
-	"Preview from the ALREADY LOADED metadata only. If the content happens to be
-	cached from an earlier #fullContent it is used, but nothing is fetched: this
-	runs per visible row per repaint."
+	"Preview from the ALREADY LOADED metadata only -- nothing is fetched, because
+	this runs per visible row per repaint.
+
+	A TOOL part always leads with its own headline: the tool, what it was aimed at
+	(#targetKey -- 'SWASpaceTally>>captureDeepUniverse'), and an error marker. Only
+	then, and only if the content happens to be cached, does the body follow.
+	Dumping the raw rendered document instead -- which is what this did -- spent the
+	preview on '=== squeak_get_source_code / part prt_ed4a4c0e... / STATUS:
+	completed', so every squeak call in the flow looked identical."
+	type == #tool ifTrue: [
+		^ String streamContents: [:s |
+			s nextPutAll: self label.
+			(status notNil and: [status ~~ #completed])
+				ifTrue: [s nextPutAll: '  ['; nextPutAll: status asString; nextPutAll: ']'].
+			self contentBodyOrNil
+				ifNil: [s cr; nextPutAll: '(select to load the full call)']
+				ifNotNil: [:b | s cr; nextPutAll: (b truncateTo: (nChars - self label size max: 0))]]].
 	fullContent ifNotNil: [^ fullContent truncateTo: nChars].
 	(text notNil and: [text notEmpty]) ifTrue: [^ text truncateTo: nChars].
-	type == #tool ifTrue: [
-		^ (tool ifNil: ['tool']) asString
-			, (title ifNil: [''] ifNotNil: [:t | ' ' , t])
-			, ((status == #error) ifTrue: ['  [error]'] ifFalse: [''])
-			, String cr , '(select to load the full call)'].
 	^ self label
 ]
 
@@ -270,11 +314,13 @@ SWAOpenCodePart >> session [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:45'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:36'
 }
 SWAOpenCodePart >> setSession: aSession id: aPartId message: aMessageId time: aTime fields: f role: aRole size: aSize [
-	"f is the multi-path json_extract of SWAOpenCodeDb>>partsForSession:do::
-	type, tool, state.status, state.title, state.time.start, text."
+	"Positional unpacking of the multi-path json_extract in
+	SWAOpenCodeDb>>partsForSession:do:: type, tool, state.status, state.title,
+	state.time.start, text, state.time.end, time.start, time.end,
+	state.input.class, state.input.method, state.input.name."
 	session := aSession.
 	id := aPartId.
 	messageId := aMessageId.
@@ -289,7 +335,22 @@ SWAOpenCodePart >> setSession: aSession id: aPartId message: aMessageId time: aT
 	$.time for a reasoning block."
 	startMillis := (f at: 5) ifNil: [f at: 8].
 	text := f at: 6.
-	endMillis := (f at: 7) ifNil: [f at: 9]
+	endMillis := (f at: 7) ifNil: [f at: 9].
+	"What a squeak_* call was aimed at. squeak_write_class_code names its class
+	`name`, every other squeak tool calls it `class` -- normalised here so
+	#targetKey has one rule, the same normalisation SWAOpenCodeToolCall makes."
+	className := (f at: 10 ifAbsent: [nil]) ifNil: [f at: 12 ifAbsent: [nil]].
+	selector := f at: 11 ifAbsent: [nil]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:23'
+}
+SWAOpenCodePart >> startMillis [
+	"UNIX milliseconds at which this part began, or nil. Raw: see
+	SWAOpenCodeNode>>eventMicros for why this must not be treated as a Squeak time."
+	^ startMillis
 ]
 
 {
@@ -298,6 +359,24 @@ SWAOpenCodePart >> setSession: aSession id: aPartId message: aMessageId time: aT
 }
 SWAOpenCodePart >> status [
 	^ status
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 12:36'
+}
+SWAOpenCodePart >> targetKey [
+	"The Smalltalk thing this tool call was aimed at, in SWA's own crossRefKey
+	spelling -- 'Class>>selector' for a method, 'Class' for a class -- or nil for a
+	part that names none (a text block, or a tool that works on files).
+
+	Same spelling as SWAOpenCodeToolCall>>targetKey on purpose: these keys are what
+	a Code Map tile is called, so they cross-reference with no translation."
+	className ifNil: [^ nil].
+	className isEmpty ifTrue: [^ nil].
+	^ (selector isNil or: [selector isEmpty])
+		ifTrue: [className]
+		ifFalse: [className , '>>' , selector]
 ]
 
 {

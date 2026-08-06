@@ -94,29 +94,57 @@ SWAOpenCodeSessionTable >> asCsvString [
 
 {
 	#category : #buttons,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:48'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
+}
+SWAOpenCodeSessionTable >> buttonColor [
+	^ Color gray: 0.3
+]
+
+{
+	#category : #buttons,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
+}
+SWAOpenCodeSessionTable >> buttonLabelled: aString action: aSelector [
+	"A bar button that sends aSelector to me. Same SimpleButtonMorph at the same
+	grey as SWAPane>>buttonLabelled:action:."
+	^ SimpleButtonMorph new
+		label: aString;
+		color: self buttonColor;
+		target: self;
+		actionSelector: aSelector;
+		hResizing: #rigid; vResizing: #rigid;
+		yourself
+]
+
+{
+	#category : #buttons,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
 }
 SWAOpenCodeSessionTable >> buttonSpecs [
 	"{ label. selector. needsSelection. balloon }. Declared in one place so
 	#newButtonBar can build them and #updateButtonStates can enable/disable them
-	without the two drifting apart."
+	without the two drifting apart.
+
+	FOUR VIEWS OF THE SELECTED SESSION, then the one project-wide view. The bar had
+	thirteen buttons, seven of which nobody reached for: 'Session' and 'Treemap' are
+	older takes on what the Flow and Flow Map now do better, the four 'All *'
+	entries answered project-wide questions from a table whose every row is one
+	session, and CSV is an export -- a thing you do once, not a thing you aim at.
+
+	Nothing is deleted, only demoted: they are all on the BURGER menu at the far
+	left of the bar (and on the list's right-click menu, which shows the same
+	items), which is where a rarely-wanted command belongs."
 	^ {
 		{'Code Map'.   #openSelectedCodeMap.  true.
-			'Code Map of the packages this session touched, coloured by what it did'}.
+			'Code Map of the classes this session touched, coloured by what it did'}.
 		{'Flow'.       #openSelectedFlow. true.
 			'The conversation top to bottom, zoomable; wheel scrolls, CTRL-wheel zooms'}.
-		{'Session'.    #openSelectedConversation. true.
-			'Every message and tool call as a box; select one to read it in full'}.
-		{'Treemap'.    #openSelectedTreemap.  true.  'Tool calls of this session'}.
-		{'Timeline'.   #openSelectedTimeline. true.  'This session over time'}.
+		{'Flow Map'.   #openSelectedFlowMap. true.
+			'The same conversation as a 2D grid: your questions across the top, the work each one cost beneath it'}.
+		{'Timeline'.   #openSelectedTimeline. true.
+			'This session over time; width = duration, height = cost / tokens / size'}.
 		{'-'. nil. false. nil}.
-		{'All files'.  #openAllFiles.    false. 'Every file the project ever touched'}.
-		{'All calls'.  #openAllSessions. false. 'Every tool call, grouped by session'}.
-		{'All flow'.   #openAllFlow.    false. 'The whole project as one zoomable flow'}.
-		{'Timeline*'.  #openAllTimeline. false. 'The whole project over time'}.
-		{'Calendar'.   #openAllCalendar. false. 'Activity per day'}.
-		{'-'. nil. false. nil}.
-		{'CSV'.        #copyCsvToClipboard. false. 'Copy the table as CSV'}
+		{'Calendar'.   #openAllCalendar. false. 'Activity per day'}
 	}
 ]
 
@@ -167,6 +195,19 @@ SWAOpenCodeSessionTable >> detail [
 ]
 
 {
+	#category : #buttons,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
+}
+SWAOpenCodeSessionTable >> disabledButtonColor [
+	"SimpleButtonMorph has no #enabled: -- only PluggableButtonMorphPlus does, and
+	that is the button this bar used to be built from. Standard buttons therefore
+	show 'you cannot press this yet' the only way they can, by going darker. The
+	actions guard themselves anyway (`self selectedSession ifNil: [^ self]`), so
+	this is an affordance, not the enforcement."
+	^ Color gray: 0.18
+]
+
+{
 	#category : #list,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:20'
 }
@@ -195,10 +236,13 @@ SWAOpenCodeSessionTable >> list [
 ]
 
 {
-	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:05'
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:16'
 }
 SWAOpenCodeSessionTable >> listMenu: aMenu [
+	"Sorting, then everything the button bar does NOT carry: the older per-session
+	views and the four project-wide ones. See #buttonSpecs for why they are here
+	rather than on the bar."
 	| sortMenu |
 	aMenu addTitle: 'sessions'.
 	sortMenu := MenuMorph new.
@@ -210,25 +254,39 @@ SWAOpenCodeSessionTable >> listMenu: aMenu [
 	aMenu add: 'copy table as CSV' target: self selector: #copyCsvToClipboard.
 	self selectedSession ifNotNil: [:s |
 		aMenu addLine.
-		aMenu add: 'treemap of this session' target: self selector: #openSelectedTreemap.
-		aMenu add: 'timeline of this session' target: self selector: #openSelectedTimeline].
+		aMenu add: 'conversation (boxes) of this session' target: self selector: #openSelectedConversation.
+		aMenu add: 'treemap of this session' target: self selector: #openSelectedTreemap].
+	aMenu addLine.
+	aMenu add: 'ALL: files the project touched' target: self selector: #openAllFiles.
+	aMenu add: 'ALL: tool calls by session' target: self selector: #openAllSessions.
+	aMenu add: 'ALL: the project as one flow' target: self selector: #openAllFlow.
+	aMenu add: 'ALL: the project over time' target: self selector: #openAllTimeline.
 	^ aMenu
 ]
 
 {
 	#category : #buttons,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:32'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
 }
 SWAOpenCodeSessionTable >> newButtonBar [
-	| bar |
-	bar := AlignmentMorph newRow.
-	bar
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		cellInset: 4;
-		layoutInset: 4;
-		wrapCentering: #center;
-		cellPositioning: #leftCenter.
+	"BURGER first at the far left -- the overflow home for everything rare, exactly
+	as SWAPane>>buildHeaderRow does it -- then the four per-session views and the
+	project Calendar."
+	| bar menuButton |
+	bar := self newChromeRow.
+	menuButton := IconicButton new
+		labelGraphic: MenuIcons smallJustifiedIcon;
+		color: self buttonColor;
+		borderWidth: 0;
+		target: self;
+		actionSelector: #openTableMenu;
+		hResizing: #rigid; vResizing: #rigid;
+		yourself.
+	"Pad so the icon matches a text button's height and the row lines up."
+	menuButton extent: (menuButton fullBounds extent
+		max: (menuButton fullBounds width @ (self buttonLabelled: 'X' action: nil) fullBounds height)).
+	menuButton setBalloonText: 'Table menu -- export, and the views that are not on the bar'.
+	bar addMorphBack: menuButton.
 	buttons := OrderedCollection new.
 	self buttonSpecs do: [:spec |
 		spec second
@@ -236,20 +294,36 @@ SWAOpenCodeSessionTable >> newButtonBar [
 				extent: 10 @ 4; color: Color transparent; yourself)]
 			ifNotNil: [:sel |
 				| b |
-				"PluggableButtonMorphPlus, not PluggableButtonMorph: the latter's
-				#enabled is hardcoded `^ true` and it has no setter at all, so the
-				per-session buttons could never be greyed out."
-				b := PluggableButtonMorphPlus
-					on: self getState: nil action: sel.
-				b
-					label: spec first;
-					setBalloonText: spec fourth;
-					hResizing: #shrinkWrap;
-					vResizing: #shrinkWrap.
+				b := self buttonLabelled: spec first action: sel.
+				b setBalloonText: spec fourth.
 				b setProperty: #needsSelection toValue: spec third.
 				buttons add: b.
 				bar addMorphBack: b]].
 	^ bar
+]
+
+{
+	#category : #buttons,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
+}
+SWAOpenCodeSessionTable >> newChromeRow [
+	"The dark, width-filling button strip -- the same one SWAPane builds, so the two
+	tools read as one application.
+
+	A plain Morph with a TableLayout, NOT `AlignmentMorph newRow`: that answers a
+	morph whose default colour is (Color r: 0.8 g: 1 b: 0.8), and THAT was the weird
+	pale green behind the buttons. Nobody chose it; it was the default nobody
+	overrode."
+	^ Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		cellPositioning: #leftCenter;
+		cellInset: 6;
+		layoutInset: 4;
+		hResizing: #spaceFill;
+		vResizing: #shrinkWrap;
+		yourself
 ]
 
 {
@@ -375,13 +449,30 @@ SWAOpenCodeSessionTable >> openSelectedFlow [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:06'
+}
+SWAOpenCodeSessionTable >> openSelectedFlowMap [
+	| s |
+	s := self selectedSession ifNil: [^ self].
+	^ history openFlowMapFor: s
+]
+
+{
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:13'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:23'
 }
 SWAOpenCodeSessionTable >> openSelectedTimeline [
 	| s view |
 	s := self selectedSession ifNil: [^ self].
-	view := SWATimelineMorph on: ((SWAOpenCodeNode nodeForSession: s) rollUp; yourself).
+	"#timelineTreeFor:, not #nodeForSession: -- the latter carries only the
+	session's TOOL CALLS, which in a typical session is 107 of 351 parts. All the
+	thinking and all the talking were missing from the picture."
+	view := SWATimelineMorph on: (SWAOpenCodeNode timelineTreeFor: s).
+	"SPANS, not the histogram: over one session the events last seconds and the
+	window is minutes, so a box from start to end is legible and says what the
+	bucketed peaks could not -- how long each thing took, and what overlapped."
+	view layoutMode: #spans.
 	view extent: (Display extent * 0.7) rounded - (0 @ 60).
 	^ history openPane: (SWAPane on: view) labeled: 'opencode session timeline: ' , s title
 ]
@@ -396,6 +487,20 @@ SWAOpenCodeSessionTable >> openSelectedTreemap [
 	^ history
 		openTreemapOn: ((SWAOpenCodeNode nodeForSession: s) rollUp; yourself)
 		labeled: 'opencode session: ' , s title
+]
+
+{
+	#category : #menus,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
+}
+SWAOpenCodeSessionTable >> openTableMenu [
+	"The burger. Deliberately the SAME menu the list's right-click builds
+	(#listMenu:) rather than a second one: two menus over one table drift apart, and
+	there is nothing here that belongs to only one of the two ways in."
+	| menu |
+	menu := MenuMorph new defaultTarget: self.
+	self listMenu: menu.
+	^ menu popUpInWorld: self currentWorld
 ]
 
 {
@@ -537,15 +642,18 @@ SWAOpenCodeSessionTable >> topTargetsFor: aSession into: t [
 
 {
 	#category : #buttons,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:32'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 15:19'
 }
 SWAOpenCodeSessionTable >> updateButtonStates [
-	"Grey out the per-session buttons while nothing is selected, rather than
-	letting them be pressed and silently do nothing."
-	| enabled |
+	"Dim the per-session buttons while nothing is selected, rather than letting them
+	look pressable and silently do nothing. Colour rather than #enabled:, because
+	these are now standard SimpleButtonMorphs -- see #disabledButtonColor."
+	| c |
 	buttons ifNil: [^ self].
-	enabled := self selectedSession notNil.
+	c := self selectedSession notNil
+		ifTrue: [self buttonColor]
+		ifFalse: [self disabledButtonColor].
 	buttons do: [:b |
 		(b valueOfProperty: #needsSelection ifAbsent: [false])
-			ifTrue: [b enabled: enabled]]
+			ifTrue: [b color: c]]
 ]

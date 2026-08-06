@@ -27,7 +27,7 @@ SWACodePackageNode >> browse [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 10:01'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:31'
 }
 SWACodePackageNode >> buildChildren [
 	"Children are this package's nested SUB-PACKAGES followed by the CLASSES it owns
@@ -52,10 +52,19 @@ SWACodePackageNode >> buildChildren [
 		owner := (root respondsTo: #ownerOfSystemCategory:)
 			ifTrue: [root ownerOfSystemCategory: cls category]
 			ifFalse: [nil].
-		owner isNil or: [owner == subject]].
+		(owner isNil or: [owner == subject])
+			and: [(root respondsTo: #includesClass:) not
+				or: [root includesClass: cls]]].
 	classes := classes asSortedCollection: [:a :b | a name <= b name].
 	result := OrderedCollection new.
-	subPackages do: [:pkg | result add: (SWACodePackageNode on: pkg parent: self)].
+	subPackages do: [:pkg | | node |
+		node := SWACodePackageNode on: pkg parent: self.
+		"Under a class filter a whole sub-package can end up with nothing in it.
+		Keeping it would tile an empty header that says only 'this package exists',
+		which is exactly the noise the filter was set to remove."
+		((root respondsTo: #hasClassFilter) and: [root hasClassFilter])
+			ifTrue: [node children ifNotEmpty: [result add: node]]
+			ifFalse: [result add: node]].
 	classes do: [:cls | result add: (SWACodeClassNode on: cls parent: self)].
 	^ result
 ]

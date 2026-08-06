@@ -54,6 +54,36 @@ SWANode >> depth [
 
 {
 	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:06'
+}
+SWANode >> eventCategoryFor: aSymbol [
+	"The CATEGORICAL key this event has under aSymbol -- a session id, a model name,
+	a package -- or nil when it has none.
+
+	The companion of #eventValueFor:, which answers quantities. A temporal view
+	colours a quantity with an intensity ramp and a category by hashing the key to a
+	hue, and only the node knows which of its properties are which."
+	aSymbol == #group ifTrue: [^ self eventGroupKey].
+	aSymbol == #kind ifTrue: [^ self nodeKind].
+	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:06'
+}
+SWANode >> eventColorModes [
+	"{ symbol . label } pairs this node family can be coloured by, beyond the
+	generic ones a temporal view always offers. Empty by default.
+
+	Asked of ONE event and applied to the view, because a view's events are all of
+	the same family -- and asking all 42769 of them what they support, to build a
+	menu, would be absurd."
+	^ #()
+]
+
+{
+	#category : #temporal,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:03'
 }
 SWANode >> eventDurationMicros [
@@ -79,6 +109,23 @@ SWANode >> eventGroupKey [
 	'commits' measure, which counts distinct acts rather than individual changes.
 	nil by default."
 	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:17'
+}
+SWANode >> eventLaneKey [
+	"Which horizontal BAND this node belongs in when a temporal view draws spans
+	rather than instants.
+
+	A histogram of instants needs no such thing -- everything stacks into one
+	bucket. Spans do: two things that overlap in time cannot share a row, and the
+	useful grouping is almost never 'whatever happened to arrive next'. For a
+	conversation it is who was speaking; for a trace it is the process.
+
+	Defaults to #nodeKind, which every SWANode has."
+	^ self nodeKind
 ]
 
 {
@@ -117,6 +164,40 @@ SWANode >> eventTimeStamp [
 
 	nil by default: most nodes (a package, a heap object) are not events."
 	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:28'
+}
+SWANode >> eventValueFor: aSymbol [
+	"How much this event is WORTH under aSymbol, or nil when the node has nothing to
+	say about that measure.
+
+	This is what a span's HEIGHT maps. A histogram of instants can only ever plot
+	how many things happened near a moment; once an event is a box on the axis its
+	height is free, and 'this call took four seconds' or 'this message cost three
+	cents' is a far more useful second dimension than a repeat of the count."
+	aSymbol == #count ifTrue: [^ 1].
+	aSymbol == #duration ifTrue: [^ self eventDurationMicros].
+	(aSymbol == #loc or: [aSymbol == #bytes]) ifTrue: [^ self totalSize max: 0].
+	^ nil
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:28'
+}
+SWANode >> eventValueIsPerGroup: aSymbol [
+	"Does #eventValueFor: answer a quantity belonging to the whole GROUP
+	(#eventGroupKey) rather than to this node alone?
+
+	Cost and tokens are accounted per MESSAGE, and every part of that message
+	answers the same number. Colour may repeat it harmlessly; a HEIGHT may not --
+	summing it over the parts would multiply the message's cost by its part count
+	and make the chart lie about the totals. A view that plots such a measure
+	divides by the group size."
+	^ false
 ]
 
 {

@@ -55,7 +55,7 @@ SWATemporalView class >> on: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:35'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:07'
 }
 SWATemporalView >> baseColorForNode: aNode [
 	"Intrinsic fill for one event. Dataset metrics are handled upstream by
@@ -70,6 +70,17 @@ SWATemporalView >> baseColorForNode: aNode [
 		| k |
 		k := aNode eventGroupKey.
 		^ k ifNil: [Color gray: 0.35] ifNotNil: [:x | Color h: x hash \\ 360 s: 0.5 v: 0.85]].
+	"Node-family modes: a CATEGORY hashes to a hue, a VALUE goes on the intensity
+	ramp. Category first -- #kind is both a category and nothing else, and asking
+	for a value would answer nil and fall through to the heat of the measure, which
+	is not what was picked."
+	(aNode eventCategoryFor: m) ifNotNil: [:k |
+		^ Color h: k asString hash \\ 360 s: 0.5 v: 0.85].
+	(aNode eventValueFor: m) ifNotNil: [:v |
+		^ self intensityColorFor: v max: (self maxEventValueFor: m)].
+	"A nil CATEGORY is not missing data to be heat-mapped -- it is 'this event has
+	no package', which must read as neutral rather than as cold."
+	(self isCategoricalColorMode: m) ifTrue: [^ Color gray: 0.28].
 	^ self heatColorForNode: aNode
 ]
 
@@ -94,7 +105,7 @@ SWATemporalView >> colorMode: aSymbol [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:35'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:07'
 }
 SWATemporalView >> colorModeOptions [
 	"Intrinsic colour modes. Dataset metrics are appended by SWAView's machinery,
@@ -104,6 +115,9 @@ SWATemporalView >> colorModeOptions [
 	opts add: {#default. 'By measure (heat)'}.
 	opts add: {#author. 'By author'}.
 	opts add: {#group. 'By commit / save'}.
+	"Whatever the node family adds -- see SWANode>>eventColorModes. Asked of one
+	event, because a view's events are all of the same family."
+	self events ifNotEmpty: [:e | opts addAll: e first eventColorModes].
 	^ opts asArray
 ]
 
@@ -123,6 +137,17 @@ SWATemporalView >> drawOn: aCanvas [
 		at: self position
 		sourceRect: form boundingBox
 		rule: Form over
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:17'
+}
+SWATemporalView >> durationSecondsOf: aNode [
+	"How LONG aNode lasted on the time axis, in seconds, or nil for an instant.
+	The companion of #secondsOf:, and the whole of what a view needs to draw a node
+	as a span rather than as a point."
+	^ aNode eventDurationMicros ifNotNil: [:us | us / 1000000]
 ]
 
 {
@@ -290,6 +315,36 @@ SWATemporalView >> intensityColorFor: aValue max: aMax [
 ]
 
 {
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:07'
+}
+SWATemporalView >> isCategoricalColorMode: aSymbol [
+	"Does aSymbol name a CATEGORY of the node family rather than a quantity? Decided
+	by asking the events, not from a hardcoded list, so a node family that adds a
+	mode does not have to tell this class about it too. Cached per mode: this is
+	consulted once per drawn cell."
+	| known |
+	known := self valueOfProperty: #categoricalModes ifAbsentPut: [Dictionary new].
+	^ known at: aSymbol ifAbsentPut: [
+		self events anySatisfy: [:n | (n eventCategoryFor: aSymbol) notNil]]
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:07'
+}
+SWATemporalView >> maxEventValueFor: aSymbol [
+	"Largest single-event value under aSymbol, which sets the ramp for a value
+	colour mode. Cached per mode -- an uncached scan of 42769 events per drawn cell
+	would be quadratic."
+	| known |
+	known := self valueOfProperty: #maxEventValues ifAbsentPut: [Dictionary new].
+	^ known at: aSymbol ifAbsentPut: [
+		(self events inject: 0 into: [:m :n | m max: ((n eventValueFor: aSymbol) ifNil: [0])])
+			max: 0.000000001]
+]
+
+{
 	#category : #measure,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:34'
 }
@@ -451,10 +506,20 @@ SWATemporalView >> resetZoom [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:34'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:17'
 }
 SWATemporalView >> secondsOf: aNode [
-	"aNode's position on the time axis, in seconds, or nil."
+	"aNode's position on the time axis, in seconds, or nil.
+
+	FRACTIONAL where the node knows better. #eventTimeStamp asSeconds is a whole
+	number, which is the right resolution for a commit and the wrong one for a tool
+	call that ran for 300 ms -- at one-second granularity a burst of them collapses
+	onto a single instant and a span view of them has nothing to draw. A node that
+	implements #eventMicros answers here at microsecond resolution instead.
+
+	No regression for anyone: SWANode>>eventMicros derives from #eventTimeStamp when
+	a node has only a date, and that derivation lands on the same whole second."
+	aNode eventMicros ifNotNil: [:us | ^ us / 1000000].
 	^ aNode eventTimeStamp ifNotNil: [:t | t asSeconds]
 ]
 

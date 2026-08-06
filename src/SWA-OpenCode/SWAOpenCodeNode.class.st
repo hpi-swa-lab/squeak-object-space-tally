@@ -48,6 +48,114 @@ Class {
 
 {
 	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:05'
+}
+SWAOpenCodeNode class >> calendarPartNodeKind: aKindPair facts: aFacts millis: millis size: aSize [
+	"One part as a calendar event, built from the CHEAP scan rather than from a
+	SWAOpenCodePart -- see SWAOpenCodeEventFacts for why there is no part object
+	here.
+
+	#eventGroupKey is the MESSAGE, not the session: it is what a per-group measure
+	divides by, and cost is accounted per message. The session is on the facts, and
+	that is what 'colour by session' reads."
+	| type tool label kind |
+	type := aKindPair first.
+	tool := aKindPair second.
+	kind := type == #text
+		ifTrue: [aFacts role = 'user' ifTrue: [#user] ifFalse: [#assistant]]
+		ifFalse: [type].
+	label := type == #tool
+		ifTrue: [tool ifNil: ['tool'] ifNotNil: [:t |
+			aFacts className ifNil: [t] ifNotNil: [:c | t , ' ' , c]]]
+		ifFalse: [kind asString , (type == #text ifTrue: [' text'] ifFalse: [''])].
+	^ self new
+		name: label;
+		nodeKind: kind;
+		eventTimeStamp: (DateAndTime fromUnixTime: millis // 1000) asLocal;
+		eventGroupKey: aFacts messageId;
+		payload: aFacts;
+		weight: (aSize max: 1);
+		yourself
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:32'
+}
+SWAOpenCodeNode class >> calendarTreeFor: aHistory [
+	"root -> session -> EVERY part, for the whole project, each part carrying the
+	facts a view can colour by (SWAOpenCodeEventFacts: session, model, agent, cost,
+	tokens, package) and the part id it can be resolved back through.
+
+	Not #sessionTreeFor:, which carries only tool calls. A calendar asks 'which days
+	were heavy', and answering it from a third of what happened made the quiet days
+	look quieter than they were.
+
+	Grouped by session rather than flat because the day-level selection reports its
+	busiest children, and 'which sessions ran that day' is the answer worth having.
+
+	COST AND TOKENS ARE SHARED OUT AFTERWARDS. They arrive per MESSAGE, repeated on
+	each of that message's parts; the second pass divides by the part count so the
+	totals add up to what the project actually spent instead of a multiple of it.
+
+	FIVE SECONDS of scanning, so it runs under a progress bar. Not in a background
+	process: the tree IS the view's model, so there would be nothing to show until
+	it finished anyway, and a half-built calendar is worse than a bar that says how
+	far along it is."
+	| root bySession pkgCache allFacts perMessage total seen |
+	root := self new
+		name: 'sessions: ' , (aHistory worktree copyAfterLast: $/);
+		nodeKind: #openCodeRoot;
+		yourself.
+	bySession := Dictionary new.
+	pkgCache := Dictionary new.
+	allFacts := OrderedCollection new.
+	perMessage := Dictionary new.
+	total := (aHistory db countPartsForProject: aHistory projectId) max: 1.
+	seen := 0.
+	'Reading opencode history...'
+		displayProgressFrom: 0 to: total
+		during: [:bar |
+			aHistory db
+				allPartsForProject: aHistory projectId
+				do: [:pid :sid :mid :millis :prefix :len :fields |
+					| kind |
+					seen := seen + 1.
+					"Every 500th row, not every row: updating the bar is a redraw, and
+					80128 of them cost far more than the scan they are reporting on."
+					seen \\ 500 = 0 ifTrue: [bar value: seen].
+					kind := aHistory db partKindFromPrefix: prefix.
+					(kind notNil and: [millis notNil]) ifTrue: [
+						| facts sessionNode |
+						sessionNode := bySession at: sid ifAbsentPut: [
+							| s n |
+							s := aHistory sessionsById at: sid ifAbsent: [nil].
+							n := self new
+								name: (s ifNil: [sid] ifNotNil: [:x | x title]);
+								nodeKind: #openCodeSession;
+								eventGroupKey: sid;
+								payload: s;
+								yourself.
+							root addChild: n.
+							n].
+						facts := self
+							factsFor: sid message: mid part: pid
+							session: sessionNode payload fields: fields packages: pkgCache.
+						allFacts add: facts.
+						perMessage at: mid put: (perMessage at: mid ifAbsent: [0]) + 1.
+						sessionNode addChild: (self
+							calendarPartNodeKind: kind facts: facts millis: millis size: len)]]].
+	allFacts do: [:f |
+		| n |
+		n := (perMessage at: f messageId ifAbsent: [1]) max: 1.
+		f costShare: (f cost ifNil: [0]) / n.
+		f tokenShare: (f tokens ifNil: [0]) / n].
+	root rollUp.
+	^ root
+]
+
+{
+	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:29'
 }
 SWAOpenCodeNode class >> conversationTreeFor: aSession [
@@ -80,6 +188,41 @@ SWAOpenCodeNode class >> conversationTreeFor: aSession [
 
 {
 	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:33'
+}
+SWAOpenCodeNode class >> factsFor: sid message: mid part: pid session: aSessionOrNil fields: fields packages: pkgCache [
+	"Unpack one row of SWAOpenCodeDb>>allPartsForProject:do: into its facts.
+
+	The session object and the part id are carried so that SELECTING a message can
+	materialise the real SWAOpenCodePart on demand (SWAOpenCodeEventFacts>>part) and
+	reuse everything the Flow view already does with one.
+
+	The class -> package lookup goes through pkgCache: 24425 tool parts hit a few
+	hundred distinct classes, and PackageOrganizer>>packageOfClass: is a scan."
+	| m p cls |
+	m := fields first.
+	p := fields second.
+	"squeak_write_class_code names its class `name`, every other squeak tool calls
+	it `class` -- the same normalisation SWAOpenCodeToolCall makes."
+	cls := (p at: 1 ifAbsent: [nil]) ifNil: [p at: 2 ifAbsent: [nil]].
+	^ SWAOpenCodeEventFacts new
+		sessionId: sid;
+		session: aSessionOrNil;
+		partId: pid;
+		messageId: mid;
+		role: (m at: 1 ifAbsent: [nil]);
+		cost: (m at: 2 ifAbsent: [nil]);
+		model: (m at: 3 ifAbsent: [nil]);
+		agent: (m at: 4 ifAbsent: [nil]);
+		tokens: (m at: 5 ifAbsent: [nil]);
+		className: cls;
+		packageName: (cls ifNotNil: [:c |
+			pkgCache at: c ifAbsentPut: [self packageNameForClassName: c]]);
+		yourself
+]
+
+{
+	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:59'
 }
 SWAOpenCodeNode class >> fileTreeFor: aHistory [
@@ -107,6 +250,24 @@ SWAOpenCodeNode class >> fileTreeFor: aHistory [
 	root collapseSingleChildChains.
 	root rollUp.
 	^ root
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:21'
+}
+SWAOpenCodeNode class >> isTimelinePartType: aType [
+	"Which part types are EVENTS on a timeline.
+
+	step-start / step-finish are excluded. They are opencode's own framing of a
+	message, not something that happened: they carry no content and no duration, and
+	there are two of them per assistant turn -- 138 of the 351 parts in a typical
+	session. Drawn as spans they become the largest lane on the chart, made entirely
+	of identical zero-width ticks, and they push the actual work off the bottom.
+
+	The message boundary they mark is not lost: every part still carries its
+	messageId, which is what #eventGroupKey answers."
+	^ (aType == #'step-start' or: [aType == #'step-finish']) not
 ]
 
 {
@@ -215,6 +376,22 @@ SWAOpenCodeNode class >> nodeForSession: aSession [
 
 {
 	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:04'
+}
+SWAOpenCodeNode class >> packageNameForClassName: aString [
+	"Package of a class NAMED in a tool call, resolved through the live image, or nil
+	when it no longer exists -- the session may have created and later deleted it."
+	| name cls |
+	name := aString withBlanksTrimmed.
+	(name endsWith: ' class') ifTrue: [name := name copyFrom: 1 to: name size - 6].
+	cls := Smalltalk at: name asSymbol ifAbsent: [nil].
+	(cls isNil or: [cls isBehavior not]) ifTrue: [^ nil].
+	^ (PackageOrganizer default packageOfClass: cls theNonMetaClass ifNone: [nil])
+		ifNotNil: [:pkg | pkg packageName]
+]
+
+{
+	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:57'
 }
 SWAOpenCodeNode class >> sessionTreeFor: aHistory [
@@ -230,6 +407,39 @@ SWAOpenCodeNode class >> sessionTreeFor: aHistory [
 		nodeKind: #openCodeRoot;
 		yourself.
 	aHistory rootSessions do: [:s | root addChild: (self nodeForSession: s)].
+	root rollUp.
+	^ root
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:21'
+}
+SWAOpenCodeNode class >> timelineTreeFor: aSession [
+	"EVERY part of the session as a timed event -- text, reasoning, tool calls, step
+	markers -- flat under the session root.
+
+	Not #nodeForSession:, which builds only the session's TOOL CALLS. That is the
+	right tree for the whole-project timeline, where loading every part of every
+	session would be gigabytes for a picture of a year; for ONE session it showed
+	less than a third of what happened. In a typical session 107 of 351 parts are
+	tool calls -- all the thinking and all the talking were simply missing from the
+	timeline.
+
+	FLAT, unlike #conversationTreeFor:: a temporal view collects LEAVES, so message
+	containers would contribute nothing but a walk, and the grouping that matters
+	when spans are drawn is the lane (#eventLaneKey), not the message."
+	| root |
+	root := self new
+		name: (aSession title isEmpty ifTrue: [aSession id] ifFalse: [aSession title]);
+		nodeKind: #openCodeSession;
+		eventGroupKey: aSession id;
+		eventTimeStamp: aSession timeStamp;
+		payload: aSession;
+		yourself.
+	aSession parts do: [:p |
+		(p timeStamp notNil and: [self isTimelinePartType: p type])
+			ifTrue: [root addChild: (self nodeForPart: p)]].
 	root rollUp.
 	^ root
 ]
@@ -339,12 +549,17 @@ SWAOpenCodeNode >> crossRefKey: aString [
 
 {
 	#category : #content,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:37'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:33'
 }
 SWAOpenCodeNode >> details [
 	"Everything known about this node, as a Dictionary for the inspector. May hit
 	the database -- inspecting is an explicit act, unlike drawing."
 	| d |
+	"Facts first: they can resolve to a real part, whose #details is far richer than
+	anything this node could assemble -- the raw JSON, the rendered content, the
+	message's cost and token record."
+	(payload isKindOf: SWAOpenCodeEventFacts) ifTrue: [
+		payload part ifNotNil: [:p | ^ p details]].
 	payload ifNotNil: [
 		(payload respondsTo: #details) ifTrue: [^ payload details]].
 	d := Dictionary new.
@@ -361,6 +576,46 @@ SWAOpenCodeNode >> details [
 	d at: #childCount put: self children size.
 	payload ifNotNil: [d at: #payload put: payload].
 	^ d
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:06'
+}
+SWAOpenCodeNode >> eventCategoryFor: aSymbol [
+	"Session, model, agent and the touched package -- read off the SWAOpenCodeEventFacts
+	the project-wide scan attached (see SWAOpenCodeNode class>>calendarTreeFor:).
+
+	#package is nil for anything that did not name a Smalltalk class, which is most
+	events: a `read` of a markdown file belongs to no package, and inventing one for
+	it would be a fabrication. The view paints a nil category as neutral grey, so
+	'colour by package' reads as 'the Smalltalk work, by package, on a grey ground'."
+	| f |
+	f := payload.
+	(f isKindOf: SWAOpenCodeEventFacts) ifFalse: [^ super eventCategoryFor: aSymbol].
+	aSymbol == #session ifTrue: [^ f sessionId].
+	aSymbol == #model ifTrue: [^ f model].
+	aSymbol == #agent ifTrue: [^ f agent].
+	aSymbol == #package ifTrue: [^ f packageName].
+	aSymbol == #class ifTrue: [^ f className].
+	^ super eventCategoryFor: aSymbol
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:06'
+}
+SWAOpenCodeNode >> eventColorModes [
+	^ {
+		{#kind.    'By kind (user / assistant / tool)'}.
+		{#session. 'By session'}.
+		{#model.   'By model'}.
+		{#agent.   'By agent'}.
+		{#package. 'By package touched'}.
+		{#class.   'By class touched'}.
+		{#cost.    'By cost (heat)'}.
+		{#tokens.  'By tokens (heat)'}
+	}
 ]
 
 {
@@ -403,6 +658,54 @@ SWAOpenCodeNode >> eventGroupKey: aString [
 
 {
 	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:17'
+}
+SWAOpenCodeNode >> eventLaneKey [
+	"user / assistant / reasoning / tool / step -- the same classification the flow
+	views put in columns, so the timeline and the flow read the same way.
+
+	A tool call gets its own band rather than sharing the assistant's: it is the
+	assistant ACTING rather than speaking, and separating them is what makes a long
+	grinding stretch visible as a solid bar."
+	| p |
+	p := payload.
+	(p isKindOf: SWAOpenCodePart) ifFalse: [
+		(p isKindOf: SWAOpenCodeToolCall) ifTrue: [^ #tool].
+		^ self nodeKind].
+	p type == #tool ifTrue: [^ #tool].
+	p type == #reasoning ifTrue: [^ #reasoning].
+	(p type == #'step-start' or: [p type == #'step-finish']) ifTrue: [^ #step].
+	p role = 'user' ifTrue: [^ #user].
+	^ #assistant
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:23'
+}
+SWAOpenCodeNode >> eventMicros [
+	"Millisecond resolution, on the RIGHT EPOCH.
+
+	The inherited default goes through #eventTimeStamp asSeconds, which rounds every
+	event in a burst to the same instant -- fine for a histogram of a day's work,
+	useless for drawing a 300 ms tool call as a box. opencode records its times as
+	UNIX milliseconds, so the sub-second part comes from there.
+
+	Anchored on #eventTimeStamp and NOT computed as `startMillis * 1000`: Unix
+	counts from 1970 and Squeak's #asSeconds from 1901, and using the raw value
+	directly dated the whole project timeline to April 1957. The two are combined
+	instead -- whole seconds from the timestamp, remainder from the millis -- so the
+	epoch comes from the one conversion that already gets it right."
+	| t ms |
+	t := self eventTimeStamp ifNil: [^ nil].
+	ms := (payload notNil and: [payload respondsTo: #startMillis])
+		ifTrue: [payload startMillis]
+		ifFalse: [nil].
+	^ (t asSeconds * 1000000) + (ms ifNil: [0] ifNotNil: [:m | m \\ 1000 * 1000])
+]
+
+{
+	#category : #temporal,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:56'
 }
 SWAOpenCodeNode >> eventTimeStamp [
@@ -417,6 +720,52 @@ SWAOpenCodeNode >> eventTimeStamp [
 }
 SWAOpenCodeNode >> eventTimeStamp: aDateAndTime [
 	timeStamp := aDateAndTime
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:10'
+}
+SWAOpenCodeNode >> eventValueFor: aSymbol [
+	"Adds the money and the context budget, which is most of what anyone wants a
+	session timeline to plot. Both are the owning MESSAGE's -- see
+	#eventValueIsPerGroup:."
+	| p m tk cache |
+	(#(#cost #tokens #context) includes: aSymbol) ifFalse: [
+		^ super eventValueFor: aSymbol].
+	p := payload.
+	"The cheap project-wide scan attaches facts instead of a part. Cost there is
+	ALREADY the share of its message (see SWAOpenCodeEventFacts), so it needs no
+	further division -- #eventValueIsPerGroup: answers false for it."
+	(p isKindOf: SWAOpenCodeEventFacts) ifTrue: [
+		aSymbol == #cost ifTrue: [^ p costShare].
+		aSymbol == #tokens ifTrue: [^ p tokenShare].
+		^ nil].
+	(p isKindOf: SWAOpenCodePart) ifFalse: [^ nil].
+	m := p messageData ifNil: [^ nil].
+	aSymbol == #cost ifTrue: [^ m at: 'cost' ifAbsent: [nil]].
+	tk := m at: 'tokens' ifAbsent: [nil].
+	tk ifNil: [^ nil].
+	aSymbol == #tokens ifTrue: [^ tk at: 'total' ifAbsent: [nil]].
+	"CONTEXT is what was sent TO the model: input plus everything read from or
+	written to the prompt cache. Distinct from #tokens, which includes the output
+	and so answers a different question."
+	cache := tk at: 'cache' ifAbsent: [Dictionary new].
+	^ (tk at: 'input' ifAbsent: [0])
+		+ (cache at: 'read' ifAbsent: [0])
+		+ (cache at: 'write' ifAbsent: [0])
+]
+
+{
+	#category : #temporal,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:07'
+}
+SWAOpenCodeNode >> eventValueIsPerGroup: aSymbol [
+	"Cost, tokens and context are the MESSAGE's, and #eventGroupKey is the message
+	id -- so a view plotting them must share the number out across the message's
+	parts rather than repeat it on each."
+	(payload isKindOf: SWAOpenCodeEventFacts) ifTrue: [^ false].
+	^ #(#cost #tokens #context) includes: aSymbol
 ]
 
 {
@@ -566,7 +915,7 @@ SWAOpenCodeNode >> rollUp [
 
 {
 	#category : #content,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:29'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:33'
 }
 SWAOpenCodeNode >> sourceString [
 	"Full text for the pane's Source flap. SWATreemapMorph>>selectedSourceString
@@ -577,6 +926,13 @@ SWAOpenCodeNode >> sourceString [
 	document -- the message text, or a tool call's input and complete output."
 	payload ifNil: [^ ''].
 	(payload isKindOf: SWAOpenCodePart) ifTrue: [^ payload fullContent].
+	"A calendar event carries facts, not a part -- resolve to the real one and read
+	it exactly as the Flow view does. Same rendered document, same on-demand fetch,
+	no second implementation."
+	(payload isKindOf: SWAOpenCodeEventFacts) ifTrue: [
+		^ payload part
+			ifNotNil: [:p | p fullContent]
+			ifNil: ['(this part is no longer in the opencode store)']].
 	(payload isKindOf: SWAOpenCodeToolCall) ifTrue: [
 		^ String streamContents: [:s |
 			s nextPutAll: payload label; cr; cr.

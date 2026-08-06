@@ -427,28 +427,47 @@ SWAOpenCodeSession >> toolCounts [
 ]
 
 {
-	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:28'
+	#category : #'code map',
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:31'
 }
-SWAOpenCodeSession >> touchedPackageNames [
-	"Names of the packages this session's Smalltalk edits landed in, resolved
-	through the live image. Used to open a Code Map focused on what the session
-	actually worked on, instead of the whole image.
+SWAOpenCodeSession >> touchedClasses [
+	"The live classes this session's Smalltalk edits landed in -- the INSTANCE side,
+	since a metaclass and its class share one tile in the Code Map. Read/write of a
+	class-side method counts as touching the class.
 
-	Keys naming classes that no longer exist are skipped: the session may have
-	created and later deleted them, and there is no package to ask."
-	| names |
-	names := Set new.
+	This is the Code Map's real subject; #touchedPackageNames only says which
+	packages to walk. Keys naming classes that no longer exist are skipped: the
+	session may have created and later deleted them."
+	| classes |
+	classes := Set new.
 	self allToolCalls do: [:c |
 		(c targetKind == #method or: [c targetKind == #class]) ifTrue: [
 			| clsName cls |
 			clsName := (c targetKey findTokens: '>>') first.
 			(clsName endsWith: ' class')
 				ifTrue: [clsName := clsName copyFrom: 1 to: clsName size - 6].
-			cls := Smalltalk at: clsName asSymbol ifAbsent: [nil].
-			(cls notNil and: [cls isBehavior]) ifTrue: [
-				(PackageOrganizer default packageOfClass: cls ifNone: [nil])
-					ifNotNil: [:pkg | names add: pkg packageName]]]].
+			cls := Smalltalk at: clsName withBlanksTrimmed asSymbol ifAbsent: [nil].
+			(cls notNil and: [cls isBehavior]) ifTrue: [classes add: cls theNonMetaClass]]].
+	^ classes
+]
+
+{
+	#category : #'code map',
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:32'
+}
+SWAOpenCodeSession >> touchedPackageNames [
+	"Names of the packages this session's Smalltalk edits landed in, resolved
+	through the live image. These are the packages the Code Map WALKS; which
+	classes inside them it actually TILES is #touchedClasses.
+
+	Classes that no longer exist are already dropped by #touchedClasses: the
+	session may have created and later deleted them, and there is no package
+	to ask."
+	| names |
+	names := Set new.
+	self touchedClasses do: [:cls |
+		(PackageOrganizer default packageOfClass: cls ifNone: [nil])
+			ifNotNil: [:pkg | names add: pkg packageName]].
 	^ names
 ]
 

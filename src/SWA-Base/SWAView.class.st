@@ -57,7 +57,7 @@ Class {
 
 {
 	#category : #preferences,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:24'
 }
 SWAView class >> datasetContainerTint [
 	"How a container tile (one with child tiles drawn inside it) is coloured while a
@@ -65,8 +65,9 @@ SWAView class >> datasetContainerTint [
 
 		#muted  -- (default) mean of the descendants, dimmed back toward the
 			   background: the container reads as ground, its methods as figure
-		#none   -- containers keep their intrinsic structural colour; only the
-			   leaves carry the dataset reading
+		#none   -- containers keep their intrinsic structural colour, MUTED to
+			   #intrinsicMuteAlpha so it reads as context; only the leaves
+			   carry the dataset reading
 		#full   -- the historical behaviour: containers take the full rolled-up
 			   value at full saturation (which, for an additive metric, saturates
 			   every header at the hot end of the ramp)"
@@ -85,14 +86,29 @@ SWAView class >> datasetContainerTint: aSymbol [
 
 {
 	#category : #preferences,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:24'
 }
 SWAView class >> datasetContainerTintOptions [
 	^ #(
 		(#muted 'Containers: muted average')
-		(#none  'Containers: structural colour (leaves only)')
+		(#none  'Containers: muted structural colour (leaves only)')
 		(#full  'Containers: full rolled-up value')
 	)
+]
+
+{
+	#category : #colors,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:23'
+}
+SWAView class >> intrinsicMuteAlpha [
+	"How much of a tile's INTRINSIC (structural) colour survives while a dataset
+	metric drives colour -- see #containerColorFor:metric:, mode #none. Large parts
+	of a map often carry no data at all (an opencode session touched three packages;
+	everything else is a neighbour it left alone), and at full strength the intrinsic
+	hues of all those containers shout as loudly as the tiles the dataset actually
+	says something about. Keeping 30% of the hue leaves the structure readable as
+	ground while the measured tiles stay the figure."
+	^ 0.3
 ]
 
 {
@@ -371,7 +387,7 @@ SWAView >> colorModeOptions [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:34'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:24'
 }
 SWAView >> containerColorFor: aNode metric: aMetric [
 	"Tint for a tile that has child tiles drawn inside it, under the class-wide
@@ -382,8 +398,11 @@ SWAView >> containerColorFor: aNode metric: aMetric [
 	mode == #full ifTrue: [^ aMetric colorForNode: aNode].
 	mode == #none ifTrue: [
 		"The subclass overrides all check #metricForMode: first, so a plain
-		#baseColorForNode: here would just hand back the metric colour again."
-		^ self withoutMetricColorDo: [self baseColorForNode: aNode]].
+		#baseColorForNode: here would just hand back the metric colour again.
+		MUTED to #intrinsicMuteAlpha: the structural hue is context, not the
+		reading, so it must not compete with the dataset-coloured tiles."
+		^ (self withoutMetricColorDo: [self baseColorForNode: aNode])
+			alphaMixed: self class intrinsicMuteAlpha with: (Color gray: 0.16)].
 	^ aMetric containerColorForNode: aNode
 ]
 

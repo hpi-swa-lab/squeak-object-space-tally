@@ -1,264 +1,213 @@
 "
-SWAChatFlowMorph specialised for opencode conversations: real chat lanes and a
-designed palette instead of the generic hashed one.
+The conversation as a 1D STRIP: every part in reading order, top to bottom, one row each. Lanes put user / assistant / reasoning / tool in columns, so who-said-what is a shape before it is a text. Height is the axis that carries a quantity (content size, lines, duration, cost, context).
 
-LANES are user / assistant / reasoning / tool, in that order, so the shape of a
-session is readable without reading a word -- a long unbroken tool column is an
-agent grinding, an alternation is a conversation.
-
-Adds two colour modes the base class cannot have, because only here do the
-nodes know what they cost: #cost and #tokens, read off the owning session.
-Note what they mean: opencode accounts cost and tokens PER SESSION, not per
-part, so every part of one session carries the same value. That makes them
-useful for comparing sessions in a whole-project flow and useless inside a
-single session, which is exactly the trap worth naming rather than hiding.
+Its sibling SWAOpenCodeFlowMapMorph lays the same items out in 2D. Everything the two share is in SWAOpenCodeFlowView (data) and SWAChatFlowMorph (machinery); what is left here is purely the strip's geometry.
 "
 Class {
 	#name : #SWAOpenCodeFlowMorph,
-	#superclass : #SWAChatFlowMorph,
+	#superclass : #SWAOpenCodeFlowView,
 	#category : #'SWA-OpenCode',
 	#'squeak_changestamp' : '<historical>'
 }
 
 {
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:50'
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
-SWAOpenCodeFlowMorph >> baseColorForNode: aNode [
-	| p |
-	p := aNode payload.
-	colorMode == #tool ifTrue: [
-		((p isKindOf: SWAOpenCodePart) and: [p tool notNil])
-			ifTrue: [^ Color h: (p tool asString hash \\ 360) s: 0.5 v: 0.72].
-		^ Color gray: 0.25].
-	(#(#msgCost #msgTokens #msgContext) includes: colorMode) ifTrue: [
-		| val max |
-		val := self messageValueFor: aNode kind: colorMode.
-		max := self maxMessageValue: colorMode.
-		(val isNil or: [max <= 0]) ifTrue: [^ Color gray: 0.25].
-		val <= 0 ifTrue: [^ Color gray: 0.3].
-		"sqrt ramp: a handful of messages dominate the spend, and a linear ramp
-		would paint every other message the same cold blue."
-		^ Color h: 220 - ((val / max) sqrt * 190) s: 0.6 v: 0.78].
-	colorMode == #cost ifTrue: [^ self rampFor: (self sessionOf: aNode) value: #cost].
-	colorMode == #tokens ifTrue: [^ self rampFor: (self sessionOf: aNode) value: #tokens].
-	^ super baseColorForNode: aNode
-]
+SWAOpenCodeFlowMorph >> computeLayout [
+	"The strip: one row per item, stacked downward in reading order.
 
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:49'
-}
-SWAOpenCodeFlowMorph >> colorModeOptions [
-	"Message-level first: cost and tokens are accounted PER MESSAGE, so those vary
-	inside a session and are what you actually want to look at. The session-level
-	pair is the same quantity rolled up, useful only in a whole-project flow where
-	sessions sit side by side."
-	^ super colorModeOptions , {
-		{#tool. 'Tool'}.
-		{#msgCost. 'Message cost'}.
-		{#msgTokens. 'Message tokens'}.
-		{#msgContext. 'Message context (input+cache)'}.
-		{#cost. 'Session cost'}.
-		{#tokens. 'Session tokens'}
-	}
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
-}
-SWAOpenCodeFlowMorph >> intrinsicKindColorFor: aNode [
-	| k p |
-	k := self laneKeyFor: aNode.
-	k == #user ifTrue: [^ Color r: 0.25 g: 0.55 b: 0.35].
-	k == #reasoning ifTrue: [^ Color r: 0.32 g: 0.3 b: 0.45].
-	k == #assistant ifTrue: [^ Color r: 0.25 g: 0.4 b: 0.6].
-	k == #tool ifTrue: [
-		"An errored tool call is the one thing worth spotting from across the room."
-		p := aNode payload.
-		((p isKindOf: SWAOpenCodePart) and: [p status == #error])
-			ifTrue: [^ Color r: 0.65 g: 0.25 b: 0.2].
-		^ Color r: 0.55 g: 0.45 b: 0.25].
-	^ super intrinsicKindColorFor: aNode
-]
-
-{
-	#category : #lanes,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
-}
-SWAOpenCodeFlowMorph >> laneKeyFor: aNode [
-	"user / assistant / reasoning / tool. A tool call is given its own lane rather
-	than sharing the assistant's: it is the assistant ACTING rather than speaking,
-	and separating them is what makes a grinding stretch visible as a solid column."
-	| p |
-	p := aNode payload.
-	(p isKindOf: SWAOpenCodePart) ifFalse: [^ aNode nodeKind].
-	p type == #tool ifTrue: [^ #tool].
-	p type == #reasoning ifTrue: [^ #reasoning].
-	p role = 'user' ifTrue: [^ #user].
-	^ #assistant
-]
-
-{
-	#category : #lanes,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
-}
-SWAOpenCodeFlowMorph >> laneKeys [
-	"FIXED order, unlike the base class's first-appearance ordering: the columns
-	must not move between sessions, or comparing two flows side by side is
-	impossible."
-	^ #(#user #assistant #reasoning #tool)
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:50'
-}
-SWAOpenCodeFlowMorph >> maxMessageValue: aSymbol [
-	"Ceiling for the ramp, over DISTINCT messages in this flow -- not over items.
-	Taking a max needs no dedup, but doing it per message makes the intent explicit
-	and keeps this parallel to #maxSessionValue:. Cached; #flushLayout drops it."
-	^ self valueOfProperty: aSymbol ifAbsentPut: [
-		| seen max |
-		seen := Set new.
-		max := 0.
-		self items do: [:n |
-			| p |
-			p := n payload.
-			(p isKindOf: SWAOpenCodePart) ifTrue: [
-				(seen includes: p messageId) ifFalse: [
-					seen add: p messageId.
-					(self messageValueFor: n kind: aSymbol)
-						ifNotNil: [:val | max := max max: val]]]].
-		max]
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
-}
-SWAOpenCodeFlowMorph >> maxSessionValue: aSymbol [
-	"Ceiling for the ramp, taken over the sessions PRESENT IN THIS FLOW. Cached
-	per mode; #flushLayout drops it with everything else derived from the items."
-	^ self valueOfProperty: (aSymbol == #cost ifTrue: [#maxCost] ifFalse: [#maxTokens])
-		ifAbsentPut: [
-			| seen max |
-			seen := Set new.
-			max := 0.
-			self items do: [:n |
-				(self sessionOf: n) ifNotNil: [:s |
-					(seen includes: s id) ifFalse: [
-						seen add: s id.
-						max := max max: (aSymbol == #cost
-							ifTrue: [s cost]
-							ifFalse: [s tokensInput + s tokensOutput])]]].
-			max]
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:49'
-}
-SWAOpenCodeFlowMorph >> messageValueFor: aNode kind: aSymbol [
-	"Cost or tokens of the MESSAGE this node belongs to, or nil when unavailable.
-
-	Every part of one message answers the same number -- that is how opencode
-	accounts it, and it is the honest reading: the cost bought the whole
-	assistant turn, not one part of it. Visually this lights up a whole message
-	block, which is the right granularity.
-
-	nil for a whole-project flow: there the payloads are tool calls, which carry
-	no message id, and inventing a per-call cost would be a fabrication."
-	| p m tk |
-	p := aNode payload.
-	(p isKindOf: SWAOpenCodePart) ifFalse: [^ nil].
-	m := p messageData ifNil: [^ nil].
-	aSymbol == #msgCost ifTrue: [^ m at: 'cost' ifAbsent: [nil]].
-	tk := m at: 'tokens' ifAbsent: [nil].
-	tk ifNil: [^ nil].
-	aSymbol == #msgTokens ifTrue: [^ tk at: 'total' ifAbsent: [nil]].
-	"CONTEXT is what was sent TO the model: input plus everything read from or
-	written to the prompt cache. Distinct from #msgTokens, which includes the
-	output and so answers a different question."
-	aSymbol == #msgContext ifTrue: [
-		| cache |
-		cache := tk at: 'cache' ifAbsent: [Dictionary new].
-		^ (tk at: 'input' ifAbsent: [0])
-			+ (cache at: 'read' ifAbsent: [0])
-			+ (cache at: 'write' ifAbsent: [0])].
-	^ nil
+	y is a FLOAT accumulator and only the BOUNDARIES are rounded: row i runs from
+	`y rounded` to `(y + h) rounded`. Rounding each height independently would
+	accumulate error over 24000 rows; rounding boundaries cannot drift, and rows
+	still tile exactly even when each is a fraction of a pixel tall. A row that
+	rounds to zero height is kept -- drawing gives it its one pixel."
+	| y gap |
+	y := self topInset asFloat.
+	gap := self rowGap.
+	self items doWithIndex: [:n :i |
+		| h topY botY r |
+		h := self rowHeightFor: n.
+		topY := y rounded.
+		botY := (y + h) rounded.
+		r := self rowRectFor: n index: i height: botY - topY.
+		layout at: i put: (r translateBy: 0 @ topY).
+		y := y + h + gap].
+	contentHeight := y rounded + self topInset
 ]
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:50'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
-SWAOpenCodeFlowMorph >> partCountOfMessageOf: aNode [
-	"How many parts share this node's message. Cached in one pass over the items,
-	because a per-row scan would make layout quadratic."
-	| p counts |
-	p := aNode payload.
-	(p isKindOf: SWAOpenCodePart) ifFalse: [^ 1].
-	counts := self valueOfProperty: #partsPerMessage ifAbsentPut: [
-		| d |
-		d := Dictionary new.
-		self items do: [:n |
-			| q |
-			q := n payload.
-			(q isKindOf: SWAOpenCodePart) ifTrue: [
-				d at: q messageId put: (d at: q messageId ifAbsent: [0]) + 1]].
-		d].
-	^ (counts at: p messageId ifAbsent: [1]) max: 1
+SWAOpenCodeFlowMorph >> firstIndexAtOrAfter: aY [
+	"Binary search for the first row whose bottom reaches aY. The layout is built
+	in increasing y, so it is sorted by construction and this is what makes drawing
+	genuinely O(visible) rather than O(items) -- otherwise every repaint scans all
+	24000 rows to find the thirty that are on screen."
+	| lay lo hi mid |
+	lay := self ensureLayout.
+	lo := 1.
+	hi := lay size.
+	[lo < hi] whileTrue: [
+		mid := lo + hi // 2.
+		((lay at: mid) bottom < aY)
+			ifTrue: [lo := mid + 1]
+			ifFalse: [hi := mid]].
+	^ lo
 ]
 
 {
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:07'
 }
-SWAOpenCodeFlowMorph >> rampFor: aSession value: aSymbol [
-	| v max |
-	aSession ifNil: [^ Color gray: 0.25].
-	v := aSymbol == #cost
-		ifTrue: [aSession cost]
-		ifFalse: [aSession tokensInput + aSession tokensOutput].
-	max := self maxSessionValue: aSymbol.
-	(v isNil or: [v <= 0 or: [max <= 0]]) ifTrue: [^ Color gray: 0.25].
-	^ Color h: 220 - ((v / max) sqrt * 190) s: 0.6 v: 0.75
+SWAOpenCodeFlowMorph >> hoverIsUseful [
+	"Both ends come from the binary search, so this costs O(log n) rather than the
+	generic O(visible) count -- which matters here and only here: the whole-project
+	strip has 24458 rows and every one of them is on screen when zoomed out."
+	| first last |
+	self ensureLayout.
+	first := self firstIndexAtOrAfter: scrollY.
+	last := self firstIndexAtOrAfter: scrollY + self height.
+	^ last - first <= 400
 ]
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 16:50'
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
-SWAOpenCodeFlowMorph >> rowHeightUnitFor: aNode [
-	"Adds cost and context as HEIGHT axes. Worth having as size and not only as
-	colour: money and context are the two budgets a session actually spends, and a
-	tall row is a far more legible 'this was expensive' than a warm one.
-
-	Divided by the number of parts in the message, unlike the colour ramp: colour
-	can repeat the message's value on each of its parts harmlessly, but HEIGHT
-	accumulates -- repeating it would multiply the message's cost by its part
-	count and make the flow lie about the totals."
-	| val |
-	(#(#msgCost #msgContext) includes: yMode) ifFalse: [
-		^ super rowHeightUnitFor: aNode].
-	val := self messageValueFor: aNode kind: yMode.
-	val ifNil: [^ 3.0].
-	val := val / (self partCountOfMessageOf: aNode).
-	yMode == #msgCost ifTrue: [^ 3.0 + (val * 1200.0)].
-	^ 3.0 + (val / 400.0)
+SWAOpenCodeFlowMorph >> rowGap [
+	"Vanishes when zoomed far out: at one pixel per row the gap would be half the
+	picture, and the point of zooming out is a continuous shape, not a dotted line."
+	^ zoom < 0.4 ifTrue: [0] ifFalse: [2]
 ]
 
 {
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 15:45'
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
 }
-SWAOpenCodeFlowMorph >> sessionOf: aNode [
-	| p |
-	p := aNode payload.
-	(p isKindOf: SWAOpenCodePart) ifTrue: [^ p session].
-	(p isKindOf: SWAOpenCodeToolCall) ifTrue: [^ p session].
-	(p isKindOf: SWAOpenCodeSession) ifTrue: [^ p].
-	^ nil
+SWAOpenCodeFlowMorph >> rowHeightFor: aNode [
+	"The Y axis, scaled by zoom.
+
+	#content is on a LOG scale. Item sizes here span four orders of magnitude (a
+	step marker is 75 bytes, a file read is 300000), and a linear mapping would give
+	one item the whole window and everything else a sub-pixel sliver -- which is not
+	a visualisation, it is a scrollbar. The log keeps the ordering visible while
+	still letting a big item read as big."
+	"NO PIXEL FLOOR. A `max: 1` here is what stopped this view zooming out: with
+	24458 items it pinned the content to at least 24458 pixels, so the whole flow
+	could never be brought on screen however far you zoomed.
+
+	Rows may now be a fraction of a pixel tall. #ensureLayout accumulates the exact
+	position and rounds only the BOUNDARIES, so sub-pixel rows still land in the
+	right place and the pixel floor is applied at DRAW time, where it belongs."
+	^ (self rowHeightUnitFor: aNode) * zoom
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
+}
+SWAOpenCodeFlowMorph >> rowRectFor: aNode index: i height: h [
+	"The X axis. Answers a rectangle at y = 0; #ensureLayout translates it down.
+
+	#lane is the chat metaphor generalised: items are sorted into columns by
+	#laneIndexFor:, so who-said-what is readable as a shape without reading a word."
+	| w x lanes li right |
+	w := self contentWidth - (self sideInset * 2).
+	xMode == #indent ifTrue: [
+		x := self sideInset + ((aNode depth min: 8) * 14).
+		^ x @ 0 corner: (self contentWidth - self sideInset) @ h].
+	xMode == #metric ifTrue: [
+		| f |
+		f := (aNode totalSize max: 1) ln / (self maxItemSize max: 2) ln.
+		^ self sideInset @ 0 corner: (self sideInset + ((w * f) rounded max: 3)) @ h].
+	xMode == #lane ifTrue: [
+		"INTEGER DIVISION, and each edge derived from a lane BOUNDARY rather than
+		from a width added to an origin. `w * li / lanes` answers a Fraction
+		whenever the width is not a multiple of the lane count, and a Rectangle
+		with Fraction coordinates cannot be blitted -- the view rendered only at
+		widths divisible by 4 and was blank at the other three out of four, which
+		is why resizing by a pixel turned it on and off.
+
+		Deriving both edges from boundaries also stops rounding accumulating, so
+		lanes tile exactly instead of drifting apart by a pixel each."
+		lanes := self laneCount.
+		li := self laneIndexFor: aNode.
+		x := self sideInset + (w * li // lanes).
+		right := self sideInset + (w * (li + 1) // lanes) - 6.
+		^ x @ 0 corner: (right max: x + 3) @ h].
+	^ self sideInset @ 0 corner: (self contentWidth - self sideInset) @ h
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
+}
+SWAOpenCodeFlowMorph >> visibleIndicesDo: aBlock [
+	"The strip's rectangles are built in increasing y, so they are SORTED by
+	construction: binary-search the first one that reaches the top of the viewport
+	and walk until one starts below the bottom. That is what makes a repaint cost
+	O(visible) instead of O(items) -- otherwise every frame scans all 24000 rows to
+	find the thirty that are on screen."
+	| lay band i |
+	lay := self ensureLayout.
+	band := self visibleContentRect.
+	i := self firstIndexAtOrAfter: band top.
+	[i <= lay size and: [(lay at: i) top <= band bottom]] whileTrue: [
+		aBlock value: i.
+		i := i + 1]
+]
+
+{
+	#category : #modes,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
+}
+SWAOpenCodeFlowMorph >> xMode: aSymbol [
+	xMode := aSymbol.
+	self flushLayout
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
+}
+SWAOpenCodeFlowMorph >> zoomBy: aFactor at: aLocalY [
+	"Zoom the Y axis, KEEPING THE ITEM UNDER THE POINTER PUT. Zooming about the top
+	of the window instead makes the flow shoot away under the cursor and is the
+	difference between a usable zoom and an unusable one."
+	| anchor newZoom oldHeight |
+	oldHeight := contentHeight ifNil: [1].
+	anchor := (scrollY + aLocalY) / (oldHeight max: 1).
+	"Lower bound is now tiny, not 0.05: rows may be sub-pixel, so 'zoomed out' can
+	mean the whole 24000-item flow on one screen."
+	newZoom := (zoom * aFactor) min: 40.0 max: 0.00002.
+	newZoom = zoom ifTrue: [^ self].
+	zoom := newZoom.
+	layout := nil.
+	self ensureLayout.
+	self scrollTo: (anchor * contentHeight) - aLocalY.
+	self changed
+]
+
+{
+	#category : #zooming,
+	#'squeak_changestamp' : 'MCPServer 8/6/2026 13:00'
+}
+SWAOpenCodeFlowMorph >> zoomToFit [
+	"Bring the WHOLE flow on screen at once -- the overview end of the zoom.
+
+	Solved in closed form rather than searched: #rowHeightUnitFor: is the height at
+	zoom 1 and heights are exactly linear in zoom, so with the inter-row gap zero
+	(it is, below zoom 0.4) the content is `zoom * unitTotal + 2 * topInset` and the
+	zoom that fits follows directly."
+	| unit |
+	self items isEmpty ifTrue: [^ self].
+	unit := self items inject: 0.0 into: [:a :n | a + (self rowHeightUnitFor: n)].
+	unit <= 0 ifTrue: [^ self].
+	zoom := ((self height - (self topInset * 2)) / unit) min: 40.0.
+	layout := nil.
+	self ensureLayout.
+	self scrollTo: 0.
+	self changed
 ]
