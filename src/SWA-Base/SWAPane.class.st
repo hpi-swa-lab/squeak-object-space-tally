@@ -904,30 +904,26 @@ SWAPane class >> profileXRFrames: aCount [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:49'
+	#'squeak_changestamp' : 'MCPServer 8/11/2026 16:22'
 }
 SWAPane class >> profileXRFrames: aCount packages: aGlobCollection [
 	"Profile exactly aCount frames of the running XR world and open a FLAMEGRAPH on
-	the result. Answers the window, or nil when the profile was deferred (see
-	below) or no world is running.
+	the result. The window is opened from the world process once the frames have been
+	measured, so nothing useful comes back here.
 
 	  (SWAPane profileXRFrames: 1 packages: #('SqueakXR'))
 	  (SWAPane profileXRFrames: 60 packages: #('SqueakXR' 'SWAGame*'))
 
 	Everything -- instrument, the frames, collect, uninstall, open -- happens inside
-	SRWorld>>runBetweenFrames:, i.e. in the world process at a frame boundary with
-	the render loop blocked. That placement IS the measurement: run from a tool
+	SRWorld>>addDeferredFrameMessage:, i.e. in the world process at a frame boundary
+	with the render loop blocked. That placement IS the measurement: run from a tool
 	process instead (priority 30, below the loop's 40) the install is preempted and
 	the loop renders throughout it, so the numbers cover a few hundred frames rather
-	than aCount.
-
-	Called from the world process itself -- which is where an XR menu action runs --
-	the work is deferred to the next boundary and nil comes back, so the flamegraph
-	is opened inside the block rather than by the caller."
+	than aCount."
 	| world |
 	world := SRWorld current.
 	world ifNil: [^ nil].
-	^ world runBetweenFrames: [
+	^ world addDeferredFrameMessage: [
 		self
 			openXRFrameFlamegraphOn: (self measureXRFrames: aCount packages: aGlobCollection in: world)
 			frames: aCount.
@@ -1101,17 +1097,17 @@ SWAPane class >> traceXRFrames: aCount [
 
 {
 	#category : #'xr profiling',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:10'
+	#'squeak_changestamp' : 'MCPServer 8/11/2026 16:22'
 }
 SWAPane class >> traceXRFrames: aCount packages: aGlobCollection [
 	"Trace exactly aCount frames of the running XR world and open a FLAME CHART on the
-	result. Answers the window, or nil when the trace was deferred (see below) or no
-	world is running.
+	result. The window is opened from the world process once the frames have been
+	traced, so nothing useful comes back here.
 
 	  (SWAPane traceXRFrames: 1 packages: #('SqueakXR'))
 
 	Read alongside #profileXRFrames:packages:, which is the same shape with the same
-	placement rules -- everything inside SRWorld>>runBetweenFrames:, in the world
+	placement rules -- everything inside SRWorld>>addDeferredFrameMessage:, in the world
 	process, at a frame boundary with the render loop blocked -- and answers the same
 	question in the other currency. The profile says which methods a frame spends its
 	time in; the trace says what a frame DOES, in order: which call ran twice, where
@@ -1123,7 +1119,7 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection [
 	| world |
 	world := SRWorld current.
 	world ifNil: [^ nil].
-	^ world runBetweenFrames: [
+	^ world addDeferredFrameMessage: [
 		self
 			openXRFrameTraceOn: (self traceXRFrames: aCount packages: aGlobCollection in: world)
 			frames: aCount]
