@@ -31,14 +31,11 @@ GitHubRepositoryPicker >> api [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'SqueakXR 6/26/2026 16:01'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
 }
 GitHubRepositoryPicker >> authenticate [
 
-	| token |
-	token := UIManager default request: 'Enter your GitHub API token' initialAnswer: (api authToken ifNil: ['']).
-	token ifNil: [^ self].
-	api authToken: (token withBlanksTrimmed ifEmpty: [nil])
+	GitHubAPI requestAuthToken
 ]
 
 {
@@ -200,7 +197,7 @@ GitHubRepositoryPicker >> initialize [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'SqueakXR 6/26/2026 15:54'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:21'
 }
 GitHubRepositoryPicker >> listLabelFor: pr [
 
@@ -208,7 +205,7 @@ GitHubRepositoryPicker >> listLabelFor: pr [
 	creator := (pr at: 'user' ifAbsent: [nil])
 		ifNil: ['unknown']
 		ifNotNil: [:user | user at: 'login' ifAbsent: ['unknown']].
-	^ '#', (pr at: 'number') asString, ' [', (pr at: 'state'), '] ', (pr at: 'title'), ' â ', creator
+	^ '#', (pr at: 'number') asString, ' [', (pr at: 'state'), '] ', (pr at: 'title'), ' - ', creator
 ]
 
 {

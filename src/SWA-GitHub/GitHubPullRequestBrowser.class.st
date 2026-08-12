@@ -46,6 +46,15 @@ GitHubPullRequestBrowser >> api: aGitHubAPI [
 ]
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
+}
+GitHubPullRequestBrowser >> authenticate [
+
+	GitHubAPI requestAuthToken
+]
+
+{
 	#category : #private,
 	#'squeak_changestamp' : 'SqueakXR 6/26/2026 13:50'
 }
@@ -54,6 +63,21 @@ GitHubPullRequestBrowser >> authorForComment: comment [
 	| user |
 	user := comment at: 'user' ifAbsent: [^ 'unknown'].
 	^ user at: 'login' ifAbsent: ['unknown']
+]
+
+{
+	#category : #toolbuilder,
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
+}
+GitHubPullRequestBrowser >> buildAuthenticateButtonWith: builder [
+
+	^ builder pluggableButtonSpec new
+		model: self;
+		label: 'Authenticate';
+		help: 'Store a GitHub API token in this image. Without one, resolved conversations cannot be read.';
+		action: #authenticate;
+		frame: (0.8 @ 0 corner: 1 @ 0.12);
+		yourself
 ]
 
 {
@@ -197,7 +221,7 @@ GitHubPullRequestBrowser >> buildDynamicCommentsPanelWith: builder [
 
 {
 	#category : #toolbuilder,
-	#'squeak_changestamp' : 'SqueakXR 6/25/2026 18:44'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
 }
 GitHubPullRequestBrowser >> buildLoadButtonWith: builder [
 
@@ -205,7 +229,7 @@ GitHubPullRequestBrowser >> buildLoadButtonWith: builder [
 		model: self;
 		label: 'Load';
 		action: #loadPullRequest;
-		frame: (0.82 @ 0 corner: 1 @ 0.12);
+		frame: (0.68 @ 0 corner: 0.8 @ 0.12);
 		yourself
 ]
 
@@ -249,7 +273,7 @@ GitHubPullRequestBrowser >> buildOpenTargetButtonFor: aCommentEntry with: builde
 
 {
 	#category : #toolbuilder,
-	#'squeak_changestamp' : 'SqueakXR 6/25/2026 18:44'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
 }
 GitHubPullRequestBrowser >> buildPullRequestUrlInputWith: builder [
 
@@ -259,7 +283,7 @@ GitHubPullRequestBrowser >> buildPullRequestUrlInputWith: builder [
 		editText: #pullRequestUrl:;
 		setText: #pullRequestUrl:;
 		help: 'Pull request URL';
-		frame: (0 @ 0 corner: 0.82 @ 0.12);
+		frame: (0 @ 0 corner: 0.68 @ 0.12);
 		yourself
 ]
 
@@ -318,7 +342,7 @@ GitHubPullRequestBrowser >> buildTargetsByCommentIdFrom: comments owner: owner r
 
 {
 	#category : #toolbuilder,
-	#'squeak_changestamp' : 'SqueakXR 6/25/2026 21:45'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
 }
 GitHubPullRequestBrowser >> buildWindow: builder [
 
@@ -330,6 +354,7 @@ GitHubPullRequestBrowser >> buildWindow: builder [
 		yourself.
 	windowSpec children add: (self buildPullRequestUrlInputWith: builder).
 	windowSpec children add: (self buildLoadButtonWith: builder).
+	windowSpec children add: (self buildAuthenticateButtonWith: builder).
 	windowSpec children add: (self buildDynamicCommentsPanelWith: builder).
 	^ windowSpec
 ]
@@ -837,18 +862,22 @@ GitHubPullRequestBrowser >> resolveActionForId: commentId pullRequest: parsed en
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'SqueakXR 6/26/2026 16:32'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
 }
 GitHubPullRequestBrowser >> resolvedCommentIdsFor: parsed [
 
-	"Resolution state is only available via GraphQL. If it fails (e.g. no token),
-	fall back to treating nothing as resolved so all comments remain visible."
+	"Resolution state is only available via GraphQL, and GitHub grants no unauthenticated
+	GraphQL budget at all, so without a token every resolved comment silently comes back."
 	^ [api
 		resolvedCommentIdsForOwner: parsed first
 		repository: parsed second
 		number: parsed third]
 		on: Error
-		do: [:ex | Set new]
+		do: [:ex |
+			api authToken ifNotNil: [
+				UIManager default inform: 'Showing all comments, the resolved conversations could not be read:
+', ex messageText].
+			Set new]
 ]
 
 {

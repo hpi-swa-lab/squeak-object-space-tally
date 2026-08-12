@@ -5,8 +5,30 @@ Class {
 		'baseUrl',
 		'authToken'
 	],
+	#classVars : [
+		'AuthToken'
+	],
 	#category : #'SWA-GitHub'
 }
+
+{
+	#category : #authentication,
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
+}
+GitHubAPI class >> authToken [
+
+	"Kept in a class variable so it survives in the image, like GitS keeps its credentials."
+	^ AuthToken
+]
+
+{
+	#category : #authentication,
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
+}
+GitHubAPI class >> authToken: aStringOrNil [
+
+	AuthToken := aStringOrNil ifNotNil: [:token | token withBlanksTrimmed ifEmpty: [nil]]
+]
 
 {
 	#category : #accessing,
@@ -15,6 +37,15 @@ Class {
 GitHubAPI class >> baseUrl [
 
 	^ 'https://api.github.com'
+]
+
+{
+	#category : #authentication,
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
+}
+GitHubAPI class >> forgetAuthToken [
+
+	AuthToken := nil
 ]
 
 {
@@ -43,6 +74,16 @@ GitHubAPI class >> ownerAndRepositoryFromUrl: aString [
 ]
 
 {
+	#category : #authentication,
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
+}
+GitHubAPI class >> requestAuthToken [
+
+	self authToken: (UIManager default requestPassword: 'GitHub API token').
+	^ AuthToken
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'SqueakXR 6/25/2026 18:22'
 }
@@ -68,33 +109,35 @@ GitHubAPI >> allPullRequestCommentsForOwner: owner repository: repository number
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'SqueakXR 6/25/2026 18:22'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
 }
 GitHubAPI >> authToken [
 
-	^ authToken
+	^ authToken ifNil: [self class authToken]
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'SqueakXR 6/25/2026 18:22'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
 }
 GitHubAPI >> authToken: aString [
 
-	authToken := aString
+	"Remember it in the image too, so a token entered once outlives this API instance."
+	authToken := aString.
+	self class authToken: aString
 ]
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'SqueakXR 6/25/2026 18:22'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:06'
 }
 GitHubAPI >> configureRequest: aWebRequest [
 
 	aWebRequest headerAt: 'Accept' put: 'application/vnd.github+json'.
 	aWebRequest headerAt: 'X-GitHub-Api-Version' put: '2022-11-28'.
 	aWebRequest headerAt: 'User-Agent' put: 'Squeak-GitHubAPI'.
-	authToken ifNotNil: [
-		aWebRequest headerAt: 'Authorization' put: 'Bearer ', authToken].
+	self authToken ifNotNil: [:token |
+		aWebRequest headerAt: 'Authorization' put: 'Bearer ', token].
 ]
 
 {
@@ -164,11 +207,14 @@ GitHubAPI >> getJsonAt: apiPath [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'SqueakXR 6/26/2026 16:31'
+	#'squeak_changestamp' : 'MCPServer 8/12/2026 15:07'
 }
 GitHubAPI >> graphqlQuery: queryString variables: aJsonObject [
 
+	"GitHub grants no unauthenticated GraphQL budget at all, so ask rather than fail obscurely."
 	| payload response result errors |
+	self authToken ifNil: [
+		self class requestAuthToken ifNil: [self error: 'GitHub GraphQL needs an API token.']].
 	payload := Json render: (JsonObject new
 		at: 'query' put: queryString;
 		at: 'variables' put: aJsonObject;
