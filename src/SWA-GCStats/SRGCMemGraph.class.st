@@ -6,9 +6,25 @@ Bands, bottom to top: used old space (deepOcean) at the global scale, then a you
 Class {
 	#name : #SRGCMemGraph,
 	#superclass : #GcFullGraph,
+	#instVars : [
+		'lastScavengeCount',
+		'lastScavengeMs',
+		'emaScavengeMs'
+	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 14:54'
+}
+SRGCMemGraph class >> scavengeEmaAlpha [
+	"Smoothing factor for the exponential moving average of scavenge time. The sample
+	cadence is one per scavenge (not per frame), so ~0.1 is about a 10-scavenge time
+	constant: stable enough to read a sub-ms value, still tracks a changing load."
+	^ 0.1
+]
 
 {
 	#category : #layout,
@@ -22,31 +38,62 @@ SRGCMemGraph class >> youngBandHeight [
 ]
 
 {
+	#category : #'scavenge timing',
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 14:55'
+}
+SRGCMemGraph >> averageScavengeMs [
+	"Mean milliseconds per scavenge over the window, or nil if no scavenge has been
+	seen yet. A single scavenge is sub-millisecond, so only the average over many is
+	meaningful -- per-frame p10 deltas read 0."
+
+	^ emaScavengeMs
+]
+
+{
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/13/2026 16:47'
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:08'
 }
 SRGCMemGraph >> labelString [
 	"Drop the free-space field (removed from the graph); keep old, young/eden, range."
 
-	^ String streamContents: [:s |
+	^ String streamContents: [:s | | avg |
 		s nextPutAll: 'old '; nextPutAll: (self mbString: self usedOldSpace);
 		  nextPutAll: '  young '; nextPutAll: (self mbString: self usedYoungSpace);
 		  nextPut: $/; nextPutAll: (self mbString: self youngSpace);
-		  nextPutAll: '  range '; nextPutAll: (self mbString: scale * graph height)]
+		  nextPutAll: '  range '; nextPutAll: (self mbString: scale * graph height).
+		avg := self averageScavengeMs.
+		avg ifNotNil: [
+			s nextPutAll: '  scav '; nextPutAll: (avg asFloat printShowingDecimalPlaces: 2); nextPutAll: 'ms']]
 ]
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/13/2026 16:46'
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:07'
 }
 SRGCMemGraph >> updateGraph [
 	"One column: used old space (deepOcean) at the global scale, then a young-space
 	band (seafoam) plotted against eden capacity so the scavenge sawtooth is visible.
 	No free-space band. Mirrors GcFullGraph but swaps free -> young-scaled-to-eden."
 
-	| rescaled height oldTop bandH youngFill youngTop |
+	| rescaled height oldTop bandH youngFill youngTop scavenges scavengeMs countDelta |
 	rescaled := self updateScale.
 	height := graph height.
+
+	"p9 = scavenge (incremental GC) count, p10 = cumulative scavenge ms. The count
+	ticks on exactly the frame young space is razored. On a scavenge frame, fold this
+	frame's ms-per-scavenge into an EMA (a single scavenge is sub-ms, so only the
+	smoothed average is meaningful; per-frame p10 deltas often read 0)."
+	scavenges := Smalltalk vmParameterAt: 9.
+	scavengeMs := Smalltalk vmParameterAt: 10.
+	countDelta := lastScavengeCount ifNil: [0] ifNotNil: [scavenges - lastScavengeCount].
+	countDelta > 0 ifTrue: [ | alpha sample |
+		alpha := self class scavengeEmaAlpha.
+		sample := (scavengeMs - lastScavengeMs) / countDelta.
+		emaScavengeMs := emaScavengeMs
+			ifNil: [sample]
+			ifNotNil: [emaScavengeMs * (1 - alpha) + (sample * alpha)]].
+	lastScavengeCount := scavenges.
+	lastScavengeMs := scavengeMs.
 
 	self graph shiftBy: 2.
 	self graph
