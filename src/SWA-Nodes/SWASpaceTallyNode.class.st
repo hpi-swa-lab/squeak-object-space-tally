@@ -250,6 +250,19 @@ SWASpaceTallyNode >> binChildrenByClass [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 13:01'
+}
+SWASpaceTallyNode >> browse [
+	"Browse button. When this node holds a CompiledMethod, open a browser on that
+	method; otherwise fall back to browsing the held object's class (the default)."
+
+	(obj isKindOf: CompiledMethod)
+		ifTrue: [^ ToolSet browse: obj methodClass selector: obj selector].
+	^ super browse
+]
+
+{
 	#category : #private,
 	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:34'
 }
@@ -1409,6 +1422,20 @@ SWASpaceTallyNode >> setTotalSize: anInteger [
 }
 SWASpaceTallyNode >> setTruncated: aBoolean [
 	truncated := aBoolean
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 13:01'
+}
+SWASpaceTallyNode >> sourceString [
+	"Source text for the SWAPane Show pane. When this node holds a CompiledMethod
+	(e.g. a synthetic method-provenance node from a heap diff), show that method's
+	source; otherwise there is nothing code-like to show."
+
+	(obj isKindOf: CompiledMethod)
+		ifTrue: [^ obj getSource asString].
+	^ ''
 ]
 
 {

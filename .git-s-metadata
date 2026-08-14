@@ -210,6 +210,15 @@ GSMetadata {
 				#name : 'SWA-Flow'
 			},
 			#path : @66
+		},
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'SWA-HeapDiff'
+			},
+			#path : FSAbsolutePath [
+				'src'
+			]
 		}
 	],
 	#name : 'squeak-object-space-tally'
