@@ -9,7 +9,9 @@ Class {
 	#instVars : [
 		'lastScavengeCount',
 		'lastScavengeMs',
-		'emaScavengeMs'
+		'emaScavengeMs',
+		'oldSpaceMax',
+		'survivorYoung'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -24,6 +26,16 @@ SRGCMemGraph class >> scavengeEmaAlpha [
 	cadence is one per scavenge (not per frame), so ~0.1 is about a 10-scavenge time
 	constant: stable enough to read a sub-ms value, still tracks a changing load."
 	^ 0.1
+]
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 16:04'
+}
+SRGCMemGraph class >> survivorColor [
+	"Deeper seafoam for the survivor baseline -- the young-space bytes still live right
+	after the last scavenge, i.e. the floor the sawtooth drops to."
+	^ self seafoamColor muchDarker
 ]
 
 {
@@ -51,16 +63,16 @@ SRGCMemGraph >> averageScavengeMs [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:39'
 }
 SRGCMemGraph >> labelString [
-	"Drop the free-space field (removed from the graph); keep old, young/eden, range."
+	"old (with its lane's max) and young/eden, plus the moving-average scavenge time."
 
 	^ String streamContents: [:s | | avg |
 		s nextPutAll: 'old '; nextPutAll: (self mbString: self usedOldSpace);
+		  nextPut: $/; nextPutAll: (self mbString: (oldSpaceMax ifNil: [self usedOldSpace]));
 		  nextPutAll: '  young '; nextPutAll: (self mbString: self usedYoungSpace);
-		  nextPut: $/; nextPutAll: (self mbString: self youngSpace);
-		  nextPutAll: '  range '; nextPutAll: (self mbString: scale * graph height).
+		  nextPut: $/; nextPutAll: (self mbString: self youngSpace).
 		avg := self averageScavengeMs.
 		avg ifNotNil: [
 			s nextPutAll: '  scav '; nextPutAll: (avg asFloat printShowingDecimalPlaces: 2); nextPutAll: 'ms']]
@@ -68,19 +80,17 @@ SRGCMemGraph >> labelString [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:07'
+	#'squeak_changestamp' : 'MCPServer 8/14/2026 16:04'
 }
 SRGCMemGraph >> updateGraph [
-	"One column: used old space (deepOcean) at the global scale, then a young-space
-	band (seafoam) plotted against eden capacity so the scavenge sawtooth is visible.
-	No free-space band. Mirrors GcFullGraph but swaps free -> young-scaled-to-eden."
+	"Two independent lanes so both are readable despite the huge old/young ratio:
+	old space on the bottom (scaled to its own running max), the young-space scavenge
+	sawtooth on top (scaled to eden), a slate divider between."
 
-	| rescaled height oldTop bandH youngFill youngTop scavenges scavengeMs countDelta |
-	rescaled := self updateScale.
+	| height youngLaneH oldLaneH youngFill oldFill scavenges scavengeMs countDelta |
 	height := graph height.
 
-	"p9 = scavenge (incremental GC) count, p10 = cumulative scavenge ms. The count
-	ticks on exactly the frame young space is razored. On a scavenge frame, fold this
+	"p9 = scavenge count, p10 = cumulative scavenge ms. On a scavenge frame, fold this
 	frame's ms-per-scavenge into an EMA (a single scavenge is sub-ms, so only the
 	smoothed average is meaningful; per-frame p10 deltas often read 0)."
 	scavenges := Smalltalk vmParameterAt: 9.
@@ -91,26 +101,48 @@ SRGCMemGraph >> updateGraph [
 		sample := (scavengeMs - lastScavengeMs) / countDelta.
 		emaScavengeMs := emaScavengeMs
 			ifNil: [sample]
-			ifNotNil: [emaScavengeMs * (1 - alpha) + (sample * alpha)]].
+			ifNotNil: [emaScavengeMs * (1 - alpha) + (sample * alpha)].
+		"Right after a scavenge, usedYoung is essentially the survivor bytes -- the floor
+		the sawtooth drops to. Capture it as the survivor baseline."
+		survivorYoung := self usedYoungSpace].
 	lastScavengeCount := scavenges.
 	lastScavengeMs := scavengeMs.
 
+	"Lanes split proportionally so they scale with the (supersampled) form height."
+	oldLaneH := (height * 55 // 100) min: height - 2.
+	youngLaneH := height - oldLaneH - 1.
+
+	"Old space auto-scales to its own running max, so its changes fill the lane rather
+	than pinning at the top of a global scale."
+	oldSpaceMax := (oldSpaceMax ifNil: [self usedOldSpace max: 1]) max: self usedOldSpace.
+
 	self graph shiftBy: 2.
-	self graph
-		drawFrom: 0 to: height
-		color: (rescaled ifTrue: [self class slateColor] ifFalse: [self class backgroundColor])
-		width: 2.
+	self graph drawFrom: 0 to: height color: self class backgroundColor width: 2.
 
-	"Used old space, global scale (same as the desktop graph)."
-	oldTop := (self usedOldSpace // scale) min: height.
-	self graph drawFrom: 0 to: oldTop color: self class deepOceanColor width: 2.
+	"Bottom lane: old space, scaled to its own max within the lane."
+	oldFill := (self usedOldSpace * oldLaneH // oldSpaceMax) min: oldLaneH.
+	self graph drawFrom: 0 to: oldFill color: self class deepOceanColor width: 2.
 
-	"Young space filling its own band above old space: height proportional to eden
-	occupancy, so it climbs as eden fills and drops on a scavenge."
-	bandH := (self class youngBandHeight min: height - oldTop) max: 0.
+	"Divider."
+	self graph drawFrom: oldLaneH to: oldLaneH + 1 color: self class slateColor width: 2.
+
+	"Top lane: young space vs eden capacity -- the scavenge sawtooth. The bottom of the
+	band, up to the last scavenge's survivor level, is drawn deeper; fresh allocation
+	above it is normal seafoam."
 	youngFill := self youngSpace isZero
 		ifTrue: [0]
-		ifFalse: [(self usedYoungSpace * bandH // self youngSpace) min: bandH].
-	youngTop := (oldTop + youngFill) min: height.
-	self graph drawFrom: oldTop to: youngTop color: self class seafoamColor width: 2
+		ifFalse: [(self usedYoungSpace * youngLaneH // self youngSpace) min: youngLaneH].
+	self graph
+		drawFrom: oldLaneH + 1
+		to: oldLaneH + 1 + youngFill
+		color: self class seafoamColor width: 2.
+
+	survivorYoung ifNotNil: [ | survFill |
+		survFill := self youngSpace isZero
+			ifTrue: [0]
+			ifFalse: [(survivorYoung * youngLaneH // self youngSpace) min: youngFill].
+		self graph
+			drawFrom: oldLaneH + 1
+			to: oldLaneH + 1 + survFill
+			color: self class survivorColor width: 2]
 ]
