@@ -77,6 +77,17 @@ GcGraph class >> enable [
 ]
 
 {
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 12:00'
+}
+GcGraph class >> maxFps [
+	"Ceiling for a reported fps reading. A frame interval below ~1ms (stepping as fast
+	as possible, or timer jitter) would otherwise report an implausible fps and spike
+	the graph and the EMA. 1000 fps is well above any real render rate."
+	^ 1000
+]
+
+{
 	#category : #'default instance',
 	#'squeak_changestamp' : 'jl 11/9/2005 22:44'
 }
@@ -167,14 +178,15 @@ GcGraph >> form [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:44'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 12:00'
 }
 GcGraph >> fps [
-	"Frames per second derived from the last update interval.
-	Guard against two updates within the same millisecond."
-	^(deltaTime isNil or: [deltaTime isZero])
-		ifTrue: [0]
-		ifFalse: [1000 // deltaTime]
+	"Frames per second from the last frame interval (deltaTime is Float milliseconds).
+	Guard a zero/near-zero delta, and clamp to a sane ceiling so a single sub-microsecond
+	interval cannot spike the graph/EMA."
+	^(deltaTime isNil or: [deltaTime <= 0.05])
+		ifTrue: [self class maxFps]
+		ifFalse: [(1000.0 / deltaTime) min: self class maxFps]
 ]
 
 {
@@ -205,11 +217,11 @@ GcGraph >> initialize [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:44'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 12:00'
 }
 GcGraph >> labelString [
 	^String streamContents: [:s |
-		s nextPutAll: 'fps '; print: self fps;
+		s nextPutAll: 'fps '; print: self fps rounded;
 		  nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
 		  nextPutAll: '  scavenge '; print: (Smalltalk vmParameterAt: 9);
 		  nextPutAll: '  rootTable '; print: self rootTableSize]
@@ -217,10 +229,11 @@ GcGraph >> labelString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'jl 10/28/2005 16:01'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:59'
 }
 GcGraph >> lastTime [
-	^lastTime ifNil: [ lastTime := Time millisecondClockValue - 1]
+	"Microsecond timestamp of the last frame (see updateTimeWith:)."
+	^lastTime ifNil: [ lastTime := Time utcMicrosecondClock - 1000]
 ]
 
 {
@@ -337,17 +350,31 @@ GcGraph >> updateText [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'jl 10/28/2005 16:00'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:58'
 }
 GcGraph >> updateTime [
-	| newTime |
-	newTime := Time millisecondClockValue.	
-	deltaTime := newTime - self lastTime.
-	lastTime := newTime.
-	
-	
+	"Measure the frame delta from the wall clock -- correct when the owner steps this
+	graph once per real frame (e.g. the desktop morph stepping every Morphic cycle)."
+	self updateTimeWith: nil
+]
 
-
+{
+	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:59'
+}
+GcGraph >> updateTimeWith: aDeltaMsOrNil [
+	"Set this frame's delta. If the caller has an authoritative frame delta (the XR
+	render loop passes SRFrame's deltaTime), use it; otherwise measure the wall-clock
+	interval since the last step (the desktop morph, stepped once per Morphic cycle)."
+	| nowMicros |
+	nowMicros := Time utcMicrosecondClock.
+	"deltaTime is milliseconds (Float). Measure at microsecond resolution so frames
+	faster than 1ms (stepping as fast as possible) are timed accurately instead of
+	rounding to 0/1ms and producing bogus 1000 fps spikes."
+	deltaTime := aDeltaMsOrNil
+		ifNil: [(nowMicros - self lastTime) / 1000.0]
+		ifNotNil: [aDeltaMsOrNil].
+	lastTime := nowMicros
 ]
 
 {

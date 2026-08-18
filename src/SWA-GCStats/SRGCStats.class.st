@@ -12,9 +12,7 @@ Class {
 		'source',
 		'fastTexture',
 		'meshObject',
-		'graph',
-		'fullGraph',
-		'survivorGraph',
+		'panel',
 		'labelFont'
 	],
 	#category : #'SWA-GCStats',
@@ -171,19 +169,19 @@ SRGCStats >> fastTexture [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:45'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
 }
 SRGCStats >> initialize [
 
 	super initialize.
 	self name: 'GCStats'.
 
-	"Reuse the real GC Stats graph objects, but at the texture's native resolution so
-	the bars and lines are actual pixels (real supersampling, not an upscaled blit)."
-	graph := SRGCFpsGraph new.
-	fullGraph := SRGCMemGraph new.
-	survivorGraph := SRGCSurvivorGraph new.
-	self scaleGraphForms.
+	"Shared GC-stats model, at the texture's native resolution so the bars and lines
+	are actual pixels (real supersampling, not an upscaled blit). Same panel drives
+	the desktop GcGraphMorph."
+	panel := GcStatsPanel new.
+	panel labelFont: self labelFont.
+	panel scaleForFactor: self class textureScale.
 
 	meshObject := SRMeshObject withMesh: SRPlane mesh.
 	"Plane mesh lies in XZ; stand it up to face +Z like SRMorphPanel does."
@@ -204,13 +202,14 @@ SRGCStats >> labelFont [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/13/2026 15:44'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:27'
 }
 SRGCStats >> labelFont: aFont [
 	"Set the label font (e.g. a StrikeFont for crispness, or the class baseline font
 	for desktop parity). Resize the label strips to fit the new font height."
 
 	labelFont := aFont.
+	panel ifNotNil: [panel labelFont: aFont].
 	self resizeForLabelFont
 ]
 
@@ -225,26 +224,30 @@ SRGCStats >> labelStripHeight [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
+}
+SRGCStats >> panel [
+	^ panel
+]
+
+{
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:45'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
 }
 SRGCStats >> rebuildSource [
 	"(Re)build the pixel buffer, GPU texture and quad aspect for the current label font.
 	Layout: [fps label strip][fps graph][mem label strip][mem graph]."
 
-	| w h labelH |
-	labelH := self labelStripHeight.
-	w := graph graph form width max: fullGraph graph form width.
-	h := labelH + graph graph form height
-		+ labelH + fullGraph graph form height
-		+ labelH + survivorGraph graph form height.
-
-	"Graph forms and the label font are already at the render scale (native texture
+	| extent |
+	"The panel computes the composited size from its graph forms and our label font.
+	Graph forms and the label font are already at the render scale (native texture
 	resolution), so the texture is their actual size -- real pixels, no upscaling."
-	source := SRTextureSource width: w height: h fill: GcGraph backgroundColor.
+	extent := panel extentFor: (GcStatsTextureSurface new source: nil font: self labelFont).
+	source := SRTextureSource width: extent x height: extent y fill: GcGraph backgroundColor.
 	fastTexture := SRFastTexture on: source.
 	meshObject material texture: fastTexture.
-	meshObject scale: (Vector3 x: 1.0 y: 1.0 z: h / w)
+	meshObject scale: (Vector3 x: 1.0 y: 1.0 z: extent y / extent x)
 ]
 
 {
@@ -270,21 +273,6 @@ SRGCStats >> resizeForLabelFont [
 ]
 
 {
-	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:45'
-}
-SRGCStats >> scaleGraphForms [
-	"Resize each graph's FormGraph to the render scale, so its bars/lines are drawn at
-	native texture resolution (real pixels) rather than upscaled from a 1x form."
-
-	| scale |
-	scale := self class textureScale.
-	graph graph width: 480 * scale height: 50 * scale.
-	fullGraph graph width: 480 * scale height: 100 * scale.
-	survivorGraph graph width: 480 * scale height: 50 * scale
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 8/13/2026 13:38'
 }
@@ -295,45 +283,22 @@ SRGCStats >> source [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:46'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:59'
 }
 SRGCStats >> step: deltaTime [
 
-	| labelH fpsGraphTop fullLabelTop fullGraphTop survLabelTop survGraphTop |
-	"Advance the three real graphs, exactly as GcGraphMorph>>step does."
-	graph updateTime.
-	graph updateGraph.
-	fullGraph updateGraph.
-	survivorGraph updateGraph.
-
-	"Layout at native texture resolution: [fps label][fps graph][mem label][mem graph]
-	[surv label][surv graph]. Graph forms and the font are already at render scale, so
-	everything blits 1:1 -- actual pixels, no upscaling."
-	labelH := self labelStripHeight.
-	fpsGraphTop := labelH.
-	fullLabelTop := fpsGraphTop + graph graph form height.
-	fullGraphTop := fullLabelTop + labelH.
-	survLabelTop := fullGraphTop + fullGraph graph form height.
-	survGraphTop := survLabelTop + labelH.
-
-	"Clear the label strips (old text) then blit graphs and draw labels."
-	source fillRect: (0 @ 0 corner: source width @ labelH) color: GcGraph backgroundColor.
-	source fillRect: (0 @ fullLabelTop corner: source width @ (fullLabelTop + labelH)) color: GcGraph backgroundColor.
-	source fillRect: (0 @ survLabelTop corner: source width @ (survLabelTop + labelH)) color: GcGraph backgroundColor.
-	source drawForm: graph graph form at: 0 @ fpsGraphTop.
-	source drawForm: fullGraph graph form at: 0 @ fullGraphTop.
-	source drawForm: survivorGraph graph form at: 0 @ survGraphTop.
-	source drawString: graph labelString at: 2 @ 1 color: GcGraph slateColor on: GcGraph backgroundColor font: self labelFont.
-	source drawString: fullGraph labelString at: 2 @ (fullLabelTop + 1) color: GcGraph slateColor on: GcGraph backgroundColor font: self labelFont.
-	source drawString: survivorGraph labelString at: 2 @ (survLabelTop + 1) color: GcGraph slateColor on: GcGraph backgroundColor font: self labelFont.
-
+	"Advance the graphs and composite them onto the texture via the shared panel --
+	the exact same layout/composite code the desktop GcGraphMorph uses, just aimed at
+	an SRTextureSource surface instead of a Canvas."
+	panel stepGraphsWithDelta: deltaTime.
+	panel renderOn: (GcStatsTextureSurface new source: source font: self labelFont).
 	source notifyTextureChanged
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:37'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
 }
 SRGCStats >> survivorGraph [
-	^ survivorGraph
+	^ panel survivorGraph
 ]

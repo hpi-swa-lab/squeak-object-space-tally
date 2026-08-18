@@ -2,8 +2,7 @@ Class {
 	#name : #GcGraphMorph,
 	#superclass : #Morph,
 	#instVars : [
-		'graph',
-		'fullGraph'
+		'panel'
 	],
 	#category : #'SWA-GCStats'
 }
@@ -74,78 +73,84 @@ GcGraphMorph >> defaultColor [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:53'
 }
 GcGraphMorph >> drawOn: aCanvas [
 
-	| font |
-	aCanvas paintImage: graph form at: self topLeft.
-	aCanvas paintImage: fullGraph form at: self topLeft + (0 @ graph form height).
-
-	font := TextStyle defaultFont.
-	aCanvas
-		drawString: graph labelString
-		at: self topLeft + (2 @ 1) font: font color: GcGraph slateColor.
-	aCanvas
-		drawString: fullGraph labelString
-		at: self topLeft + (2 @ (graph form height + 1)) font: font color: GcGraph slateColor
+	"Just blit the panel's retained backing Form (ImageMorph-style). All compositing
+	happened once in #step via panel refresh; drawing is a single paintImage:."
+	aCanvas paintImage: panel form at: self topLeft
 ]
 
 {
 	#category : #geometry,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:50'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:54'
 }
 GcGraphMorph >> extent: aPoint [
-	"Split my height between the timing\/GC graph (top) and the memory graph
-	(bottom). Clamp to a usable minimum so window resizing cannot produce
-	zero-sized forms."
-	| e top |
-	e := (aPoint truncated) max: 80@60.
-	super extent: e.
-	top := e y // 2.
-	graph extent: e x @ top.
-	fullGraph extent: e x @ (e y - top)
+	"Resizing the morph re-fits the panel's graph forms to the new size: wider shows
+	more history, taller shows more detail. Clamp to a usable minimum so a drag cannot
+	produce zero-sized forms."
+	| e |
+	panel isNil ifTrue: [^ super extent: aPoint].
+	e := aPoint truncated max: 120 @ 90.
+	panel fitWidth: e x height: e y labelStripHeight: panel labelStripHeight.
+	"Graph forms changed size, so rebuild the backing Form once (not per frame)."
+	panel ensureBackingForm.
+	super extent: panel extent
 ]
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'jl 7/14/2006 10:33'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:35'
 }
 GcGraphMorph >> initialize [
 	super initialize.
-	graph := GcGraph new.
-	fullGraph := GcFullGraph new.
+	"Shared GC-stats model -- the same panel (with the improved graphs and the
+	survivor graph) that drives the XR SRGCStats texture. 1x scale for screen pixels."
+	panel := GcStatsPanel new.
+	panel scaleForFactor: 1.
+	self extent: 480 @ 300
+]
 
-	self extent: 400@400.
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:28'
+}
+GcGraphMorph >> panel [
+	^ panel
 ]
 
 {
 	#category : #geometry,
-	#'squeak_changestamp' : 'jl 7/14/2006 10:46'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:28'
 }
 GcGraphMorph >> position: aPoint [
-	super position: aPoint.
-	graph graph position: aPoint.
-	fullGraph graph position: aPoint + (0@ graph form height)
+	"The panel blits its graph forms at draw time relative to my topLeft, so moving me
+	needs nothing beyond the usual Morph behaviour."
+	super position: aPoint
 ]
 
 {
 	#category : #'stepping and presenter',
-	#'squeak_changestamp' : 'jl 7/14/2006 10:59'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:54'
 }
 GcGraphMorph >> step [
-	self changed.
-	graph updateTime.
-	graph updateGraph.
-	fullGraph updateGraph
+	"Advance + composite into the panel's backing Form once, then invalidate so the
+	single blit in #drawOn: repaints. No per-frame form allocation, no re-issued ops."
+	panel refresh.
+	self changed
 ]
 
 {
 	#category : #'stepping and presenter',
-	#'squeak_changestamp' : 'jl 7/14/2006 10:20'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:58'
 }
 GcGraphMorph >> stepTime [
-	^1
+	"0 = step every Morphic cycle (Morphic clamps to a 1ms minimum). We WANT this: the
+	fps graph measures the interval between steps, so stepping once per Morphic frame
+	makes that interval the real Morphic frame time -- i.e. the actual fps. The redraw
+	is a single blit of the panel's retained backing Form, so this is cheap."
+	^0
 ]
 
 {
