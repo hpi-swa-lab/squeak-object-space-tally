@@ -95,14 +95,15 @@ SRGCRecorder class >> startMorphic [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:42'
+	#'squeak_changestamp' : 'jl 8/19/2026 11:07'
 }
 SRGCRecorder class >> startXr [
-	"Begin a recording to be driven from the XR render loop: the world calls
-	`SRGCRecorder current sampleNow` once per frame (see SRWorld>>sampleGCRecorder).
-	No Morphic stepper is added here. Answers the recorder."
+	"Begin a recording driven from the XR render loop: SRGCSampleWrapper wraps
+	SRFrame>>process and calls #sampleFromXrFrame once per presented frame. No Morphic
+	stepper is added here. Answers the recorder."
 	Current := self new source: #xr; yourself.
 	Current armWithCapacity: self defaultCapacity.
+	SRGCSampleWrapper installOn.
 	^ Current
 ]
 
@@ -283,6 +284,18 @@ SRGCRecorder >> openInPane [
 
 {
 	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 10:49'
+}
+SRGCRecorder >> sampleFromXrFrame [
+	"One sample per presented XR frame, taken by SRGCSampleWrapper on SRFrame>>process.
+	Guards on our own state so the wrapper stays dumb: only an armed, XR-sourced
+	recording stores anything. Moved here from the old SRWorld>>sampleGCRecorder so the
+	frame path carries no GC-recording knowledge."
+	(self isRecording and: [source == #xr]) ifTrue: [self sampleNow]
+]
+
+{
+	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:39'
 }
 SRGCRecorder >> sampleNow [
@@ -352,13 +365,17 @@ SRGCRecorder >> source: aSymbol [
 
 {
 	#category : #recording,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:39'
+	#'squeak_changestamp' : 'jl 8/19/2026 11:07'
 }
 SRGCRecorder >> stop [
 	"Freeze the buffers. Nothing more is stored; #series and #traceRoot read the first
 	`count` slots. The Arrays are kept (not copied down) -- the accessors already honour
-	`count`, and a trailing tail of unused slots is cheaper than a copy of a long run."
+	`count`, and a trailing tail of unused slots is cheaper than a copy of a long run.
+
+	Also remove the XR frame hook. Harmless when this was not the XR recorder: uninstall
+	is a no-op unless a wrapper is actually installed on SRFrame>>process."
 	lastStepMicros := nil.
+	SRGCSampleWrapper uninstallFrom.
 ]
 
 {
