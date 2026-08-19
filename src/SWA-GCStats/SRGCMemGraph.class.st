@@ -63,7 +63,7 @@ SRGCMemGraph >> averageScavengeMs [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:14'
 }
 SRGCMemGraph >> labelString [
 	"old (with its lane's max) and young/eden, plus the moving-average scavenge time."
@@ -73,6 +73,10 @@ SRGCMemGraph >> labelString [
 		  nextPut: $/; nextPutAll: (self mbString: (oldSpaceMax ifNil: [self usedOldSpace]));
 		  nextPutAll: '  young '; nextPutAll: (self mbString: self usedYoungSpace);
 		  nextPut: $/; nextPutAll: (self mbString: self youngSpace).
+		"survivorYoung = usedYoung captured right after the last scavenge, i.e. the bytes
+		that survived the young GC (the sawtooth floor)."
+		survivorYoung ifNotNil: [
+			s nextPutAll: '  surv '; nextPutAll: (self mbString: survivorYoung)].
 		avg := self averageScavengeMs.
 		avg ifNotNil: [
 			s nextPutAll: '  scav '; nextPutAll: (avg asFloat printShowingDecimalPlaces: 2); nextPutAll: 'ms']]

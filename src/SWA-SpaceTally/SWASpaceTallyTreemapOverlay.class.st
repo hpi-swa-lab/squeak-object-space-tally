@@ -10,7 +10,7 @@ Class {
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:22'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:40'
 }
 SWASpaceTallyTreemapOverlay >> addMenuItems: menu for: aNode [
 	"SpaceTally context-menu items: explorer, subtree copy, retention graph,
@@ -29,7 +29,53 @@ SWASpaceTallyTreemapOverlay >> addMenuItems: menu for: aNode [
 			menu add: '(object was GC''d)' target: self selector: #yourself].
 	menu addLine.
 	menu add: 'inspect tally node' selector: #inspectObject: argument: aNode.
-	menu add: 'explore tally node' selector: #exploreObject: argument: aNode
+	menu add: 'explore tally node' selector: #exploreObject: argument: aNode.
+	"Close the loop with the allocation tracer: if this node is a traceable class,
+	offer to add/remove it from SWAAllocTracer's classes of interest."
+	(self classForAllocTraceOf: aNode) ifNotNil: [:cls |
+		menu addLine.
+		(SWAAllocTracer tracedClasses includes: cls)
+			ifTrue: [menu add: 'remove ', cls name, ' from allocation trace'
+				selector: #removeFromAllocTrace: argument: cls]
+			ifFalse: [menu add: 'add ', cls name, ' to allocation trace'
+				selector: #addToAllocTrace: argument: cls]]
+]
+
+{
+	#category : #'alloc trace',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:39'
+}
+SWASpaceTallyTreemapOverlay >> addToAllocTrace: aClass [
+	"Add aClass to SWAAllocTracer's classes of interest, so the next allocation-survival
+	trace (Apps 'SWA Alloc Survival', or the XR profile 'alloc survival N frames') folds
+	its allocations. The link that closes the loop: see a class surviving here, then trace
+	where it is made."
+	SWAAllocTracer traceClass: aClass
+]
+
+{
+	#category : #'alloc trace',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:39'
+}
+SWASpaceTallyTreemapOverlay >> classForAllocTraceOf: aNode [
+	"The Class this tally node represents, for the allocation-trace menu items, or nil.
+	A class-composition node (the Survivor/Memory tally groups objects by class) holds
+	the class name in #className or #name; a live-object node's #object may itself be a
+	class. Only answer a class that has a known allocation funnel (Array or a Vector
+	subclass -- see SWAAllocTracer>>funnelsFor:), since tracing a class we cannot catch
+	would add a menu item that does nothing."
+	| cls name |
+	cls := nil.
+	aNode object isBehavior ifTrue: [cls := aNode object theNonMetaClass].
+	cls ifNil: [
+		name := aNode className ifNil: [aNode name].
+		(name isString and: [name notEmpty and: [name first isUppercase]]) ifTrue: [
+			cls := Smalltalk at: name asSymbol ifAbsent: [nil]]].
+	cls ifNil: [^ nil].
+	cls isBehavior ifFalse: [^ nil].
+	^ (SWAAllocTracer funnelsFor: (IdentitySet with: cls)) isEmpty
+		ifTrue: [nil]
+		ifFalse: [cls]
 ]
 
 {
@@ -140,4 +186,13 @@ SWASpaceTallyTreemapOverlay >> openExplorerOn: aNode [
 	"Open a SpaceTally Explorer on the root, expanded and selected to aNode."
 
 	treemapMorph rootNode openExplorerSelecting: aNode
+]
+
+{
+	#category : #'alloc trace',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:40'
+}
+SWASpaceTallyTreemapOverlay >> removeFromAllocTrace: aClass [
+	"Remove aClass from SWAAllocTracer's classes of interest."
+	SWAAllocTracer stopTracingClass: aClass
 ]

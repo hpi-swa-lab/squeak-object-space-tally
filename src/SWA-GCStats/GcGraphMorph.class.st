@@ -2,7 +2,8 @@ Class {
 	#name : #GcGraphMorph,
 	#superclass : #Morph,
 	#instVars : [
-		'panel'
+		'panel',
+		'recorder'
 	],
 	#category : #'SWA-GCStats'
 }
@@ -62,6 +63,18 @@ GcGraphMorph class >> xrMenuOpen: aMenu [
 ]
 
 {
+	#category : #'record button',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:47'
+}
+GcGraphMorph >> buttonBounds [
+	"Top-right corner, over the panel blit. Drawn in #drawOn: after the panel Form and
+	hit-tested in #mouseDown:, so no submorph is needed."
+	| w h |
+	w := 74. h := 20.
+	^ (self right - w - 6) @ (self top + 6) extent: w @ h
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:58'
 }
@@ -72,14 +85,39 @@ GcGraphMorph >> defaultColor [
 ]
 
 {
+	#category : #'record button',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
+}
+GcGraphMorph >> drawButtonOn: aCanvas [
+	"The record/stop toggle. Coral (the full-GC colour) means 'recording, click to
+	stop'; the ocean colour means 'idle, click to record'. Same palette as the graphs
+	so the control reads as part of the same tool."
+	| r label fill |
+	r := self buttonBounds.
+	fill := self isRecording ifTrue: [GcGraph coralColor] ifFalse: [GcGraph deepOceanColor].
+	aCanvas fillRoundRect: r radius: 5 fillStyle: fill.
+	aCanvas frameRoundRect: r radius: 5 width: 1 color: (Color gray: 0.25).
+	label := self isRecording ifTrue: ['Stop'] ifFalse: ['Record'].
+	self isRecording
+		ifTrue: [aCanvas fillRectangle: (r center - (4@4) extent: 8@8) color: Color white]
+		ifFalse: [aCanvas fillOval: (r left + 8 @ (r center y - 4) extent: 8@8) color: (Color r: 1 g: 0.3 b: 0.3)].
+	aCanvas
+		drawString: label
+		in: (r left + 20 @ r top corner: r bottomRight)
+		font: Preferences standardButtonFont
+		color: Color white
+]
+
+{
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:53'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
 }
 GcGraphMorph >> drawOn: aCanvas [
 
 	"Just blit the panel's retained backing Form (ImageMorph-style). All compositing
 	happened once in #step via panel refresh; drawing is a single paintImage:."
-	aCanvas paintImage: panel form at: self topLeft
+	aCanvas paintImage: panel form at: self topLeft.
+	self drawButtonOn: aCanvas
 ]
 
 {
@@ -100,6 +138,14 @@ GcGraphMorph >> extent: aPoint [
 ]
 
 {
+	#category : #'record button',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
+}
+GcGraphMorph >> handlesMouseDown: anEvent [
+	^ true
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:35'
 }
@@ -110,6 +156,26 @@ GcGraphMorph >> initialize [
 	panel := GcStatsPanel new.
 	panel scaleForFactor: 1.
 	self extent: 480 @ 300
+]
+
+{
+	#category : #'record button',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:47'
+}
+GcGraphMorph >> isRecording [
+	^ recorder notNil and: [recorder isRecording]
+]
+
+{
+	#category : #'record button',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
+}
+GcGraphMorph >> mouseDown: anEvent [
+	"The record/stop toggle is the only interactive region; a click elsewhere is left
+	to the window (drag, raise). Toggling redraws the button on the next step."
+	(self buttonBounds containsPoint: anEvent position)
+		ifTrue: [self toggleRecording. self changed]
+		ifFalse: [super mouseDown: anEvent]
 ]
 
 {
@@ -132,11 +198,12 @@ GcGraphMorph >> position: aPoint [
 
 {
 	#category : #'stepping and presenter',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:54'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
 }
 GcGraphMorph >> step [
 	"Advance + composite into the panel's backing Form once, then invalidate so the
 	single blit in #drawOn: repaints. No per-frame form allocation, no re-issued ops."
+	self isRecording ifTrue: [recorder sampleNow].
 	panel refresh.
 	self changed
 ]
@@ -151,6 +218,25 @@ GcGraphMorph >> stepTime [
 	makes that interval the real Morphic frame time -- i.e. the actual fps. The redraw
 	is a single blit of the panel's retained backing Form, so this is cheap."
 	^0
+]
+
+{
+	#category : #'record button',
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
+}
+GcGraphMorph >> toggleRecording [
+	"Record button pressed. Idle -> start a recording sampled by this morph's own step
+	(one sample per frame, same cadence the live panel advances on). Recording -> stop
+	and open it in a SWA trace pane for analysis."
+	self isRecording
+		ifTrue: [ | r |
+			r := recorder.
+			recorder := nil.
+			r stop.
+			r openInPane]
+		ifFalse: [
+			recorder := SRGCRecorder new source: #morphic; yourself.
+			recorder armWithCapacity: SRGCRecorder defaultCapacity]
 ]
 
 {

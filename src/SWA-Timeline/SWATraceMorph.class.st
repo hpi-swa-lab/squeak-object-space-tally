@@ -309,49 +309,51 @@ SWATraceMorph >> drawLaneHeader: aLane in: r on: aCanvas [
 
 {
 	#category : #bands,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:05'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:51'
 }
 SWATraceMorph >> drawMemoryBand: cols in: aRect on: aCanvas at: anOrigin [
-	"Committed memory per pixel column, stacked: live old space at the bottom, used young
-	space on top of it, and the rest of the committed heap as the pale remainder.
+	"Committed memory per pixel column, in TWO independent lanes so both are readable
+	despite the huge old/young ratio -- the same split SRGCMemGraph uses live.
 
-	Stacked and not three lines, because the question these bands exist to answer is
-	'what did the GC react to', and that is about PROPORTION -- young filling up under a
-	flat old space is a scavenge about to happen; old space stepping up is a tenuring
-	problem. Young space is a few hundred KB against a few hundred MB of old, so it gets
-	a one-pixel floor: at true scale it would be invisible exactly when it matters.
+	Old space (bottom lane) scaled to its own running max, so a tenuring step fills the
+	lane rather than pinning at the top of a committed-heap scale. Young space (top lane)
+	scaled to its own max, which is what makes the SCAVENGE SAWTOOTH visible: at true
+	committed scale a 6 MB eden swing under 355 MB of old is one pixel, i.e. a flat line
+	exactly when it matters. A slate divider between them.
 
-	Scaled to the largest committed heap in view, never to zero, so the band shows the
-	SHAPE of the heap and not a full bar that never moves."
-	| max h base |
-	max := 1.
-	cols do: [:c | (c notNil and: [c fourth notNil]) ifTrue: [max := max max: c fourth]].
+	Neither lane is stacked on the other now; they answer different questions (old = did
+	we tenure, young = is a scavenge about to fire) and share only the x axis."
+	| h base oldLaneH youngLaneH oldMax youngMax divider |
+	oldMax := 1. youngMax := 1.
+	cols do: [:c |
+		(c notNil and: [c fourth notNil]) ifTrue: [
+			oldMax := oldMax max: c second.
+			youngMax := youngMax max: c third]].
 	h := aRect height - 13.
 	base := aRect top + aRect height - 2.
+	oldLaneH := (h * 55 // 100) max: 1.
+	youngLaneH := (h - oldLaneH - 1) max: 1.
+	divider := base - oldLaneH.
 	aCanvas fillRectangle: (aRect translateBy: anOrigin) color: (Color gray: 0.16).
 	1 to: cols size do: [:i |
-		| c x committedH oldH youngH |
+		| c x oldH youngH |
 		c := cols at: i.
 		(c notNil and: [c fourth notNil]) ifTrue: [
 			x := aRect left + i - 1.
-			committedH := c fourth * h // max.
-			oldH := c second * h // max.
-			youngH := (c third * h // max) max: 1.
-			aCanvas
-				fillRectangle: ((x @ (base - committedH) extent: 1 @ committedH) translateBy: anOrigin)
-				color: (GcGraph deepOceanColor alpha: 0.35).
+			oldH := c second * oldLaneH // oldMax.
+			youngH := (c third * youngLaneH // youngMax) max: 1.
 			aCanvas
 				fillRectangle: ((x @ (base - oldH) extent: 1 @ oldH) translateBy: anOrigin)
 				color: (GcGraph deepOceanColor alpha: 0.75).
 			aCanvas
-				fillRectangle: ((x @ (base - oldH) extent: 1 @ 1) translateBy: anOrigin)
-				color: GcGraph deepOceanColor.
-			aCanvas
-				fillRectangle: ((x @ (base - oldH - youngH) extent: 1 @ youngH) translateBy: anOrigin)
+				fillRectangle: ((x @ (divider - youngH) extent: 1 @ youngH) translateBy: anOrigin)
 				color: GcGraph seafoamColor]].
 	aCanvas
-		drawString: 'memory   committed ', (max / 1048576.0) rounded printString, ' MB',
-			'   [old, young, free]'
+		fillRectangle: ((aRect left @ divider extent: aRect width @ 1) translateBy: anOrigin)
+		color: (Color gray: 0.3).
+	aCanvas
+		drawString: 'memory   old ', (oldMax / 1048576.0) rounded printString, ' MB',
+			'   young ', (youngMax / 1024.0) rounded printString, ' KB (sawtooth)'
 		at: (aRect left + 3) @ (aRect top + 1) + anOrigin
 		font: self labelFont
 		color: (Color gray: 0.6)
@@ -652,12 +654,25 @@ SWATraceMorph >> gcNotesWithin: aNode [
 
 {
 	#category : #constants,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:40'
+	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:53'
 }
 SWATraceMorph >> graphBandHeight [
-	"Height of ONE continuous band (fps, memory). Tall enough for a shape to be a shape,
-	short enough that two of them do not evict a lane from a small window."
-	^ 40
+	"Height of ONE continuous band (step time, memory). 40 is the floor -- tall enough
+	for a shape to be a shape. But when the call lanes do not fill the window (a GC-only
+	recording has one thin marker lane, so almost the whole height is empty), grow the
+	bands to take that spare space rather than leave it blank: the graphs are the whole
+	point of a GC recording and want every pixel they can get.
+
+	Guards against feedback: the spare space is measured against a FIXED 40px-per-band
+	assumption, not against the current adaptive height, so the answer does not depend
+	on itself. Capped so a band never eats the lanes on a tall run."
+	| spare grown |
+	self ensureLayout.
+	rootNode ifNil: [^ 40].
+	spare := self height - self axisHeight - (2 * 40) - (contentHeight ifNil: [0]).
+	spare <= 0 ifTrue: [^ 40].
+	grown := 40 + (spare // 2).
+	^ (grown min: (self height - self axisHeight - contentHeight) // 2) max: 40
 ]
 
 {
