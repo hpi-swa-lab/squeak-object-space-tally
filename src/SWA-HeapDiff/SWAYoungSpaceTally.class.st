@@ -46,6 +46,37 @@ SWAYoungSpaceTally class >> openTreemap [
 ]
 
 {
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 12:51'
+}
+SWAYoungSpaceTally class >> openTreemapAfterScavenge [
+	"Second mode: wait for the render loop's own next scavenge, then open the enriched
+	treemap on the young space as it stands right after it -- the survivor floor at the
+	sawtooth bottom. Needs a running SRWorld (the scavenge to watch is its loop's).
+	Answers nil if there is none; otherwise arms the watch and returns immediately, the
+	window opening on the frame the scavenge lands."
+	| world |
+	world := SRWorld current.
+	world ifNil: [^ nil].
+	^ self new
+		collectAfterScavengeIn: world
+		then: [:tally | tally openEnrichedTreemapWithProgress]
+]
+
+{
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 12:51'
+}
+SWAYoungSpaceTally class >> xrMenuYoungSpaceAfterScavenge: aMenu [
+	"Second young-space mode: wait for the loop's next scavenge, then open the treemap on
+	what remains -- the survivor floor, cleanest of transient churn. The pragma is only
+	ever scanned by SRMenuRegistry, so this method is inert without SqueakXR."
+
+	<xrMenu: #(world profile) label: 'young space after scavenge' priority: 216>
+	^ self openTreemapAfterScavenge
+]
+
+{
 	#category : #'xr menu',
 	#'squeak_changestamp' : 'MCPServer 8/19/2026 12:29'
 }
@@ -61,6 +92,24 @@ SWAYoungSpaceTally class >> xrMenuYoungSpaceNow: aMenu [
 	world := SRWorld current.
 	world ifNil: [^ nil].
 	^ world addDeferredFrameMessage: [self new openTreemap]
+]
+
+{
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 12:51'
+}
+SWAYoungSpaceTally >> armScavengeWatchIn: aWorld since: p9AtStart then: aBlock [
+	"Re-arm each frame: once the scavenge counter has moved past p9AtStart, a scavenge
+	just happened, so collect young space now (this is the clean post-scavenge floor)
+	and evaluate aBlock. Otherwise wait a frame and check again. Mirrors
+	SRSurvivorCensus>>armScavengeWatchIn:since:then:."
+	aWorld addDeferredFrameMessage: [
+		(Smalltalk vmParameterAt: 9) > p9AtStart
+			ifTrue: [
+				self collect.
+				aBlock value: self]
+			ifFalse: [
+				self armScavengeWatchIn: aWorld since: p9AtStart then: aBlock]]
 ]
 
 {
@@ -93,6 +142,25 @@ SWAYoungSpaceTally >> collect [
 	[i > 0 and: [(addrOf value: (all at: i)) between: youngHi - 8000000 and: youngHi + 8000000]]
 		whileTrue: [boundary := i. i := i - 1].
 	boundary to: n do: [:j | survivors add: (all at: j)].
+	^ self
+]
+
+{
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 12:51'
+}
+SWAYoungSpaceTally >> collectAfterScavengeIn: aWorld then: aBlock [
+	"Second mode: wait for the render loop's own next scavenge, then collect young space
+	the instant it finishes -- so we see the survivor floor at the sawtooth bottom, with
+	the frame's transient garbage already reclaimed, not the mixed mid-frame state
+	#collect catches.
+
+	p9 (vmParameterAt: 9) is the scavenge count. Re-arm a between-frame check each frame;
+	when p9 ticks, the scavenge just ran, so #collect here captures the post-scavenge
+	young set before the next frame allocates. Both the watch and the collect run in a
+	between-frame action (render loop blocked), then aBlock is evaluated with self. Does
+	not force a scavenge -- it measures the loop's own, the one the sawtooth drops on."
+	self armScavengeWatchIn: aWorld since: (Smalltalk vmParameterAt: 9) then: aBlock.
 	^ self
 ]
 

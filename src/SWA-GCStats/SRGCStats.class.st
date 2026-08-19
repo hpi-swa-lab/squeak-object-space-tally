@@ -41,26 +41,6 @@ SRGCStats class >> defaultLabelFont [
 ]
 
 {
-	#category : #gc,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 17:45'
-}
-SRGCStats class >> promoteYoungToOld [
-	"Empty young space by promoting every reachable young survivor into old space.
-	A plain scavenge or even a full GC will NOT do this on Spur -- they keep survivors
-	young as long as they fit in survivor space, so a stable working set gets re-copied
-	forever. Forcing the tenure threshold (p6) to 1 makes the next scavenges tenure all
-	survivors; restore the threshold afterward. After this, p35 (per-scavenge survivors)
-	drops to ~0 and scavenges are cheap until young space refills."
-
-	| savedThreshold |
-	savedThreshold := Smalltalk vmParameterAt: 6.
-	Smalltalk vmParameterAt: 6 put: 1.
-	Smalltalk garbageCollectMost.
-	Smalltalk garbageCollectMost.
-	Smalltalk vmParameterAt: 6 put: savedThreshold
-]
-
-{
 	#category : #constants,
 	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:40'
 }
@@ -87,24 +67,6 @@ SRGCStats class >> xrMenuFullGC: aMenu [
 		((Smalltalk vmParameterAt: 2) // 1024) printString, 'K  old ',
 		(oldBefore // 1024) printString, 'K -> ',
 		((Smalltalk vmParameterAt: 1) // 1024) printString, 'K'.
-	^ self
-]
-
-{
-	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 17:45'
-}
-SRGCStats class >> xrMenuPromoteYoung: aMenu [
-	"Promote all young survivors to old space, so the scavenger stops re-copying the
-	stable working set. Reports the per-scavenge survivor count before and after."
-
-	<xrMenu: #(world debug) label: 'Promote Young->Old' priority: 433>
-	| survBefore |
-	Smalltalk garbageCollectMost.
-	survBefore := Smalltalk vmParameterAt: 35.
-	self promoteYoungToOld.
-	Transcript showln: 'Promote Young->Old: survivors ', survBefore printString, ' -> ',
-		(Smalltalk vmParameterAt: 35) printString.
 	^ self
 ]
 
