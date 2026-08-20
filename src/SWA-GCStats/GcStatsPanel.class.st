@@ -21,6 +21,7 @@ Class {
 		'graph',
 		'fullGraph',
 		'survivorGraph',
+		'changesGraph',
 		'labelFont',
 		'backingForm',
 		'backingCanvas'
@@ -119,32 +120,34 @@ GcStatsPanel >> graph [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
 }
 GcStatsPanel >> graphHeightWeights [
-	"Relative heights of the three graphs (fps : mem : survivor), same order as #graphs.
-	The memory graph gets twice the height because it packs two lanes."
-	^ #(50 100 50)
+	"Relative heights of the graphs (fps : mem : survivor : changes), same order as
+	#graphs. The memory graph gets twice the height because it packs two lanes; the
+	changes lane is a thin marker strip."
+	^ #(50 100 50 35)
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
 }
 GcStatsPanel >> graphs [
 	"Top-to-bottom order used for layout and compositing."
-	^ { graph. fullGraph. survivorGraph }
+	^ { graph. fullGraph. survivorGraph. changesGraph }
 ]
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:11'
 }
 GcStatsPanel >> initialize [
 	"Use the improved GC-stats graph models (developed on the XR side)."
 	graph := SRGCFpsGraph new.
 	fullGraph := SRGCMemGraph new.
-	survivorGraph := SRGCSurvivorGraph new
+	survivorGraph := SRGCSurvivorGraph new.
+	changesGraph := SRGCChangesGraph new.
 ]
 
 {
@@ -252,7 +255,7 @@ GcStatsPanel >> stepGraphs [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:59'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
 }
 GcStatsPanel >> stepGraphsWithDelta: aDeltaMsOrNil [
 	"Advance the three graph models one frame. aDeltaMsOrNil, when supplied, is the
@@ -261,7 +264,8 @@ GcStatsPanel >> stepGraphsWithDelta: aDeltaMsOrNil [
 	graph updateTimeWith: aDeltaMsOrNil.
 	graph updateGraph.
 	fullGraph updateGraph.
-	survivorGraph updateGraph
+	survivorGraph updateGraph.
+	changesGraph updateGraph
 ]
 
 {

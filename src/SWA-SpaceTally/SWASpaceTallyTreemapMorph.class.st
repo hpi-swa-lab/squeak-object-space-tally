@@ -44,9 +44,31 @@ Interaction:
 Class {
 	#name : #SWASpaceTallyTreemapMorph,
 	#superclass : #SWATreemapMorph,
+	#instVars : [
+		'ageByObject'
+	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #'age coloring',
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 10:52'
+}
+SWASpaceTallyTreemapMorph >> ageByObject [
+	"An IdentityDictionary object->age (scavenges survived), or nil. When present, the
+	'By survivor age' colour mode is offered and heat-maps each tile by its object's age.
+	Set by SWAYoungSpaceTally when it opens the treemap."
+	^ ageByObject
+]
+
+{
+	#category : #'age coloring',
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 10:52'
+}
+SWASpaceTallyTreemapMorph >> ageByObject: aDictionary [
+	ageByObject := aDictionary
+]
 
 {
 	#category : #accessing,
@@ -69,7 +91,7 @@ SWASpaceTallyTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 10:53'
 }
 SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch to the active color strategy. A minted dataset-metric symbol (e.g. a
@@ -81,10 +103,32 @@ SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 	self colorMode == #children ifTrue: [^ self colorByChildren: aNode].
 	self colorMode == #otherParents ifTrue: [^ self colorByOtherParents: aNode].
 	self colorMode == #type ifTrue: [^ self colorByType: aNode].
+	self colorMode == #age ifTrue: [^ self colorByAge: aNode].
 	self colorMode == #bitmap ifTrue: [
 		"Non-Form tiles get a dim gray so actual images stand out."
 		^ Color gray: 0.18].
 	^ self colorByClass: aNode
+]
+
+{
+	#category : #'age coloring',
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 10:52'
+}
+SWASpaceTallyTreemapMorph >> colorByAge: aNode [
+	"Heatmap by survivor age: an object that has survived many scavenges (cruft) is HOT
+	(red), a fresh one (age 1) is COOL (green); nodes with no age (label\/synthetic nodes,
+	or objects not in the table) are neutral grey. Hue runs green(120)->red(0) with age.
+	Uses aNode object; label\/method nodes have no object and fall to grey."
+	| obj age frac hue |
+	ageByObject ifNil: [^ self colorByClass: aNode].
+	obj := [aNode object] on: Error do: [:e | nil].
+	obj ifNil: [^ Color gray: 0.25].
+	age := ageByObject at: obj ifAbsent: [0].
+	age = 0 ifTrue: [^ Color gray: 0.25].
+	frac := (age - 1) / (self maxAge - 1 max: 1).
+	frac := (frac max: 0.0) min: 1.0.
+	hue := 120.0 * (1.0 - frac).   "green (young) -> red (old cruft)"
+	^ Color h: hue s: 0.85 v: 0.9
 ]
 
 {
@@ -262,6 +306,16 @@ SWASpaceTallyTreemapMorph >> labelFor: aNode inWidth: maxPixels [
 	bytes := SWASpaceTally formatBytes: (aNode totalSize ifNil: [0]).
 	maxPixels < 80 ifTrue: [^ core].
 	^ core , '  ' , bytes
+]
+
+{
+	#category : #'age coloring',
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 10:52'
+}
+SWASpaceTallyTreemapMorph >> maxAge [
+	"Largest age in the table, for scaling the heatmap. At least 1 to avoid divide-by-zero."
+	ageByObject ifNil: [^ 1].
+	^ (ageByObject values inject: 1 into: [:m :a | m max: a])
 ]
 
 {

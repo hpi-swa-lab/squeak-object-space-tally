@@ -45,12 +45,31 @@ SWAChangeTraceRecorder class >> default [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:02'
 }
 SWAChangeTraceRecorder class >> open [
-	"Start (or restart) the shared live recorder and open its trace in the SWAPane
-	chrome, where zoom / pan / select already live. Answers the window."
+	"Open the recorded trace (snapshot) in the SWAPane chrome. Record first with
+	#record, or use #stopAndOpen. Answers the window."
 	^self default open
+]
+
+{
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:02'
+}
+SWAChangeTraceRecorder class >> openRecorded [
+	"Open the trace on what has been recorded so far (a snapshot, no live refresh)."
+	^ self default open
+]
+
+{
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:01'
+}
+SWAChangeTraceRecorder class >> record [
+	"Start (or restart) capturing into the shared recorder -- no window. Edit code, then
+	SWAChangeTraceRecorder openRecorded to inspect what was captured."
+	^ self default start
 ]
 
 {
@@ -63,14 +82,45 @@ SWAChangeTraceRecorder class >> reset [
 ]
 
 {
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:01'
+}
+SWAChangeTraceRecorder class >> stopAndOpen [
+	"Stop capturing and open the recorded trace for analysis."
+	self default stop.
+	^ self default open
+]
+
+{
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 14:38'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:02'
 }
 SWAChangeTraceRecorder class >> xrMenuOpen: aMenu [
-	"Open the change trace in the 2D world; the framework promotes the window into 3D.
-	The pragma is only scanned by SRMenuRegistry, so this is inert without SqueakXR."
-	<xrMenu: #(world debug) label: 'Change Trace' priority: 440>
+	"Open the RECORDED change trace in the 2D world; the framework promotes the window
+	into 3D. Record with 'Change Trace: record' first. Inert without SqueakXR."
+	<xrMenu: #(world debug) label: 'Change Trace: open recorded' priority: 441>
 	^ self open
+]
+
+{
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:02'
+}
+SWAChangeTraceRecorder class >> xrMenuRecord: aMenu [
+	"Start (or restart) recording the change trace, no window. Do the edits, then
+	'Change Trace: stop + open'. Inert without SqueakXR."
+	<xrMenu: #(world debug) label: 'Change Trace: record' priority: 439>
+	^ self record
+]
+
+{
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:02'
+}
+SWAChangeTraceRecorder class >> xrMenuStopAndOpen: aMenu [
+	"Stop recording and open the captured trace for analysis. Inert without SqueakXR."
+	<xrMenu: #(world debug) label: 'Change Trace: stop + open' priority: 442>
+	^ self stopAndOpen
 ]
 
 {
@@ -212,22 +262,24 @@ SWAChangeTraceRecorder >> labelFor: anEvent [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 14:06'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:01'
 }
 SWAChangeTraceRecorder >> open [
-	"Start recording and open the trace on a SWAChangeTraceMorph in the shared SWAPane
-	chrome. A stepper refreshes the view as edits arrive."
-	| chart panel window |
-	self start.
+	"Open the trace on whatever has been RECORDED so far -- a snapshot, not a live view.
+
+	The live SWATimelineMorph rebuild-per-change was too heavy to drive at frame rate
+	(that job is now the GC-stats changes lane's). This displays the finished reaction
+	tree for detailed offline analysis -- subscribers, durations, bytes -- with the full
+	zoom/pan/select chrome and NO stepper fighting the user. Record first with #start /
+	edit / #stop, then call this. If still recording, it shows the tree so far frozen."
+	| chart panel |
 	chart := SWAChangeTraceMorph on: root.
 	view := chart.
 	chart metaInfo: self infoString.
 	panel := SWAPane on: chart.
-	window := panel
-		openInWindowLabeled: 'SWA Change Trace'
-		bounds: (((Display extent - (1200 @ 700)) // 2) extent: 1200 @ 700).
-	chart addMorph: (SWAChangeTraceStepper new recorder: self).
-	^window
+	^ panel
+		openInWindowLabeled: 'SWA Change Trace (recorded)'
+		bounds: (((Display extent - (1200 @ 700)) // 2) extent: 1200 @ 700)
 ]
 
 {

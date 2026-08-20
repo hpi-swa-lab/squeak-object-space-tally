@@ -213,6 +213,16 @@ SRGCStats >> rebuildSource [
 ]
 
 {
+	#category : #initialization,
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+}
+SRGCStats >> remove [
+	"Release the change ticker when this panel leaves the XR world."
+	SRChangeTicker current disarmFor: self.
+	super remove
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 8/13/2026 16:32'
 }
@@ -245,13 +255,17 @@ SRGCStats >> source [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:59'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
 }
 SRGCStats >> step: deltaTime [
 
 	"Advance the graphs and composite them onto the texture via the shared panel --
 	the exact same layout/composite code the desktop GcGraphMorph uses, just aimed at
 	an SRTextureSource surface instead of a Canvas."
+	"Register as a ticker user here rather than in a world-enter hook (SRObject has
+	none): armFor: is a Set add, so calling it every frame is harmless, and the changes
+	lane has data while this panel is alive. #remove drops the registration."
+	SRChangeTicker current armFor: self.
 	panel stepGraphsWithDelta: deltaTime.
 	panel renderOn: (GcStatsTextureSurface new source: source font: self labelFont).
 	source notifyTextureChanged

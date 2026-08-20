@@ -159,6 +159,17 @@ GcGraphMorph >> initialize [
 ]
 
 {
+	#category : #'stepping and presenter',
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+}
+GcGraphMorph >> intoWorld: aWorld [
+	"Arm the change ticker when the panel opens, so the changes lane has data; it stays
+	cheap (just a counter) while armed."
+	super intoWorld: aWorld.
+	SRChangeTicker current armFor: self
+]
+
+{
 	#category : #'record button',
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:47'
 }
@@ -176,6 +187,16 @@ GcGraphMorph >> mouseDown: anEvent [
 	(self buttonBounds containsPoint: anEvent position)
 		ifTrue: [self toggleRecording. self changed]
 		ifFalse: [super mouseDown: anEvent]
+]
+
+{
+	#category : #'stepping and presenter',
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+}
+GcGraphMorph >> outOfWorld: aWorld [
+	"Disarm when the panel closes -- no subscriber left behind once nothing shows it."
+	super outOfWorld: aWorld.
+	SRChangeTicker current disarmFor: self
 ]
 
 {

@@ -83,12 +83,13 @@ SWADatasetTest >> nodeForKey: aKey [
 
 {
 	#category : #'tests - registration',
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:54'
+	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
 }
 SWADatasetTest >> testBothCoveragesAppearInColorMenu [
 	"Both loaded datasets show up as distinct entries in the Code Map Color menu,
 	each carrying its minted metric symbol and a 'By <metric> [<name>]' label."
 	| tm ov modes labels |
+	
 	tm := SWACodeTreemapMorph new.
 	tm addDataset: (SWADataset coverageFrom: SWACoverageData new named: 'first.json').
 	tm addDataset: (SWADataset coverageFrom: SWACoverageData new named: 'second.json').

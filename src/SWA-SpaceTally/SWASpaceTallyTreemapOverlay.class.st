@@ -80,16 +80,21 @@ SWASpaceTallyTreemapOverlay >> classForAllocTraceOf: aNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:23'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 10:53'
 }
 SWASpaceTallyTreemapOverlay >> colorModeOptions [
-	^ #(
+	| opts |
+	opts := OrderedCollection withAll: #(
 		(#class          'By class name')
 		(#children       'By number of children')
 		(#otherParents   'By shared references')
 		(#type           'By type (Morphic/Collection/Value/Other)')
 		(#bitmap         'Bitmap (render Forms)')
-	)
+	).
+	"Survivor-age heatmap only when the tally supplied ages (SWAYoungSpaceTally)."
+	(treemapMorph notNil and: [treemapMorph ageByObject notNil])
+		ifTrue: [opts add: #(#age 'By survivor age (heatmap)')].
+	^ opts asArray
 ]
 
 {
