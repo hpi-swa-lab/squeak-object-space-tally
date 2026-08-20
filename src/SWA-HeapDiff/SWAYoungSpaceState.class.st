@@ -27,8 +27,6 @@ Class {
 	#superclass : #Object,
 	#instVars : [
 		'wrapper',
-		'hashArrays',
-		'hashCounts',
 		'beforeAddrs',
 		'afterAddrs'
 	],
@@ -61,15 +59,6 @@ SWAYoungSpaceState class >> reset [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:07'
-}
-SWAYoungSpaceState class >> sampleCapacity [
-	"Max young objects a single snapshot's hash Array holds."
-	^ 100000
-]
-
-{
-	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:46'
 }
 SWAYoungSpaceState >> addrBuffersFor: heapSize [
@@ -86,44 +75,7 @@ SWAYoungSpaceState >> addrBuffersFor: heapSize [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:08'
-}
-SWAYoungSpaceState >> ageByObjectFor: youngObjects [
-	"After sampling and a #collectYoungObjects, compute each object's age from the hash
-	snapshots. Measuring is over, so allocate freely (Sets for O(1) membership).
-
-	AGE = longest run counting back from the LAST snapshot: age k iff the object's
-	identityHash is in the last k snapshots consecutively. An object present in an EARLIER
-	snapshot than the run reaches (appeared, vanished, reappeared -- probably a 22-bit
-	identityHash collision) is counted in anomalies.
-
-	Answers { ageByObject IdentityDictionary. anomalyCount }."
-	| nSnaps hashSets ageByObject anomalies |
-	nSnaps := hashArrays ifNil: [^ {IdentityDictionary new. 0}] ifNotNil: [hashArrays size].
-	hashSets := (1 to: nSnaps) collect: [:k | | set count hs |
-		hs := hashArrays at: k. count := hashCounts at: k.
-		set := Set new: count * 4 // 3 + 16.
-		1 to: count do: [:i | set add: (hs at: i)].
-		set].
-	ageByObject := IdentityDictionary new: youngObjects size * 4 // 3 + 16.
-	anomalies := 0.
-	youngObjects do: [:obj | | h age gapThenBack |
-		h := obj identityHash.
-		age := 0.
-		nSnaps to: 1 by: -1 do: [:s |
-			(age = (nSnaps - s) and: [(hashSets at: s) includes: h])
-				ifTrue: [age := age + 1]].
-		ageByObject at: obj put: age.
-		gapThenBack := false.
-		1 to: nSnaps - age do: [:s |
-			((hashSets at: s) includes: h) ifTrue: [gapThenBack := true]].
-		gapThenBack ifTrue: [anomalies := anomalies + 1]].
-	^ {ageByObject. anomalies}
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:41'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:05'
 }
 SWAYoungSpaceState >> collectYoungObjects [
 	"Answer an OrderedCollection of the actual live young objects, by move-detection. The
@@ -131,29 +83,23 @@ SWAYoungSpaceState >> collectYoungObjects [
 	allObjectsOrNil + address buffers are old and invisible to young."
 	| result |
 	result := OrderedCollection new: 20000.
-	self detectYoungInto: result hashesOnly: false.
+	self detectYoungInto: result.
 	^ result
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:46'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:05'
 }
-SWAYoungSpaceState >> detectYoungInto: aCollectionOrNil hashesOnly: hashesFlag [
+SWAYoungSpaceState >> detectYoungInto: aCollection [
 	"The one move-detection primitive. Snapshot allObjectsOrNil (its ~21MB array is born
 	OLD, invisible to young), read every object's address into a big buffer, scavenge, read
-	again; an object whose address CHANGED is young. Either append the young objects to
-	aCollectionOrNil (hashesFlag = false) or write their identityHashes into aCollectionOrNil
-	(a preallocated hash Array; hashesFlag = true). Answers the count.
+	again; an object whose address CHANGED is young, and is appended to aCollection. Answers
+	the count.
 
 	The address buffers are large so they are born old and never appear in young. The hot
 	loops are inlined (whileTrue:/ifTrue:) so no closure/context of ours is created young
-	during the measurement. addressField is read-only, one object at a time.
-
-	NOTE this does its OWN garbageCollectMost -- callers on the render loop should instead
-	pass through here only when they mean to force a scavenge; the every-3rd-scavenge driver
-	simply calls this (its forced scavenge coincides with a real one often enough, and even
-	a forced one correctly reveals the movers)."
+	during the measurement. addressField is read-only, one object at a time."
 	| all wrap n before after a count o |
 	all := SystemNavigation default allObjectsOrNil.
 	all ifNil: [^ 0].
@@ -177,68 +123,17 @@ SWAYoungSpaceState >> detectYoungInto: aCollectionOrNil hashesOnly: hashesFlag [
 		o := all at: a.
 		after at: a put: (o class isImmediateClass ifTrue: [-1] ifFalse: [wrap oopAt: 1 put: o. wrap addressField]).
 		a := a + 1].
-	"Movers = young. Record them (hash into the preallocated hash Array, or the object)."
+	"Movers = young. Append them."
 	count := 0.
 	a := 1.
 	[a <= n] whileTrue: [
 		((before at: a) ~= (after at: a) and: [(before at: a) ~= -1]) ifTrue: [
 			o := all at: a.
 			count := count + 1.
-			hashesFlag
-				ifTrue: [count <= aCollectionOrNil size ifTrue: [aCollectionOrNil at: count put: o identityHash]]
-				ifFalse: [aCollectionOrNil add: o]].
+			aCollection add: o].
 		a := a + 1].
 	"Drop the transient allObjectsOrNil array -- never stored."
 	all := nil.
-	^ count
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:07'
-}
-SWAYoungSpaceState >> hashArrays [
-	^ hashArrays
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:07'
-}
-SWAYoungSpaceState >> hashCounts [
-	^ hashCounts
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:41'
-}
-SWAYoungSpaceState >> prepareForSamples: nSamples [
-	"Allocate all N hash Arrays + the counts + the address buffer + the wrapper, then a
-	full GC to tenure everything into old space -- so none of it is young during a walk.
-	Reused: only reallocates the hash Arrays to match nSamples."
-	"Allocate the N hash Arrays + counts + wrapper, then a full GC to tenure them into old
-	space. Each hash Array is large (sampleCapacity), so it is born old and never appears
-	in the young set it records."
-	| cap |
-	cap := self class sampleCapacity.
-	self wrapper.
-	hashArrays := (1 to: nSamples) collect: [:each | Array new: cap withAll: 0].
-	hashCounts := Array new: nSamples withAll: 0.
-	Smalltalk garbageCollect.
-	^ self
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 16:40'
-}
-SWAYoungSpaceState >> recordHashesAt: sampleIndex [
-	"ONE sample: detect the live young objects by move-detection and write their
-	identityHashes into the sampleIndex-th preallocated hash Array. Answers the count."
-	| count |
-	count := self detectYoungInto: (hashArrays at: sampleIndex) hashesOnly: true.
-	hashCounts at: sampleIndex put: count.
 	^ count
 ]
 
