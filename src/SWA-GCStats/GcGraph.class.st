@@ -248,6 +248,26 @@ GcGraph >> mbString: kb [
 
 {
 	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:31'
+}
+GcGraph >> midLabelFraction [
+	"Where the mid-label sits, as a fraction of the form height from the TOP. Only used
+	when #midLabelString is non-nil."
+	^ 0.5
+]
+
+{
+	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:31'
+}
+GcGraph >> midLabelString [
+	"An optional second label drawn INSIDE the graph area (see #midLabelFraction), for
+	graphs that pack more than one lane and want a divider caption between them. nil = none."
+	^ nil
+]
+
+{
+	#category : #update,
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:58'
 }
 GcGraph >> niceScaleFor: kbPerPixel [

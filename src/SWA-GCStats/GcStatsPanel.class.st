@@ -120,21 +120,23 @@ GcStatsPanel >> graph [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:11'
 }
 GcStatsPanel >> graphHeightWeights [
 	"Relative heights of the graphs (fps : mem : survivor : changes), same order as
-	#graphs. The memory graph gets twice the height because it packs two lanes; the
+	#graphs. On the XR path these double as pixel heights (see #scaleForFactor:), so the
+	total panel height is their sum. The old-space (mem) graph gets the dominant share; the
 	changes lane is a thin marker strip."
-	^ #(50 100 50 35)
+	^ #(50 300 50 35)
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:11'
 }
 GcStatsPanel >> graphs [
-	"Top-to-bottom order used for layout and compositing."
+	"Top-to-bottom order used for layout and compositing: fps, the old-space (mem) graph,
+	survivor, and the thin changes marker strip."
 	^ { graph. fullGraph. survivorGraph. changesGraph }
 ]
 
@@ -212,7 +214,7 @@ GcStatsPanel >> render [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:31'
 }
 GcStatsPanel >> renderOn: aSurface [
 	"Composite all three graphs and their labels onto the drawing surface, exactly the
@@ -222,12 +224,19 @@ GcStatsPanel >> renderOn: aSurface [
 	| labelH y |
 	labelH := self labelStripHeightFor: aSurface.
 	y := 0.
-	self graphs do: [:g |
+	self graphs do: [:g | | formTop |
 		aSurface fillLabelStripAt: y height: labelH.
 		aSurface drawLabel: g labelString at: 2 @ (y + 1).
 		y := y + labelH.
+		formTop := y.
 		aSurface drawForm: g graph form at: 0 @ y.
-		y := y + g graph form height]
+		y := y + g graph form height.
+		"A graph packing several lanes may caption a divider with a second label drawn
+		INSIDE the form (over a filled strip so it stays readable)."
+		g midLabelString ifNotNil: [:mid | | midY |
+			midY := formTop + (g graph form height * g midLabelFraction) truncated.
+			aSurface fillLabelStripAt: midY height: labelH.
+			aSurface drawLabel: mid at: 2 @ (midY + 1)]]
 ]
 
 {
