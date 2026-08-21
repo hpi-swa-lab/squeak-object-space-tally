@@ -26,7 +26,12 @@ Class {
 		'oldZoomGraph',
 		'labelFont',
 		'backingForm',
-		'backingCanvas'
+		'backingCanvas',
+		'enabledGraphs',
+		'enabledWeights',
+		'surface',
+		'labelPoint',
+		'formPoint'
 	],
 	#classVars : [
 		'ShowChangesLane',
@@ -57,7 +62,7 @@ GcStatsPanel class >> lanePrefsDo: aBlock [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:51'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:55'
 }
 GcStatsPanel class >> refreshAllPanels [
 	"A lane preference changed. Re-fit every live panel to the new set of enabled lanes:
@@ -65,6 +70,7 @@ GcStatsPanel class >> refreshAllPanels [
 	 - Morphic (GcGraphMorph): re-fit the graph forms to the current extent + rebuild the
 	   backing Form.
 	Guarded so this is a no-op if the XR/Morphic classes are absent."
+	self allInstances do: [:p | p invalidateLanes].
 	Smalltalk at: #SRGCStats ifPresent: [:cls |
 		cls allInstances do: [:s | s reconfigure]].
 	Smalltalk at: #GcGraphMorph ifPresent: [:cls |
@@ -289,27 +295,26 @@ GcStatsPanel >> graph [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:55'
 }
 GcStatsPanel >> graphHeightWeights [
 	"Heights of the ENABLED lanes only, in the same order as #graphs, from #laneSpecs. On
 	the XR path these double as pixel heights (see #scaleForFactor:). The mem graph gets the
 	dominant share; the changes lane is a thin marker strip."
-	| weights |
-	weights := (self laneSpecs select: [:spec | spec third]) collect: [:spec | spec second].
-	^ weights ifEmpty: [#(300)] ifNotEmpty: [weights asArray]
+	enabledWeights ifNil: [self rebuildLanes].
+	^ enabledWeights
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:55'
 }
 GcStatsPanel >> graphs [
-	"The ENABLED lanes only, top-to-bottom, from #laneSpecs (honours the lane preferences).
-	At least one lane is always kept so the panel never collapses to nothing."
-	| enabled |
-	enabled := (self laneSpecs select: [:spec | spec third]) collect: [:spec | spec first].
-	^ enabled ifEmpty: [{ fullGraph }] ifNotEmpty: [enabled]
+	"The ENABLED lanes only, top-to-bottom. Answers a CACHED array (rebuilt lazily from
+	#laneSpecs on first use / after #invalidateLanes) so the per-frame render path allocates
+	no collection. At least one lane is always kept so the panel never collapses to nothing."
+	enabledGraphs ifNil: [self rebuildLanes].
+	^ enabledGraphs
 ]
 
 {
@@ -325,6 +330,17 @@ GcStatsPanel >> initialize [
 	fullGraph := SRGCMemGraph new.
 	survivorGraph := SRGCSurvivorGraph new.
 	changesGraph := SRGCChangesGraph new.
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:55'
+}
+GcStatsPanel >> invalidateLanes [
+	"Drop the cached lane arrays so they are rebuilt lazily on next access. Sent when a lane
+	preference changes."
+	enabledGraphs := nil.
+	enabledWeights := nil
 ]
 
 {
@@ -380,6 +396,26 @@ GcStatsPanel >> laneSpecs [
 ]
 
 {
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:55'
+}
+GcStatsPanel >> rebuildLanes [
+	"Recompute the cached enabled-graph / enabled-weight arrays from #laneSpecs. Called
+	once at init and whenever a lane preference changes (via #invalidateLanes), NEVER per
+	frame -- the per-frame #graphs / #graphHeightWeights just answer these cached arrays so
+	the render path allocates no collections. An all-disabled panel keeps one fallback lane."
+	| specs enabled |
+	specs := self laneSpecs.
+	enabled := specs select: [:spec | spec third].
+	enabled isEmpty ifTrue: [
+		enabledGraphs := { fullGraph }.
+		enabledWeights := #(300).
+		^ self].
+	enabledGraphs := enabled collect: [:spec | spec first].
+	enabledWeights := (enabled collect: [:spec | spec second]) asArray
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:53'
 }
@@ -392,44 +428,51 @@ GcStatsPanel >> refresh [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:53'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:55'
 }
 GcStatsPanel >> render [
 	"Composite the three graphs + labels into the retained backing Form, in place.
 	This is the desktop analogue of the XR path compositing into its SRTextureSource:
 	one retained surface, mutated each frame, no per-frame allocation of forms."
-	| surface |
 	self ensureBackingForm.
-	surface := GcStatsCanvasSurface new
+	surface ifNil: [surface := GcStatsCanvasSurface new].
+	surface
 		canvas: backingCanvas origin: 0 @ 0 width: backingForm width font: self labelFont.
 	self renderOn: surface
 ]
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:31'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:14'
 }
 GcStatsPanel >> renderOn: aSurface [
 	"Composite all three graphs and their labels onto the drawing surface, exactly the
 	same layout for the desktop morph (Canvas surface) and the XR texture (texture
 	surface). Each stack is [label strip][graph form]. The surface abstracts the three
 	primitives the two backends implement differently."
-	| labelH y |
+	| labelH y graphs g form formTop mid midY |
 	labelH := self labelStripHeightFor: aSurface.
 	y := 0.
-	self graphs do: [:g | | formTop |
+	labelPoint ifNil: [labelPoint := 0@0. formPoint := 0@0].
+	"Index loop over the CACHED graphs array (no #do: closure) and two retained scratch
+	Points mutated in place, so compositing allocates no collection and no Point."
+	graphs := self graphs.
+	1 to: graphs size do: [:i |
+		g := graphs at: i.
+		form := g graph form.
 		aSurface fillLabelStripAt: y height: labelH.
-		aSurface drawLabel: g labelString at: 2 @ (y + 1).
+		aSurface drawLabel: g labelString at: (labelPoint setX: 2 setY: y + 1).
 		y := y + labelH.
 		formTop := y.
-		aSurface drawForm: g graph form at: 0 @ y.
-		y := y + g graph form height.
+		aSurface drawForm: form at: (formPoint setX: 0 setY: y).
+		y := y + form height.
 		"A graph packing several lanes may caption a divider with a second label drawn
 		INSIDE the form (over a filled strip so it stays readable)."
-		g midLabelString ifNotNil: [:mid | | midY |
-			midY := formTop + (g graph form height * g midLabelFraction) truncated.
+		mid := g midLabelString.
+		mid ifNotNil: [
+			midY := formTop + (form height * g midLabelFraction) truncated.
 			aSurface fillLabelStripAt: midY height: labelH.
-			aSurface drawLabel: mid at: 2 @ (midY + 1)]]
+			aSurface drawLabel: mid at: (labelPoint setX: 2 setY: midY + 1)]]
 ]
 
 {

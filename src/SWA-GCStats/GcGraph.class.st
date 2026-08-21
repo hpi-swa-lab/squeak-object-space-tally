@@ -14,10 +14,29 @@ Class {
 		'lastGcCount',
 		'lastTenurCount',
 		'graph',
-		'deltaTime'
+		'deltaTime',
+		'labelStream'
 	],
 	#classVars : [
-		'Default'
+		'CoralColor',
+		'DeepOceanColor',
+		'Default',
+		'PaleOceanColor',
+		'SeafoamColor',
+		'ShallowOceanColor',
+		'SlateColor',
+		'SurvivorColor',
+		'ZoomMarkColor'
+	],
+	#classInstVars : [
+		'seafoam',
+		'coral',
+		'deepOcean',
+		'slate',
+		'zoomMark',
+		'paleOcean',
+		'shallowOcean',
+		'survivor'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -35,21 +54,21 @@ GcGraph class >> backgroundColor [
 
 {
 	#category : #palette,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:14'
 }
 GcGraph class >> coralColor [
 	"Marker for a full GC. The one warm colour in the palette, muted so it
 	stands out without shouting."
-	^ Color r: 0.87 g: 0.55 b: 0.47
+	^ coral ifNil: [coral := Color r: 0.87 g: 0.55 b: 0.47]
 ]
 
 {
 	#category : #palette,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:14'
 }
 GcGraph class >> deepOceanColor [
 	"Live old space, and the frame time bars: the deep water at the bottom."
-	^ Color r: 0.16 g: 0.36 b: 0.47
+	^ deepOcean ifNil: [deepOcean := Color r: 0.16 g: 0.36 b: 0.47]
 ]
 
 {
@@ -98,11 +117,11 @@ GcGraph class >> new [
 
 {
 	#category : #palette,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:57'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:15'
 }
 GcGraph class >> paleOceanColor [
 	"The pale tint used for the window frame."
-	^ Color r: 0.855 g: 0.925 b: 0.945
+	^ paleOcean ifNil: [paleOcean := Color r: 0.855 g: 0.925 b: 0.945]
 ]
 
 {
@@ -118,39 +137,39 @@ GcGraph class >> scavengeEmaAlpha [
 
 {
 	#category : #palette,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:14'
 }
 GcGraph class >> seafoamColor [
 	"Used young space, and the marker for a tenure."
-	^ Color r: 0.35 g: 0.72 b: 0.66
+	^ seafoam ifNil: [seafoam := Color r: 0.35 g: 0.72 b: 0.66]
 ]
 
 {
 	#category : #palette,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:15'
 }
 GcGraph class >> shallowOceanColor [
 	"Free old space: shallow water above the live objects."
-	^ Color r: 0.62 g: 0.80 b: 0.855
+	^ shallowOcean ifNil: [shallowOcean := Color r: 0.62 g: 0.80 b: 0.855]
 ]
 
 {
 	#category : #palette,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:15'
 }
 GcGraph class >> slateColor [
 	"Labels, and the marker column for a change of scale."
-	^ Color r: 0.24 g: 0.32 b: 0.38
+	^ slate ifNil: [slate := Color r: 0.24 g: 0.32 b: 0.38]
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:05'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:15'
 }
 GcGraph class >> survivorColor [
 	"Deeper seafoam for the survivor baseline -- the young-space bytes still live right
 	after the last scavenge, i.e. the floor the sawtooth drops to."
-	^ self seafoamColor muchDarker
+	^ survivor ifNil: [survivor := self seafoamColor muchDarker]
 ]
 
 {
@@ -173,12 +192,12 @@ GcGraph class >> windowColor [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:15'
 }
 GcGraph class >> zoomMarkColor [
 	"The red marker drawn in the zoomed-in old lane's newest column when its floor rebases
 	(a lane movement), so the shift is visible as a vertical line."
-	^ Color r: 0.9 g: 0.15 b: 0.15
+	^ zoomMark ifNil: [zoomMark := Color r: 0.9 g: 0.15 b: 0.15]
 ]
 
 {
@@ -248,14 +267,30 @@ GcGraph >> initialize [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 12:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:26'
+}
+GcGraph >> labelStreamReset [
+	"A WriteStream retained for the lifetime of the graph, rewound each frame, so building the
+	label allocates neither a WriteStream nor a closure/context (as String streamContents: did).
+	The label text itself (#contents) is the one unavoidable allocation -- it is drawn."
+	labelStream
+		ifNil: [labelStream := WriteStream on: (String new: 96)]
+		ifNotNil: [labelStream resetToStart].
+	^ labelStream
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:26'
 }
 GcGraph >> labelString [
-	^String streamContents: [:s |
-		s nextPutAll: 'fps '; print: self fps rounded;
-		  nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
-		  nextPutAll: '  scavenge '; print: (Smalltalk vmParameterAt: 9);
-		  nextPutAll: '  rootTable '; print: self rootTableSize]
+	| s |
+	s := self labelStreamReset.
+	s nextPutAll: 'fps '; print: self fps rounded;
+	  nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
+	  nextPutAll: '  scavenge '; print: (Smalltalk vmParameterAt: 9);
+	  nextPutAll: '  rootTable '; print: self rootTableSize.
+	^ s contents
 ]
 
 {
@@ -265,6 +300,22 @@ GcGraph >> labelString [
 GcGraph >> lastTime [
 	"Microsecond timestamp of the last frame (see updateTimeWith:)."
 	^lastTime ifNil: [ lastTime := Time utcMicrosecondClock - 1000]
+]
+
+{
+	#category : #printing,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:33'
+}
+GcGraph >> mbPrint: kb on: aStream [
+	"Streaming form of #mbString: -- write the compact kB/MB amount straight onto aStream,
+	no intermediate String (the old #mbString: allocated two with #, )."
+	kb < 1024
+		ifTrue: [aStream print: kb; nextPut: $k]
+		ifFalse: [ | tenths |
+			"One decimal via integer math -- printShowingDecimalPlaces: allocates a
+			WriteStream/String/Fractions each call; this streams SmallIntegers only."
+			tenths := kb * 10 // 1024.
+			aStream print: tenths // 10; nextPut: $.; print: tenths \\ 10; nextPut: $M]
 ]
 
 {
@@ -295,6 +346,21 @@ GcGraph >> midLabelString [
 	"An optional second label drawn INSIDE the graph area (see #midLabelFraction), for
 	graphs that pack more than one lane and want a divider caption between them. nil = none."
 	^ nil
+]
+
+{
+	#category : #printing,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:33'
+}
+GcGraph >> msPrint: aFloat on: aStream [
+	"Two-decimal millisecond value streamed via integer math (no printShowingDecimalPlaces:,
+	which allocates a WriteStream/String/Fractions per call). Pads the fractional part to 2."
+	| hundredths frac |
+	hundredths := (aFloat * 100) rounded.
+	frac := hundredths \\ 100.
+	aStream print: hundredths // 100; nextPut: $..
+	frac < 10 ifTrue: [aStream nextPut: $0].
+	aStream print: frac
 ]
 
 {

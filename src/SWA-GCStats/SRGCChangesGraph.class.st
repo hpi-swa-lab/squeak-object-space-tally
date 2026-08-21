@@ -34,27 +34,30 @@ SRGCChangesGraph class >> maxSpanMicros [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:27'
 }
 SRGCChangesGraph >> labelString [
-	^ String streamContents: [:s |
-		s nextPutAll: 'changes '; print: (totalChanges ifNil: [0]).
-		(lastCount notNil and: [lastCount > 0]) ifTrue: [
-			s nextPutAll: '  (+'; print: lastCount; nextPutAll: ' this frame)'].
-		SRChangeTicker current isArmed ifFalse: [s nextPutAll: '  [disarmed]']]
+	| s |
+	s := self labelStreamReset.
+	s nextPutAll: 'changes '; print: (totalChanges ifNil: [0]).
+	(lastCount notNil and: [lastCount > 0]) ifTrue: [
+		s nextPutAll: '  (+'; print: lastCount; nextPutAll: ' this frame)'].
+	SRChangeTicker current isArmed ifFalse: [s nextPutAll: '  [disarmed]'].
+	^ s contents
 ]
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:09'
 }
 SRGCChangesGraph >> updateGraph [
 	"One frame: drain the ticker, plot the change span as the bar, colour the frame when
 	any change fired. Cheap -- one drain, one addValue:, no allocation/GC probing."
-	| drained n span height scaled fired |
-	drained := SRChangeTicker current frameCountAndSpanMicrosThenReset.
-	n := drained first.
-	span := drained second.
+	| ticker n span height scaled fired |
+	ticker := SRChangeTicker current.
+	ticker frameCountAndSpanMicrosThenReset.
+	n := ticker drainCount.
+	span := ticker drainSpan.
 	lastCount := n.
 	totalChanges := (totalChanges ifNil: [0]) + n.
 	height := self graph height.

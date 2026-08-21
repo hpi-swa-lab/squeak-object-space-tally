@@ -27,16 +27,18 @@ SRGCYoungGraph >> averageScavengeMs [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:33'
 }
 SRGCYoungGraph >> labelString [
-	^ String streamContents: [:s | | avg |
-		s nextPutAll: 'Y '; nextPutAll: (self mbString: self usedYoungSpace);
-		  nextPut: $/; nextPutAll: (self mbString: self youngSpace).
-		survivorYoung ifNotNil: [s nextPutAll: ' s'; nextPutAll: (self mbString: survivorYoung)].
-		s nextPutAll: '  scav '; print: (Smalltalk vmParameterAt: 9).
-		avg := self averageScavengeMs.
-		avg ifNotNil: [s nextPutAll: ' '; nextPutAll: (avg asFloat printShowingDecimalPlaces: 2); nextPutAll: 'ms']]
+	| s avg |
+	s := self labelStreamReset.
+	s nextPutAll: 'Y '. self mbPrint: self usedYoungSpace on: s.
+	s nextPut: $/. self mbPrint: self youngSpace on: s.
+	survivorYoung ifNotNil: [s nextPutAll: ' s'. self mbPrint: survivorYoung on: s].
+	s nextPutAll: '  scav '; print: (Smalltalk vmParameterAt: 9).
+	avg := self averageScavengeMs.
+	avg ifNotNil: [s nextPutAll: ' '. self msPrint: avg asFloat on: s. s nextPutAll: 'ms'].
+	^ s contents
 ]
 
 {

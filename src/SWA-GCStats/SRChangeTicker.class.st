@@ -22,7 +22,9 @@ Class {
 		'firstMicros',
 		'lastMicros',
 		'armed',
-		'users'
+		'users',
+		'drainCount',
+		'drainSpan'
 	],
 	#classVars : [
 		'Current'
@@ -96,7 +98,25 @@ SRChangeTicker >> disarmFor: aUser [
 
 {
 	#category : #frame,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:14'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:09'
+}
+SRChangeTicker >> drainCount [
+	"Change count from the last #frameCountAndSpanMicrosThenReset."
+	^ drainCount
+]
+
+{
+	#category : #frame,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:09'
+}
+SRChangeTicker >> drainSpan [
+	"First-to-last change span (micros) from the last #frameCountAndSpanMicrosThenReset."
+	^ drainSpan
+]
+
+{
+	#category : #frame,
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:09'
 }
 SRChangeTicker >> frameCountAndSpanMicrosThenReset [
 	"Drain one frame: answer { changesThisFrame . spanMicros } and clear. spanMicros is
@@ -112,7 +132,10 @@ SRChangeTicker >> frameCountAndSpanMicrosThenReset [
 	arrived between reading n and the reset. Subtracting n keeps late arrivals."
 	count := count - n.
 	firstMicros := nil. lastMicros := nil.
-	^ { n. span }
+	"Store into retained slots instead of answering a fresh Array -- this runs every frame
+	on the changes lane and the pair was one Array/frame of young garbage. Read via
+	#drainCount / #drainSpan right after."
+	drainCount := n. drainSpan := span
 ]
 
 {

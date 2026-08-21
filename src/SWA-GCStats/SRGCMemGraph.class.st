@@ -73,16 +73,18 @@ SRGCMemGraph class >> zoomOldColor [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:27'
 }
 SRGCMemGraph >> labelString [
 	"Zoomed-out old: used, the window, and the full-GC / scavenge counters."
-	^ String streamContents: [:s |
-		s nextPutAll: 'old '; nextPutAll: (self mbString: self usedOldSpace);
-		  nextPutAll: ' ['; nextPutAll: (self mbString: (oldZoomOutMin ifNil: [0]));
-		  nextPut: $-; nextPutAll: (self mbString: ((oldZoomOutMin ifNil: [0]) + (oldZoomOutSpan ifNil: [0])));
-		  nextPutAll: ']  gc '; print: (Smalltalk vmParameterAt: 7);
-		  nextPut: $/; print: (Smalltalk vmParameterAt: 9)]
+	| s |
+	s := self labelStreamReset.
+	s nextPutAll: 'old '. self mbPrint: self usedOldSpace on: s.
+	s nextPutAll: ' ['. self mbPrint: (oldZoomOutMin ifNil: [0]) on: s.
+	s nextPut: $-. self mbPrint: (oldZoomOutMin ifNil: [0]) + (oldZoomOutSpan ifNil: [0]) on: s.
+	s nextPutAll: ']  gc '; print: (Smalltalk vmParameterAt: 7);
+	  nextPut: $/; print: (Smalltalk vmParameterAt: 9).
+	^ s contents
 ]
 
 {

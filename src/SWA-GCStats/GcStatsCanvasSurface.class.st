@@ -10,7 +10,10 @@ Class {
 		'font',
 		'labelColor',
 		'bgColor',
-		'stripWidth'
+		'stripWidth',
+		'stripRect',
+		'stripTopLeft',
+		'stripBottomRight'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -56,32 +59,38 @@ GcStatsCanvasSurface >> canvas: aCanvas origin: aPoint width: aWidth font: aFont
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:25'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:14'
 }
 GcStatsCanvasSurface >> drawForm: aForm at: aPoint [
-	canvas paintImage: aForm at: origin + aPoint
+	canvas paintImage: aForm at: (origin isZero ifTrue: [aPoint] ifFalse: [origin + aPoint])
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:25'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:14'
 }
 GcStatsCanvasSurface >> drawLabel: aString at: aPoint [
 	canvas
 		drawString: aString
-		at: origin + aPoint
+		at: (origin isZero ifTrue: [aPoint] ifFalse: [origin + aPoint])
 		font: font
 		color: labelColor
 ]
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:25'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:33'
 }
 GcStatsCanvasSurface >> fillLabelStripAt: y height: h [
-	canvas
-		fillRectangle: (origin + (0 @ y) extent: self width @ h)
-		color: bgColor
+	"Reuse a retained Rectangle + two corner Points, mutated in place, so a per-lane strip fill
+	allocates nothing. origin is (0,0) on the compositing path; add it component-wise."
+	stripRect ifNil: [
+		stripTopLeft := 0@0. stripBottomRight := 0@0.
+		stripRect := stripTopLeft corner: stripBottomRight].
+	stripTopLeft setX: origin x setY: origin y + y.
+	stripBottomRight setX: origin x + self width setY: origin y + y + h.
+	stripRect setOrigin: stripTopLeft corner: stripBottomRight.
+	canvas fillRectangle: stripRect color: bgColor
 ]
 
 {

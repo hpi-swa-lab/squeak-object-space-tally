@@ -85,14 +85,16 @@ SRGCSurvivorGraph >> initialize [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 16:02'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:27'
 }
 SRGCSurvivorGraph >> labelString [
-	^ String streamContents: [:s |
-		s nextPutAll: 'surv '; print: survivors;
-		  nextPutAll: '  kept '; nextPutAll: (retained ifNil: ['?'] ifNotNil: [retained printString]);
-		  nextPutAll: '  root '; print: rootTable;
-		  nextPutAll: '  ten/scav '; print: tenuresPerScav rounded]
+	| s |
+	s := self labelStreamReset.
+	s nextPutAll: 'surv '; print: survivors; nextPutAll: '  kept '.
+	retained ifNil: [s nextPut: $?] ifNotNil: [s print: retained].
+	s nextPutAll: '  root '; print: rootTable;
+	  nextPutAll: '  ten/scav '; print: tenuresPerScav rounded.
+	^ s contents
 ]
 
 {

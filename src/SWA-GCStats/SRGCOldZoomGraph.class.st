@@ -18,14 +18,16 @@ Class {
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:27'
 }
 SRGCOldZoomGraph >> labelString [
-	^ String streamContents: [:s |
-		s nextPutAll: 'old-zoom '; nextPutAll: (self mbString: self usedOldSpace);
-		  nextPutAll: ' ['; nextPutAll: (self mbString: (oldWindowMin ifNil: [0]));
-		  nextPut: $-; nextPutAll: (self mbString: ((oldWindowMin ifNil: [0]) + (oldWindowSpan ifNil: [0])));
-		  nextPut: $]]
+	| s |
+	s := self labelStreamReset.
+	s nextPutAll: 'old-zoom '. self mbPrint: self usedOldSpace on: s.
+	s nextPutAll: ' ['. self mbPrint: (oldWindowMin ifNil: [0]) on: s.
+	s nextPut: $-. self mbPrint: (oldWindowMin ifNil: [0]) + (oldWindowSpan ifNil: [0]) on: s.
+	s nextPut: $].
+	^ s contents
 ]
 
 {
