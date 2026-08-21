@@ -13,7 +13,8 @@ Class {
 		'fastTexture',
 		'meshObject',
 		'panel',
-		'labelFont'
+		'labelFont',
+		'suspended'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -85,6 +86,51 @@ SRGCStats class >> xrMenuSpawn: aMenu [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:31'
+}
+SRGCStats >> addCustomMenuItemsTo: aMenu [
+	"Toggle each GC Stats lane on/off. Stored in Squeak preferences (GcStatsPanel class-side
+	<preference:> booleans), so it persists and affects the Morphic panel too. Each toggle
+	re-fits every live panel via GcStatsPanel>>refreshAllPanels."
+	super addCustomMenuItemsTo: aMenu.
+	GcStatsPanel lanePrefsDo: [:label :getter :setter |
+		aMenu
+			addItem: (((GcStatsPanel perform: getter) ifTrue: ['[x] '] ifFalse: ['[ ] ']), label)
+			action: [self world
+				ifNil: [GcStatsPanel perform: setter with: (GcStatsPanel perform: getter) not]
+				ifNotNil: [:w | w addDeferredFrameMessage: [
+					GcStatsPanel perform: setter with: (GcStatsPanel perform: getter) not]]]]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:57'
+}
+SRGCStats >> buildPanelAndMesh [
+	"Build (or rebuild) the panel model and the textured mesh from scratch. Extracted from
+	#initialize so #reconfigure can re-run it after a lane toggle -- creating a FRESH panel,
+	mesh and material is what actually un-freezes the render (a reused material keeps a
+	stale cached internal material bound to a freed GPU texture). Any existing mesh child is
+	removed first so we do not accumulate.
+
+	Shared GC-stats model at the texture's native resolution so bars/lines are real pixels
+	(supersampling, not an upscaled blit). Same panel drives the desktop GcGraphMorph."
+	meshObject ifNotNil: [meshObject remove].
+	panel := GcStatsPanel new.
+	panel labelFont: self labelFont.
+	panel scaleForFactor: self class textureScale.
+
+	meshObject := SRMeshObject withMesh: SRPlane mesh.
+	"Plane mesh lies in XZ; stand it up to face +Z like SRMorphPanel does."
+	meshObject rotation: (Quaternion angle: 90 axis: Vector3 right).
+	self addChild: meshObject.
+
+	fastTexture := nil.
+	self rebuildSource
+]
+
+{
 	#category : #collision,
 	#'squeak_changestamp' : 'MCPServer 8/13/2026 15:31'
 }
@@ -131,26 +177,13 @@ SRGCStats >> fastTexture [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:57'
 }
 SRGCStats >> initialize [
 
 	super initialize.
 	self name: 'GCStats'.
-
-	"Shared GC-stats model, at the texture's native resolution so the bars and lines
-	are actual pixels (real supersampling, not an upscaled blit). Same panel drives
-	the desktop GcGraphMorph."
-	panel := GcStatsPanel new.
-	panel labelFont: self labelFont.
-	panel scaleForFactor: self class textureScale.
-
-	meshObject := SRMeshObject withMesh: SRPlane mesh.
-	"Plane mesh lies in XZ; stand it up to face +Z like SRMorphPanel does."
-	meshObject rotation: (Quaternion angle: 90 axis: Vector3 right).
-	self addChild: meshObject.
-
-	self rebuildSource
+	self buildPanelAndMesh
 ]
 
 {
@@ -195,7 +228,7 @@ SRGCStats >> panel [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:58'
 }
 SRGCStats >> rebuildSource [
 	"(Re)build the pixel buffer, GPU texture and quad aspect for the current label font.
@@ -213,6 +246,19 @@ SRGCStats >> rebuildSource [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:57'
+}
+SRGCStats >> reconfigure [
+	"Stop stepping/rendering, re-fit the panel to the current lane set + rebuild the texture,
+	then start again. Suspending guarantees the resize never runs under a live step or
+	render on this object, which is what left panels frozen after a lane toggle."
+	suspended := true.
+	[self buildPanelAndMesh]
+		ensure: [suspended := false]
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
 }
@@ -224,14 +270,18 @@ SRGCStats >> remove [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/13/2026 16:32'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:51'
 }
 SRGCStats >> renderOn: aSRRenderer [
 	"Push this frame's pixel changes to the GPU while the GL context is live. The
 	child SRMeshObject draws the quad itself via the tree walk."
 
+	"Only touch GL when a context is live, and never let a transient texture-rebuild error
+	propagate: SRFrame>>renderObjects would flag us badRender: true and skip us forever."
+	suspended == true ifTrue: [^ self].
+	SRRenderer hasContext ifFalse: [^ self].
 	self ensureShader.
-	fastTexture syncToGpu
+	[fastTexture syncToGpu] on: Error do: [:e | "next frame retries the sync"]
 ]
 
 {
@@ -255,7 +305,7 @@ SRGCStats >> source [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:51'
 }
 SRGCStats >> step: deltaTime [
 
@@ -265,6 +315,9 @@ SRGCStats >> step: deltaTime [
 	"Register as a ticker user here rather than in a world-enter hook (SRObject has
 	none): armFor: is a Set add, so calling it every frame is harmless, and the changes
 	lane has data while this panel is alive. #remove drops the registration."
+	"Skip while suspended -- a reconfigure (lane toggle) is resizing the panel's graph forms
+	and source, which must not run under a live step/composite."
+	suspended == true ifTrue: [^ self].
 	SRChangeTicker current armFor: self.
 	panel stepGraphsWithDelta: deltaTime.
 	panel renderOn: (GcStatsTextureSurface new source: source font: self labelFont).

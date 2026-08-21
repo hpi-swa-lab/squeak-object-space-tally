@@ -22,13 +22,182 @@ Class {
 		'fullGraph',
 		'survivorGraph',
 		'changesGraph',
+		'youngGraph',
+		'oldZoomGraph',
 		'labelFont',
 		'backingForm',
 		'backingCanvas'
 	],
+	#classVars : [
+		'ShowChangesLane',
+		'ShowFpsLane',
+		'ShowOldFullLane',
+		'ShowOldZoomLane',
+		'ShowSurvivorLane',
+		'ShowYoungLane'
+	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:02'
+}
+GcStatsPanel class >> lanePrefsDo: aBlock [
+	"Evaluate aBlock with (menuLabel, getterSelector, setterSelector) for each lane
+	preference, so the XR and Morphic menus build identical toggles from one place."
+	aBlock value: 'FPS lane' value: #showFpsLane value: #showFpsLane:.
+	aBlock value: 'Young lane' value: #showYoungLane value: #showYoungLane:.
+	aBlock value: 'Old zoomed-in lane' value: #showOldZoomLane value: #showOldZoomLane:.
+	aBlock value: 'Old full lane' value: #showOldFullLane value: #showOldFullLane:.
+	aBlock value: 'Survivor lane' value: #showSurvivorLane value: #showSurvivorLane:.
+	aBlock value: 'Changes lane' value: #showChangesLane value: #showChangesLane:
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:51'
+}
+GcStatsPanel class >> refreshAllPanels [
+	"A lane preference changed. Re-fit every live panel to the new set of enabled lanes:
+	 - XR (SRGCStats): weights are pixel heights, so re-scale + rebuild the texture;
+	 - Morphic (GcGraphMorph): re-fit the graph forms to the current extent + rebuild the
+	   backing Form.
+	Guarded so this is a no-op if the XR/Morphic classes are absent."
+	Smalltalk at: #SRGCStats ifPresent: [:cls |
+		cls allInstances do: [:s | s reconfigure]].
+	Smalltalk at: #GcGraphMorph ifPresent: [:cls |
+		cls allInstances do: [:m |
+			m extent: m extent.
+			m changed]]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+}
+GcStatsPanel class >> showChangesLane [
+	<preference: 'GC Stats: changes lane'
+		category: 'SqueakXR'
+		description: 'Show the thin change-marker lane in the GC Stats panel (XR and Morphic)'
+		type: #Boolean>
+	^ ShowChangesLane ifNil: [ShowChangesLane := true]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+}
+GcStatsPanel class >> showChangesLane: aBoolean [
+	ShowChangesLane := aBoolean.
+	self refreshAllPanels
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+}
+GcStatsPanel class >> showFpsLane [
+	<preference: 'GC Stats: FPS lane'
+		category: 'SqueakXR'
+		description: 'Show the frames-per-second lane in the GC Stats panel (XR and Morphic)'
+		type: #Boolean>
+	^ ShowFpsLane ifNil: [ShowFpsLane := true]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+}
+GcStatsPanel class >> showFpsLane: aBoolean [
+	ShowFpsLane := aBoolean.
+	self refreshAllPanels
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:02'
+}
+GcStatsPanel class >> showOldFullLane [
+	<preference: 'GC Stats: old full lane'
+		category: 'SqueakXR'
+		description: 'Show the zoomed-out (full) old-space lane in the GC Stats panel'
+		type: #Boolean>
+	^ ShowOldFullLane ifNil: [ShowOldFullLane := true]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:02'
+}
+GcStatsPanel class >> showOldFullLane: aBoolean [
+	ShowOldFullLane := aBoolean.
+	self refreshAllPanels
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+}
+GcStatsPanel class >> showOldZoomLane [
+	<preference: 'GC Stats: old zoomed-in lane'
+		category: 'SqueakXR'
+		description: 'Show the zoomed-in old-space lane (young resolution) in the GC Stats panel'
+		type: #Boolean>
+	^ ShowOldZoomLane ifNil: [ShowOldZoomLane := true]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:02'
+}
+GcStatsPanel class >> showOldZoomLane: aBoolean [
+	ShowOldZoomLane := aBoolean.
+	self refreshAllPanels
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+}
+GcStatsPanel class >> showSurvivorLane [
+	<preference: 'GC Stats: survivor lane'
+		category: 'SqueakXR'
+		description: 'Show the survivor/tenure lane in the GC Stats panel (XR and Morphic)'
+		type: #Boolean>
+	^ ShowSurvivorLane ifNil: [ShowSurvivorLane := true]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
+}
+GcStatsPanel class >> showSurvivorLane: aBoolean [
+	ShowSurvivorLane := aBoolean.
+	self refreshAllPanels
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+}
+GcStatsPanel class >> showYoungLane [
+	<preference: 'GC Stats: young lane'
+		category: 'SqueakXR'
+		description: 'Show the young-space (scavenge sawtooth) lane in the GC Stats panel'
+		type: #Boolean>
+	^ ShowYoungLane ifNil: [ShowYoungLane := true]
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+}
+GcStatsPanel class >> showYoungLane: aBoolean [
+	ShowYoungLane := aBoolean.
+	self refreshAllPanels
+]
 
 {
 	#category : #rendering,
@@ -120,33 +289,39 @@ GcStatsPanel >> graph [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:11'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
 }
 GcStatsPanel >> graphHeightWeights [
-	"Relative heights of the graphs (fps : mem : survivor : changes), same order as
-	#graphs. On the XR path these double as pixel heights (see #scaleForFactor:), so the
-	total panel height is their sum. The old-space (mem) graph gets the dominant share; the
-	changes lane is a thin marker strip."
-	^ #(50 300 50 35)
+	"Heights of the ENABLED lanes only, in the same order as #graphs, from #laneSpecs. On
+	the XR path these double as pixel heights (see #scaleForFactor:). The mem graph gets the
+	dominant share; the changes lane is a thin marker strip."
+	| weights |
+	weights := (self laneSpecs select: [:spec | spec third]) collect: [:spec | spec second].
+	^ weights ifEmpty: [#(300)] ifNotEmpty: [weights asArray]
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:11'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:30'
 }
 GcStatsPanel >> graphs [
-	"Top-to-bottom order used for layout and compositing: fps, the old-space (mem) graph,
-	survivor, and the thin changes marker strip."
-	^ { graph. fullGraph. survivorGraph. changesGraph }
+	"The ENABLED lanes only, top-to-bottom, from #laneSpecs (honours the lane preferences).
+	At least one lane is always kept so the panel never collapses to nothing."
+	| enabled |
+	enabled := (self laneSpecs select: [:spec | spec third]) collect: [:spec | spec first].
+	^ enabled ifEmpty: [{ fullGraph }] ifNotEmpty: [enabled]
 ]
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:11'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
 }
 GcStatsPanel >> initialize [
-	"Use the improved GC-stats graph models (developed on the XR side)."
+	"The GC-stats graph models. The old memory lane is now split into three toggleable
+	lanes: young (youngGraph), zoomed-in old (oldZoomGraph), zoomed-out old (fullGraph)."
 	graph := SRGCFpsGraph new.
+	youngGraph := SRGCYoungGraph new.
+	oldZoomGraph := SRGCOldZoomGraph new.
 	fullGraph := SRGCMemGraph new.
 	survivorGraph := SRGCSurvivorGraph new.
 	changesGraph := SRGCChangesGraph new.
@@ -184,6 +359,24 @@ GcStatsPanel >> labelStripHeight [
 GcStatsPanel >> labelStripHeightFor: aSurface [
 	"Height of the clear label band above each graph, for the surface's font."
 	^ aSurface labelFont height + 2
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+}
+GcStatsPanel >> laneSpecs [
+	"The single source of truth for the lanes, top-to-bottom: each is
+	{ graph model. relative/pixel height. enabled-boolean }. #graphs and
+	#graphHeightWeights both filter from this, so they can never fall out of sync.
+	Enabled state comes from the class-side lane preferences."
+	^ {
+		{ graph.          50.  self class showFpsLane }.
+		{ youngGraph.     50.  self class showYoungLane }.
+		{ oldZoomGraph.   80.  self class showOldZoomLane }.
+		{ fullGraph.      200. self class showOldFullLane }.
+		{ survivorGraph.  50.  self class showSurvivorLane }.
+		{ changesGraph.   35.  self class showChangesLane } }
 ]
 
 {
@@ -264,7 +457,7 @@ GcStatsPanel >> stepGraphs [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:00'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
 }
 GcStatsPanel >> stepGraphsWithDelta: aDeltaMsOrNil [
 	"Advance the three graph models one frame. aDeltaMsOrNil, when supplied, is the
@@ -272,6 +465,8 @@ GcStatsPanel >> stepGraphsWithDelta: aDeltaMsOrNil [
 	fps graph measures wall-clock time between steps."
 	graph updateTimeWith: aDeltaMsOrNil.
 	graph updateGraph.
+	youngGraph updateGraph.
+	oldZoomGraph updateGraph.
 	fullGraph updateGraph.
 	survivorGraph updateGraph.
 	changesGraph updateGraph

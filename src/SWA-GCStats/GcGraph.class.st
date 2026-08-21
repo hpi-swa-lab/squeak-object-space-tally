@@ -106,6 +106,17 @@ GcGraph class >> paleOceanColor [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:03'
+}
+GcGraph class >> scavengeEmaAlpha [
+	"Smoothing factor for the exponential moving average of scavenge time. The sample
+	cadence is one per scavenge (not per frame), so ~0.1 is about a 10-scavenge time
+	constant: stable enough to read a sub-ms value, still tracks a changing load."
+	^ 0.1
+]
+
+{
 	#category : #palette,
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:56'
 }
@@ -133,6 +144,16 @@ GcGraph class >> slateColor [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:05'
+}
+GcGraph class >> survivorColor [
+	"Deeper seafoam for the survivor baseline -- the young-space bytes still live right
+	after the last scavenge, i.e. the floor the sawtooth drops to."
+	^ self seafoamColor muchDarker
+]
+
+{
 	#category : #'default instance',
 	#'squeak_changestamp' : 'jl 10/25/2005 19:22'
 }
@@ -148,6 +169,16 @@ GcGraph class >> windowColor [
 	"Border and title bar of the window. Only the frame is tinted; the graphs
 	themselves keep a white background."
 	^ self paleOceanColor
+]
+
+{
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:00'
+}
+GcGraph class >> zoomMarkColor [
+	"The red marker drawn in the zoomed-in old lane's newest column when its floor rebases
+	(a lane movement), so the shift is visible as a vertical line."
+	^ Color r: 0.9 g: 0.15 b: 0.15
 ]
 
 {

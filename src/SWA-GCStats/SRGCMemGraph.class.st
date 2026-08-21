@@ -7,20 +7,11 @@ Class {
 	#name : #SRGCMemGraph,
 	#superclass : #GcFullGraph,
 	#instVars : [
-		'lastScavengeCount',
-		'lastScavengeMs',
-		'emaScavengeMs',
 		'oldSpaceMax',
-		'survivorYoung',
-		'oldWindowMin',
-		'oldWindowMax',
-		'oldWindowSpan',
-		'lastOldFullScale',
-		'lastZoomFloor',
-		'usedRing',
-		'usedRingSize',
 		'oldZoomOutMin',
 		'oldZoomOutSpan',
+		'usedRing',
+		'usedRingSize',
 		'ringHead'
 	],
 	#category : #'SWA-GCStats',
@@ -81,34 +72,17 @@ SRGCMemGraph class >> zoomOldColor [
 ]
 
 {
-	#category : #'scavenge timing',
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 14:55'
-}
-SRGCMemGraph >> averageScavengeMs [
-	"Mean milliseconds per scavenge over the window, or nil if no scavenge has been
-	seen yet. A single scavenge is sub-millisecond, so only the average over many is
-	meaningful -- per-frame p10 deltas read 0."
-
-	^ emaScavengeMs
-]
-
-{
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:31'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
 }
 SRGCMemGraph >> labelString [
-	"old used, the zoomed-out window, young/eden, GC counts, and the mean scavenge time
-	(the EMA -- a single scavenge is sub-ms, so only the average is meaningful)."
-	^ String streamContents: [:s | | avg |
+	"Zoomed-out old: used, the window, and the full-GC / scavenge counters."
+	^ String streamContents: [:s |
 		s nextPutAll: 'old '; nextPutAll: (self mbString: self usedOldSpace);
 		  nextPutAll: ' ['; nextPutAll: (self mbString: (oldZoomOutMin ifNil: [0]));
 		  nextPut: $-; nextPutAll: (self mbString: ((oldZoomOutMin ifNil: [0]) + (oldZoomOutSpan ifNil: [0])));
-		  nextPutAll: ']  Y '; nextPutAll: (self mbString: self usedYoungSpace);
-		  nextPut: $/; nextPutAll: (self mbString: self youngSpace);
-		  nextPutAll: '  gc '; print: (Smalltalk vmParameterAt: 7);
-		  nextPut: $/; print: (Smalltalk vmParameterAt: 9).
-		avg := self averageScavengeMs.
-		avg ifNotNil: [s nextPutAll: '  scav '; nextPutAll: (avg asFloat printShowingDecimalPlaces: 2); nextPutAll: 'ms']]
+		  nextPutAll: ']  gc '; print: (Smalltalk vmParameterAt: 7);
+		  nextPut: $/; print: (Smalltalk vmParameterAt: 9)]
 ]
 
 {
@@ -151,7 +125,7 @@ SRGCMemGraph >> oldLaneScaleFor: usedKb [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:46'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:38'
 }
 SRGCMemGraph >> pushUsed: usedKb [
 	"Store the latest used-old value in a true circular buffer -- a fixed Array allocated
@@ -161,9 +135,10 @@ SRGCMemGraph >> pushUsed: usedKb [
 	usedRingSize is the fill count (<= cap until the ring wraps)."
 	| cap |
 	cap := (graph width // 2) max: 1.
-	"Allocate/resize the backing Array only when the width changes (a resize), never per
-	frame. On resize, start the history over -- the old columns no longer map to columns."
-	(usedRing isNil or: [usedRing size ~= cap]) ifTrue: [
+	"Allocate/resize the backing Array only when the width changes (a resize) or the state
+	is not a valid ring (nil, wrong class, or a nil cursor -- e.g. a stale OrderedCollection
+	from a code reload), never per frame. On (re)allocation, start the history over."
+	(ringHead isNil or: [(usedRing isKindOf: Array) not] or: [usedRing size ~= cap]) ifTrue: [
 		usedRing := Array new: cap.
 		ringHead := 1.
 		usedRingSize := 0].
@@ -233,52 +208,17 @@ SRGCMemGraph >> repaintOldLaneFloor: floor step: step [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:15'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:00'
 }
 SRGCMemGraph >> updateGraph [
-	"Three lanes, TOP to bottom (FormGraph value 0 = form bottom, higher base = higher up):
-	  1. young space -- scavenge sawtooth vs eden, survivor floor drawn deeper (top);
-	  2. zoomed-in old -- usedOld at the young lane's kB/pixel over a whole-span floor, a
-	     red mark when the floor rebases (middle);
-	  3. zoomed-out old -- the dominant lane: a [floor, floor+step] window with strong
-	     hysteresis (resizes rarely) and a used-value ring that repaints the whole lane at
-	     the new scale on a rescale rather than flushing to white (bottom).
-
-	p9 scavenge count / p10 cumulative scavenge ms fold into an EMA on a scavenge frame."
-	| height youngLaneH zoomLaneH oldLaneH oldBase zoomBase youngBase used youngFill zoomFill zoomSpan rescale lo hi step floor scavenges scavengeMs countDelta |
+	"Zoomed-out old space, full height: a [floor, floor+step] window with STRONG hysteresis
+	(resizes rarely, only when used leaves the 15%..85% band) and a used-value ring that
+	repaints the whole lane at the new scale on a rescale rather than flushing to white."
+	| height used rescale lo hi step floor |
 	height := graph height.
-
-	scavenges := Smalltalk vmParameterAt: 9.
-	scavengeMs := Smalltalk vmParameterAt: 10.
-	countDelta := lastScavengeCount ifNil: [0] ifNotNil: [scavenges - lastScavengeCount].
-	countDelta > 0 ifTrue: [ | alpha sample |
-		alpha := self class scavengeEmaAlpha.
-		sample := (scavengeMs - lastScavengeMs) / countDelta.
-		emaScavengeMs := emaScavengeMs ifNil: [sample] ifNotNil: [emaScavengeMs * (1 - alpha) + (sample * alpha)].
-		survivorYoung := self usedYoungSpace].
-	lastScavengeCount := scavenges.
-	lastScavengeMs := scavengeMs.
-
 	used := self usedOldSpace.
 	self pushUsed: used.
 
-	"Lane heights: zoomed-out old dominates (bottom), then zoomed-in old, then young (top)."
-	oldLaneH := height * 60 // 100.
-	youngLaneH := height * 16 // 100.
-	zoomLaneH := height - oldLaneH - youngLaneH - 2.   "2 divider pixels"
-	oldBase := 0.
-	zoomBase := oldLaneH + 1.
-	youngBase := zoomBase + zoomLaneH + 1.
-
-	"Zoomed-in old lane: FIXED young resolution (eden per zoom-lane height); floor tracks in
-	whole spans so used stays in view. Never rescales -- resolution is constant."
-	zoomSpan := (self youngSpace max: 1) * zoomLaneH // (youngLaneH max: 1) max: 1.
-	oldWindowSpan := zoomSpan.
-	oldWindowMin ifNil: [oldWindowMin := used // zoomSpan * zoomSpan].
-	[used >= (oldWindowMin + zoomSpan)] whileTrue: [oldWindowMin := oldWindowMin + zoomSpan].
-	[used < oldWindowMin] whileTrue: [oldWindowMin := oldWindowMin - zoomSpan].
-
-	"Zoomed-out old lane: decide whether to rescale (strong hysteresis, 15%..85% band)."
 	rescale := oldZoomOutMin isNil or: [oldZoomOutSpan isNil].
 	rescale ifFalse: [
 		lo := oldZoomOutMin + (oldZoomOutSpan * 15 // 100).
@@ -294,38 +234,13 @@ SRGCMemGraph >> updateGraph [
 		oldZoomOutMin := floor].
 	oldSpaceMax := oldZoomOutSpan.
 
-	"--- draw ---"
 	self graph shiftBy: 2.
-	"Clear the newest column across young + zoomed-in lanes; the zoomed-out lane clears its
-	own newest column here too (a full-lane repaint only happens on rescale, below)."
 	self graph drawFrom: 0 to: height color: self class backgroundColor width: 2.
-
-	"Zoomed-out old lane (bottom). On rescale repaint the whole lane from the ring."
 	rescale
-		ifTrue: [self repaintOldLaneBase: oldBase height: oldLaneH floor: oldZoomOutMin step: oldZoomOutSpan]
+		ifTrue: [self repaintOldLaneBase: 0 height: height floor: oldZoomOutMin step: oldZoomOutSpan]
 		ifFalse: [
 			self graph
-				drawFrom: oldBase
-				to: oldBase + ((((used - oldZoomOutMin) max: 0) * oldLaneH // oldZoomOutSpan) min: oldLaneH)
-				color: self class deepOceanColor width: 2].
-	self graph drawFrom: oldLaneH to: zoomBase color: self class slateColor width: 2.
-
-	"Zoomed-in old lane (middle)."
-	zoomFill := zoomBase + ((((used - oldWindowMin) max: 0) * zoomLaneH // zoomSpan) min: zoomLaneH).
-	self graph drawFrom: zoomBase to: zoomFill color: self class deepOceanColor width: 2.
-	(lastZoomFloor notNil and: [lastZoomFloor ~= oldWindowMin]) ifTrue: [
-		self graph drawFrom: zoomBase to: zoomBase + zoomLaneH color: self class zoomMarkColor width: 2].
-	lastZoomFloor := oldWindowMin.
-	self graph drawFrom: zoomBase + zoomLaneH to: youngBase color: self class slateColor width: 2.
-
-	"Young lane (top): scavenge sawtooth vs eden, survivor floor drawn deeper."
-	youngFill := self youngSpace isZero
-		ifTrue: [0]
-		ifFalse: [(self usedYoungSpace * youngLaneH // self youngSpace) min: youngLaneH].
-	self graph drawFrom: youngBase to: youngBase + youngFill color: self class seafoamColor width: 2.
-	survivorYoung ifNotNil: [ | survFill |
-		survFill := self youngSpace isZero
-			ifTrue: [0]
-			ifFalse: [(survivorYoung * youngLaneH // self youngSpace) min: youngFill].
-		self graph drawFrom: youngBase to: youngBase + survFill color: self class survivorColor width: 2]
+				drawFrom: 0
+				to: ((((used - oldZoomOutMin) max: 0) * height // oldZoomOutSpan) min: height)
+				color: self class deepOceanColor width: 2]
 ]

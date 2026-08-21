@@ -170,6 +170,26 @@ GcGraphMorph >> intoWorld: aWorld [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:32'
+}
+GcGraphMorph >> invokeLaneMenu: anEvent [
+	"Pop a menu that toggles each GC Stats lane. Same preferences as the XR panel
+	(GcStatsPanel class-side booleans), so toggling here also affects the XR panel and
+	persists. The setter calls GcStatsPanel>>refreshAllPanels, which re-fits this morph."
+	| menu |
+	menu := MenuMorph new.
+	menu addTitle: 'GC Stats lanes'.
+	GcStatsPanel lanePrefsDo: [:label :getter :setter |
+		menu
+			add: (((GcStatsPanel perform: getter) ifTrue: ['[x] '] ifFalse: ['[ ] ']), label)
+			target: GcStatsPanel
+			selector: setter
+			argument: (GcStatsPanel perform: getter) not].
+	menu popUpEvent: anEvent in: self world
+]
+
+{
 	#category : #'record button',
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:47'
 }
@@ -179,11 +199,13 @@ GcGraphMorph >> isRecording [
 
 {
 	#category : #'record button',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:48'
+	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:31'
 }
 GcGraphMorph >> mouseDown: anEvent [
-	"The record/stop toggle is the only interactive region; a click elsewhere is left
-	to the window (drag, raise). Toggling redraws the button on the next step."
+	"Right-click anywhere pops the lane on/off menu. Left-click on the record/stop button
+	toggles recording; a left-click elsewhere is left to the window (drag, raise)."
+	anEvent yellowButtonPressed
+		ifTrue: [^ self invokeLaneMenu: anEvent].
 	(self buttonBounds containsPoint: anEvent position)
 		ifTrue: [self toggleRecording. self changed]
 		ifFalse: [super mouseDown: anEvent]
