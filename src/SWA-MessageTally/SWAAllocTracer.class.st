@@ -98,20 +98,39 @@ SWAAllocTracer class >> disarm [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:24'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 16:53'
+}
+SWAAllocTracer class >> funnelSelectorFor: aClass [
+	"The constructor selector a class is actually allocated through -- the choke point
+	to wrap. Indexable classes (Array and subclasses) are built via #new: with a size;
+	everything else (Vector subclasses, ExternalStructure subclasses, ...) funnels
+	through #new. This is the one piece that can't be derived from the class alone --
+	it's allocation-site knowledge -- so it lives in one small table. #funnelsFor: then
+	auto-detects the IMPLEMENTOR of this selector, so no per-family branches are needed."
+	(aClass == Array or: [aClass inheritsFrom: Array]) ifTrue: [^ #new:].
+	^ #new
+]
+
+{
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 16:53'
 }
 SWAAllocTracer class >> funnelsFor: aClassSet [
 	"The (metaclass -> constructor selector) funnels to wrap for the requested classes.
-	Vector subclasses share Vector class>>new; Array is caught at Array class>>new:.
-	Deduplicated, so tracing three Vector subclasses installs ONE wrapper. Classes with
-	no known funnel here are simply not caught (documented, not an error)."
+	Auto-detected: for each class we ask #funnelSelectorFor: which constructor it routes
+	through (#new: for indexable/Array, #new otherwise), then walk to the class that
+	actually IMPLEMENTS that selector -- the shared choke point. Vector3, Matrix4x4, ...
+	all resolve to Vector class>>new; RlVector3 and other ExternalStructures resolve to
+	ExternalStructure class>>new; Array to Array class>>new:. The Set dedups, so a whole
+	family installs ONE wrapper. No per-family branches -- new Vector/ExternalStructure
+	subclasses just work. A class whose implementor can't be found is skipped (documented,
+	not an error)."
 	| funnels |
 	funnels := Set new.
-	aClassSet do: [:cls |
-		(cls == Array or: [cls inheritsFrom: Array])
-			ifTrue: [funnels add: Array class -> #new:]
-			ifFalse: [(cls inheritsFrom: Vector)
-				ifTrue: [funnels add: Vector class -> #new]]].
+	aClassSet do: [:cls | | sel implementor |
+		sel := self funnelSelectorFor: cls.
+		implementor := cls class whichClassIncludesSelector: sel.
+		implementor ifNotNil: [funnels add: implementor -> sel]].
 	^ funnels
 ]
 
@@ -451,7 +470,7 @@ SWAAllocTracer class >> traceXRFrames: aCount for: aCollectionOfClasses [
 
 {
 	#category : #defaults,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 16:53'
 }
 SWAAllocTracer class >> tracedClasses [
 	"The classes the menu entries trace -- the customizable 'classes of interest'. Starts
@@ -460,7 +479,7 @@ SWAAllocTracer class >> tracedClasses [
 	class var so a chosen set survives until changed.
 
 	Answers a copy as an Array so callers cannot mutate the live set by side effect."
-	TracedClasses ifNil: [TracedClasses := OrderedCollection withAll: { Vector3. Matrix4x4 }].
+	TracedClasses ifNil: [TracedClasses := OrderedCollection withAll: { Vector3. Matrix4x4. RlVector3 }].
 	^ TracedClasses asArray
 ]
 
