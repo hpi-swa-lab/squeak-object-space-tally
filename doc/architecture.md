@@ -10,7 +10,7 @@ flamegraph, or a Graphviz diagram), and any tool can be coloured/sized by anothe
 tool's data because they all share one identity vocabulary: the **`crossRefKey`**
 (class names are unique; methods are `'Class>>selector'`, ivars `'Class>>#ivar'`).
 
-Five user-facing tools, plus a shared substrate and supporting data models:
+Six user-facing tools, plus a shared substrate and supporting data models:
 
 | Tool | Question | Tree | Tile weight |
 |---|---|---|---|
@@ -18,6 +18,7 @@ Five user-facing tools, plus a shared substrate and supporting data models:
 | **Space Tally** | where memory goes, who retains it | live object graph (BFS spanning tree) | bytes |
 | **Sampling Tally** | where wall-clock time goes | external-sampler call tree | microseconds |
 | **Change Map** | when code changed, how much | `.changes` time buckets | diff lines |
+| **Git Map** | what each commit changed; what is churning | month -> day -> commit -> package -> class -> method | diff lines |
 | **Class Diagram** | inheritance shape | class/inheritance graph (Graphviz) | -- (diagram) |
 
 ## 2. Architecture
@@ -36,6 +37,8 @@ Five user-facing tools, plus a shared substrate and supporting data models:
                  SWANode            (tree contract: parent/children/crossRefKey/markKey)
                    |
    SWACodeNode*  SWASpaceTallyNode  SWASamplingTallyNode  SWAChangeNode
+                                                              |
+                                                          SWAGitNode
 
                  SWADataset / SWADatasetMetric   (retained, named overlays, axis-bindable)
                  SWAMarkSet                       (global cross-view bookmarks)
@@ -62,6 +65,7 @@ Two independent inheritance spines meet at the view:
 | SWA-Coverage | 5 | `SWACoverage`, `SWACoverageData`, `SWACoverageWrapper`, `SWACoverageLogTailer`, `SWACoverageRunPanel` |
 | SWA-MessageTally | 6 | `SWASamplingTally`, flamegraph, treemap/overlay, `SWAStructure`, `SWATallyWrapper` |
 | SWA-ChangeMap | 4 | `SWAChangeNode`, `SWAChangeParser`, `SWAChangeTreemapMorph`/`Overlay` |
+| SWA-GitMap | 5 | `SWAGitHistory` (GitS commit scanner), `SWAGitNode`, `SWAGitTreemapMorph`/`Overlay`, `SWAGitChurnData` |
 | SWA-TopicModel | 2 | `SWABitermTopicModel`, `SWATopicData` |
 | SWA-Duplication | 3 | `SWACodeSimilarity`, `SWADuplicationData`, `SWADuplicationPartnerStub` |
 | SWA-Graphviz | 4 | `GraphvizMorph`, `GraphvizPane`, `GraphvizJsonParser`, `GraphvizPlainParser` |
@@ -115,6 +119,13 @@ Everything a view walks goes through it:
 - **`SWAChangeNode`** -- one change record (or a time-bucket container); computes
   diff size against the prior version, provenance status (`#current`/`#superseded`/
   `#inHistory`/`#gone`/`#other`), author, and inline-diff sources.
+  - **`SWAGitNode`** -- the same, sourced from a **git commit** instead of the
+    `.changes` file: adds the `GitCommit`, hash, subject, Monticello patch
+    operation (`#added`/`#modified`/`#removed`) and package. Overrides
+    `#baselineSource` (git supplies the byte-exact parent-commit body, so
+    `#prevInScope` is not consulted) and `#computeStatusSymbol` (a *removal* is a
+    checkable claim: `#gone` if the deletion took, `#other` if the image still has
+    the method, i.e. the image has drifted from the repository).
 
 ## 4. `SWAView`
 
@@ -195,7 +206,7 @@ you morph one tool into another):
 The single most important architectural idea (journal 2026-06-30 onward). A
 **`SWADataset`** is a named, retained, image-independent overlay wrapping an analysis
 result keyed by `crossRefKey`. Kinds: `#coverage`, `#duplication`, `#spaceTally`,
-`#sampleTally`, `#topic`, `#masked`, `#peer`.
+`#sampleTally`, `#topic`, `#gitChurn`, `#masked`, `#peer`.
 
 A dataset exposes one or more **`SWADatasetMetric`**s, each **axis-bindable** to
 `#color`, `#size`, `#links`, or `#decoration`. A metric answers a raw per-key value
@@ -203,6 +214,12 @@ A dataset exposes one or more **`SWADatasetMetric`**s, each **axis-bindable** to
 `Color` via a swappable `scale` (or a categorical `colorBlock:` for topics). So one
 loaded coverage file yields *both* a "By coverage" and a "By call" metric; loading
 the same kind twice gives two coexisting, instantly-switchable entries.
+
+`#gitChurn` (`SWAGitChurnData`, from a `SWAGitHistory` scan) is the clearest example
+of why the rollup is per-metric: its *commits* and *changed lines* metrics `#sum` up
+the tree, while *recency of last commit* and *number of authors* roll up with `#max`
+-- summing a timestamp is meaningless, and summing author counts would count the same
+person once per sibling method.
 
 Two adapter sources make the layer general:
 

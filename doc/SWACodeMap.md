@@ -300,7 +300,8 @@ same kind twice gives two coexisting, instantly-switchable entries (`coverage_1`
 Datasets arrive four ways:
 
 - **Load** (a file) -- the `Load` button / `importData` opens a `*.json` chooser and
-  dispatches by content marker: coverage, duplication, topic, or space-tally JSON.
+  dispatches by content marker: coverage, duplication, topic, git-churn, or
+  space-tally JSON.
 - **Generate** (compute on the fly) -- the italic entries under Data, the async twins
   of Load (below).
 - **Mask** (combine two datasets) -- the `B \ A` combinator (below).
@@ -320,6 +321,7 @@ retain the result as a dataset (so it then behaves like a loaded file):
 | **Generate: call tally (instrument + exercise, then Stop)** | live invocation counting | two-phase: instrument -> exercise -> STOP collects |
 | **Generate: sample tally (Ns CPU heat)** | external st-spy sampler on this image | async; `whenReadyDo:` installs it |
 | **Generate: topic model (k=N)** | Biterm Topic Model over the methods | forked at background priority |
+| **Generate: git churn (scan a repository's commits)** | GitS commit scan, folded per method | forked at background priority |
 
 **Call Tally is two-phase.** Picking it instruments every shown method with
 self-evicting wrappers and pops a small **STOP** window; you exercise the system so
@@ -416,6 +418,19 @@ Generate a file directly:
 ((SWABitermTopicModel onPackageNamed: 'Morphic') buildAndRun: 200)
     writeToFile: 'morphic-topics.json'.
 ```
+
+## Git churn: how often, how recently, by how many hands
+
+Load a git-churn JSON (or **Generate: git churn**) to colour the map by a **GitS
+repository's commit history**, keyed per method. One scan yields four
+instantly-switchable metrics -- *By commits*, *By changed lines*, *By recency of
+last commit*, *By number of authors* -- so the same structural map answers "what is
+being rewritten again and again" and "what has not moved in weeks". Methods the scan
+window did not touch stay dark, which is the reading: **quiet lately**, not
+necessarily never written.
+
+This is the code-structure half of the [Git Map](SWAGitMap.md); the other half lays
+the same commits out by time.
 
 ## Marks: cross-view bookmarks
 
@@ -576,6 +591,8 @@ bar wraps onto extra rows.
 
 - **[SWASpaceTally](SWASpaceTally.md)** -- structural memory analysis (the sibling
   treemap over the live object graph).
+- **[SWAGitMap](SWAGitMap.md)** -- git commit history as a treemap, and as the
+  `#gitChurn` dataset that colours this map.
 - **SWAMessageTally** -- the Sampling Tally: a statistical message-tally profiler
   and flamegraph (driven by the external st-spy sampler), documented separately.
 - **[index](index.md)** -- the shared SWA tools index.

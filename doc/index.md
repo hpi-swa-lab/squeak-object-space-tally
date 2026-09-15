@@ -18,6 +18,7 @@ or read live from another open panel -- because they all speak the same
 | **[SWASpaceTally](SWASpaceTally.md)** | Where does the *memory* go, and who keeps it alive? | live object graph (BFS) | bytes |
 | **[SWAMessageTally](SWAMessageTally.md)** *(stub)* -- Sampling Tally | Where does the *time* go at runtime (statistical sampling)? | sampled call tree | wall time (us) |
 | **Change Map** ([journal](../../journal/2026-07-09-swachangeparser-change-treemap-and-recovery.md)) | *When* did the code change, and how much? | `.changes` time buckets | diff lines |
+| **[SWAGitMap](SWAGitMap.md)** | What did these *commits* change -- and what is churning? | month -> day -> commit -> package -> class -> method | diff lines |
 | **Class Diagram** ([journal](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md)) | What is the *inheritance shape* of a package? | class graph | -- (diagram) |
 
 See the **[gallery](gallery.md)** for a screenshot of each.
@@ -63,6 +64,8 @@ Sources:
 
 - **Loaded from a file** via the Code Map's **Load** button, dispatched by content:
   - coverage (`SWACoverageData`) and duplication (`SWADuplicationData`) JSON,
+  - git churn (`SWAGitChurnData`) JSON -- per-method commits / changed lines /
+    recency / authors (see [SWAGitMap](SWAGitMap.md#half-2-git-churn-on-the-code-map)),
   - space-tally JSON -- either a full node tree or a flat per-class census
     (see [SWASpaceTally](SWASpaceTally.md#decorating-the-code-map-with-per-class-bytes)).
 - **Read live from another open panel** (`#peer`): every open treemap/flamegraph
@@ -75,6 +78,8 @@ Sources:
 So one **Data** menu answers questions that span views, e.g.:
 
 - *Colour the Code Map by how much memory each class measured in a Space Tally.*
+- *Colour the Code Map by git history* -- how often each method has been committed,
+  how recently, and by how many hands ([SWAGitMap](SWAGitMap.md)).
 - *Highlight in the Code Map which methods a live profiler sampled, and how hot* --
   container tiles (class, package) roll up the weight of their sampled methods, so
   a class lights up even when only its methods carry data.
