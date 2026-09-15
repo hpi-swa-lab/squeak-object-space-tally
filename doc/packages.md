@@ -18,6 +18,7 @@ The `SWA-*` packages:
 | **SWA-SpaceTally** | 13 | 265 | Object-memory treemap, explorer, JSON reader/writer, and the Sim parity harness |
 | **SWA-MessageTally** | 5 | 84 | Sampling (statistical) message tally: flamegraph + treemap views, driven by the external st-spy sampler |
 | **SWA-ChangeMap** | 4 | 105 | `.changes`-file time treemap + parser |
+| **SWA-GitMap** | 5 | 103 | GitS commit-history treemap (`SWAGitHistory`/`SWAGitNode`/`SWAGitTreemapMorph`) + the per-method git churn dataset (`SWAGitChurnData`) |
 | **SWA-ClassDiagram** | 1 | 31 | UML-style inheritance diagram view |
 | **SWA-Graphviz** | 4 | 86 | Graphviz render/parse backend (used by Class Diagram) |
 | **SWA-Coverage** | 5 | 137 | Coverage data model, run panel, log tailer, method wrapper |
@@ -26,8 +27,8 @@ The `SWA-*` packages:
 | **SWA-Widgets** | 4 | 30 | Reusable morphs: splitters, search field, selection painter |
 | **SWA-Tests** | 3 | 38 | SUnit tests + fixtures |
 
-Totals as read from the image: **64 classes**, **1591 methods** across all 14
-`SWA-*` packages (13 code + `SWA-Tests`).
+Totals as read from the image: **69 classes**, **1694 methods** across all 15
+`SWA-*` packages (14 code + `SWA-Tests`).
 
 ## Layered dependency view
 
@@ -38,6 +39,7 @@ graph TD
         SpaceTally["SWA-SpaceTally"]
         MsgTally["SWA-MessageTally<br/>(Sampling Tally)"]
         ChangeMap["SWA-ChangeMap"]
+        GitMap["SWA-GitMap"]
         ClassDiagram["SWA-ClassDiagram"]
     end
 
@@ -63,6 +65,7 @@ graph TD
     SpaceTally --> Nodes
     MsgTally --> Nodes
     ChangeMap --> Base
+    GitMap --> ChangeMap
     ClassDiagram --> Base
 
     Nodes --> Base
@@ -70,6 +73,7 @@ graph TD
     CodeMap -.loads.-> Coverage
     CodeMap -.loads.-> Duplication
     CodeMap -.loads.-> TopicModel
+    CodeMap -.loads.-> GitMap
     ClassDiagram --> Graphviz
 
     CodeMap --> Widgets
@@ -81,7 +85,7 @@ graph TD
     classDef sub fill:#e8f0ff,stroke:#4472c4;
     classDef tool fill:#eaf7ea,stroke:#2e8b2e;
     class Base,Nodes sub;
-    class CodeMap,SpaceTally,MsgTally,ChangeMap,ClassDiagram tool;
+    class CodeMap,SpaceTally,MsgTally,ChangeMap,GitMap,ClassDiagram tool;
 ```
 
 Solid arrows are structural (subclassing / direct use); dotted arrows are
@@ -128,11 +132,13 @@ classDiagram
     SWANode <|-- SWASpaceTallyNode
     SWANode <|-- SWASamplingTallyNode
     SWANode <|-- SWAChangeNode
+    SWAChangeNode <|-- SWAGitNode
 
     SWATreemapMorph <|-- SWACodeTreemapMorph
     SWATreemapMorph <|-- SWASpaceTallyTreemapMorph
     SWATreemapMorph <|-- SWASamplingTallyTreemapMorph
     SWATreemapMorph <|-- SWAChangeTreemapMorph
+    SWAChangeTreemapMorph <|-- SWAGitTreemapMorph
 
     SWAView o-- SWADataset : hosts
     SWAPane o-- SWAView : wraps
@@ -174,6 +180,11 @@ subclasses (the treemap/flamegraph/diagram) plus its overlay.
 - **SWA-ChangeMap** -- `SWAChangeParser` + `SWAChangeTreemapMorph`: a
   time-bucketed treemap over the `.changes` file. Journal:
   [2026-07-09](../../journal/2026-07-09-swachangeparser-change-treemap-and-recovery.md).
+- **SWA-GitMap** -- `SWAGitHistory` + `SWAGitTreemapMorph`, subclassing the Change
+  Map: the same picture drawn from a **GitS repository** instead of the `.changes`
+  file (`month -> day -> commit -> package -> class -> method`), plus
+  `SWAGitChurnData`, the per-method fold that lets git history colour a Code Map.
+  Full doc: **[SWAGitMap.md](SWAGitMap.md)**.
 - **SWA-ClassDiagram** -- `SWAClassDiagram`: a UML-style inheritance diagram laid
   out via the **SWA-Graphviz** backend. Journal:
   [2026-07-13](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md).
