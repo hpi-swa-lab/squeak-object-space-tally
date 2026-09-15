@@ -93,6 +93,20 @@ SWAAllocFlamegraphMorph >> mouseDown: evt [
 ]
 
 {
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:27'
+}
+SWAAllocFlamegraphMorph >> packageNameForClass: aClass [
+	"The name of the package that owns aClass, or nil. Used to offer 'trace the whole
+	package' menu items that edit the shared Code Map working set (SWAAllocTracer
+	tracePackage:/stopTracingPackage:)."
+	aClass ifNil: [^ nil].
+	^ (PackageInfo allPackages
+		detect: [:p | p includesClass: aClass]
+		ifNone: [nil]) ifNotNil: [:p | p packageName]
+]
+
+{
 	#category : #'alloc trace',
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:47'
 }
@@ -102,7 +116,7 @@ SWAAllocFlamegraphMorph >> removeFromAllocTrace: aClass [
 
 {
 	#category : #'alloc trace',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:47'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:27'
 }
 SWAAllocFlamegraphMorph >> showContextMenuFor: aNode event: evt [
 	"Right-click menu: manage the node's class in the allocation trace's classes of
@@ -112,12 +126,20 @@ SWAAllocFlamegraphMorph >> showContextMenuFor: aNode event: evt [
 	menu := MenuMorph new defaultTarget: self.
 	menu addTitle: (aNode name ifNil: ['?']).
 	cls := self classForNode: aNode.
-	cls ifNotNil: [
+	cls ifNotNil: [| pkg |
 		(SWAAllocTracer tracedClasses includes: cls)
 			ifTrue: [menu add: 'remove ', cls name, ' from allocation trace'
 				target: self selector: #removeFromAllocTrace: argument: cls]
 			ifFalse: [menu add: 'add ', cls name, ' to allocation trace'
 				target: self selector: #addToAllocTrace: argument: cls].
+		"Whole-package items edit the SHARED Code Map working set (one source of truth)."
+		pkg := self packageNameForClass: cls.
+		pkg ifNotNil: [
+			(SWAAllocTracer tracedPackages includes: pkg)
+				ifTrue: [menu add: 'remove package ', pkg, ' from working set'
+					target: SWAAllocTracer selector: #stopTracingPackage: argument: pkg]
+				ifFalse: [menu add: 'add package ', pkg, ' to working set'
+					target: SWAAllocTracer selector: #tracePackage: argument: pkg]].
 		menu addLine].
 	(aNode crossRefKey notNil and: [aNode isSmalltalkFrame]) ifTrue: [
 		menu add: 'browse' target: aNode selector: #browse.

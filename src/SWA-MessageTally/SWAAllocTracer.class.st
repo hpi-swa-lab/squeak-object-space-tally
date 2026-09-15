@@ -36,7 +36,7 @@ SWAAllocTracer class >> allocRoot [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:24'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
 }
 SWAAllocTracer class >> armFor: aCollectionOfClasses [
 	"Start tracing allocations of the given classes. Install ONE wrapper on the shared
@@ -56,6 +56,8 @@ SWAAllocTracer class >> armFor: aCollectionOfClasses [
 	cheap -- the wrapper is dormant outside a #captureDuring: region. AllocWatched holds
 	the whole collection so #disarm uninstalls them all."
 	funnels := self funnelsFor: AllocClassFilter.
+	(self hasUniversalFunnel: funnels) ifTrue: [
+		Transcript showln: '[SWAAllocTracer] WARNING: tracing through a UNIVERSAL funnel (Behavior>>new). Every allocation in the image pays the wrapper cost while armed -- keep this capture SHORT and be sure to #disarm.'].
 	AllocWatched := funnels collect: [:assoc | | w |
 		w := self new onClass: assoc key selector: assoc value; yourself.
 		w evictAt: nil.
@@ -113,7 +115,7 @@ SWAAllocTracer class >> funnelSelectorFor: aClass [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 16:53'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:25'
 }
 SWAAllocTracer class >> funnelsFor: aClassSet [
 	"The (metaclass -> constructor selector) funnels to wrap for the requested classes.
@@ -124,7 +126,14 @@ SWAAllocTracer class >> funnelsFor: aClassSet [
 	ExternalStructure class>>new; Array to Array class>>new:. The Set dedups, so a whole
 	family installs ONE wrapper. No per-family branches -- new Vector/ExternalStructure
 	subclasses just work. A class whose implementor can't be found is skipped (documented,
-	not an error)."
+	not an error).
+
+	CAUTION -- universal funnels: a class with no dedicated allocator inherits the plain
+	Behavior>>new, so its implementor resolves to Behavior (or Object class). Wrapping that
+	traces EVERY plain #new in the whole image while armed, gated only by the class filter.
+	That is intentionally allowed (a broad Code Map working set naturally lands here) but is
+	HOT -- use it only for short one-shot captures and always #disarm. #hasUniversalFunnel:
+	answers whether a funnel set includes such a choke point; #armFor: warns when it does."
 	| funnels |
 	funnels := Set new.
 	aClassSet do: [:cls | | sel implementor |
@@ -132,6 +141,21 @@ SWAAllocTracer class >> funnelsFor: aClassSet [
 		implementor := cls class whichClassIncludesSelector: sel.
 		implementor ifNotNil: [funnels add: implementor -> sel]].
 	^ funnels
+]
+
+{
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
+}
+SWAAllocTracer class >> hasUniversalFunnel: aFunnelSet [
+	"True if any funnel in the set is a universal allocator -- Behavior>>new or
+	Object class>>new -- i.e. a choke point that fires on essentially every allocation in
+	the image, not just the classes of interest. Such a set is correct but HOT: only the
+	class filter keeps the tree clean, while the per-send wrapper cost is paid image-wide.
+	Callers use this to warn and to insist on short, one-shot, #disarm-terminated captures."
+	^ aFunnelSet anySatisfy: [:assoc |
+		(assoc key == Behavior and: [assoc value == #new])
+			or: [assoc key == Object class and: [assoc value == #new]]]
 ]
 
 {
@@ -295,10 +319,11 @@ SWAAllocTracer class >> recordHash: aHash forNode: aNode [
 
 {
 	#category : #'traced classes',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
 }
 SWAAllocTracer class >> resetTracedClasses [
-	"Back to the default suspects (Vector3, Matrix4x4). Answers the current set."
+	"Drop any explicit pinned set and go back to following the shared Code Map working set
+	(see #tracedClasses / #workingSetClasses). Answers the current (now working-set) set."
 	TracedClasses := nil.
 	^ self tracedClasses
 ]
@@ -331,6 +356,22 @@ SWAAllocTracer class >> stopTracingClass: aClass [
 	self tracedClasses.
 	TracedClasses remove: aClass ifAbsent: [].
 	^ self tracedClasses
+]
+
+{
+	#category : #'traced classes',
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
+}
+SWAAllocTracer class >> stopTracingPackage: aPackageNameOrGlob [
+	"Remove a package glob from the SHARED Code Map working set (removes it from the Code Map
+	too -- one source of truth). Idempotent. Clears any explicit pinned class set so tracing
+	follows the working set again. Answers #tracedPackages."
+	| globs |
+	globs := self tracedPackages asOrderedCollection.
+	globs remove: aPackageNameOrGlob ifAbsent: [].
+	SWAPane codeMapWorkingSet: globs.
+	TracedClasses := nil.
+	^ self tracedPackages
 ]
 
 {
@@ -432,6 +473,22 @@ SWAAllocTracer class >> traceMorphicStepsThenOpen: aCount [
 ]
 
 {
+	#category : #'traced classes',
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
+}
+SWAAllocTracer class >> tracePackage: aPackageNameOrGlob [
+	"Add a package (name or String>>match: glob) to the SHARED Code Map working set, so both
+	the Code Map and this tracer start including it. Idempotent. Clears any explicit pinned
+	class set (TracedClasses) so tracing follows the working set again. Answers #tracedPackages."
+	| globs |
+	globs := self tracedPackages asOrderedCollection.
+	(globs includes: aPackageNameOrGlob) ifFalse: [globs add: aPackageNameOrGlob].
+	SWAPane codeMapWorkingSet: globs.
+	TracedClasses := nil.
+	^ self tracedPackages
+]
+
+{
 	#category : #controlling,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:30'
 }
@@ -470,17 +527,34 @@ SWAAllocTracer class >> traceXRFrames: aCount for: aCollectionOfClasses [
 
 {
 	#category : #defaults,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 16:53'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
 }
 SWAAllocTracer class >> tracedClasses [
-	"The classes the menu entries trace -- the customizable 'classes of interest'. Starts
-	as the survivor-hunt suspects (2026-08-14b: Vector3, Matrix4x4); widen it live with
-	#traceClass: / #traceClasses: (e.g. add Array) or #resetTracedClasses. Persisted in a
-	class var so a chosen set survives until changed.
+	"The classes the menu entries trace -- the 'classes of interest'. By DEFAULT this is the
+	shared Code Map working set (SWAPane class>>codeMapWorkingSet), expanded to its classes by
+	#workingSetClasses: what you are developing in is what you trace, and editing the working
+	set (here via #tracePackage:, or in the Code Map, or in Preferences) moves both in lockstep.
+
+	#traceClasses: / #traceClass: pin an explicit set instead, stored in the TracedClasses
+	class var, which then overrides the working set until #resetTracedClasses clears it (back
+	to following the working set). Only funnel-able classes actually record (see #funnelsFor:).
 
 	Answers a copy as an Array so callers cannot mutate the live set by side effect."
-	TracedClasses ifNil: [TracedClasses := OrderedCollection withAll: { Vector3. Matrix4x4. RlVector3 }].
-	^ TracedClasses asArray
+	^ TracedClasses
+		ifNil: [self workingSetClasses asArray]
+		ifNotNil: [TracedClasses asArray]
+]
+
+{
+	#category : #'traced classes',
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
+}
+SWAAllocTracer class >> tracedPackages [
+	"The package globs currently traced -- literally the shared Code Map working set
+	(SWAPane class>>codeMapWorkingSet), split into a list. There is no separate tracer-owned
+	package list: the working set IS the source of truth, so this and the Code Map always
+	agree. Answers an Array of glob strings, e.g. #('Raylib' 'Morphic' 'SqueakXR' 'SWAGame')."
+	^ (SWACodeRootNode globsFrom: SWAPane codeMapWorkingSet) asArray
 ]
 
 {
@@ -497,6 +571,26 @@ SWAAllocTracer class >> withGateOff: aBlock [
 	prior := proc environmentAt: self ifAbsent: [false].
 	proc environmentAt: self put: false.
 	^ aBlock ensure: [proc environmentAt: self put: prior]
+]
+
+{
+	#category : #'traced classes',
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:12'
+}
+SWAAllocTracer class >> workingSetClasses [
+	"The classes to trace, derived live from the shared Code Map working set
+	(SWAPane class>>codeMapWorkingSet -- a comma-separated list of String>>match: globs,
+	e.g. 'Raylib, SqueakXR, SWAGame'). We reuse the SAME package scope the Code Map shows,
+	so 'what I am developing in' is 'what I trace'. Expansion is live: edit the working set
+	(here via #tracePackage: or in the Code Map) and the traced set follows.
+
+	Only classes with a known allocation funnel actually record (see #funnelsFor:); the rest
+	sit in the filter harmlessly. Answers an Array."
+	| globs |
+	globs := SWACodeRootNode globsFrom: SWAPane codeMapWorkingSet.
+	^ (PackageInfo allPackages
+		select: [:p | globs anySatisfy: [:g | g match: p packageName]])
+		gather: [:p | p classes]
 ]
 
 {
