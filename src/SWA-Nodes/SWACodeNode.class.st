@@ -747,33 +747,51 @@ SWACodeNode >> openTreemap [
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:31'
 }
 SWACodeNode >> openTreemapLeafKind: aLeafKindOrNil [
 	"Open a squarified treemap of this code subtree (tiles sized by LOC). The full
 	tree is built so LOC/recency/author roll up from real methods, but layout stops
 	at aLeafKindOrNil (e.g. #class to show packages+classes but no methods); nil
 	lays out the full tree down to methods. The shared SWAPane supplies the
-	window chrome. A single progress bar covers the build + layout phases."
+	window chrome.
+
+	The progress bar has THREE phases, all labeled honestly:
+	  1. Reading method source + counting LOC (#prewarmDo: -> #loc -> #source disk read).
+	  2. Arranging tiles (the squarify geometry -- cheap).
+	  3. Summarizing authors: forcing #runInfoString, which walks all method nodes for
+	     #lastAuthor (a timeStamp disk read). (Version churn was dropped from this line --
+	     its history scan was the biggest single cost; see #metaInfoStringForSubtree:.)
+	This phase 3 used to run UNLABELED inside SWAPane>>setView:>>buildInfoLines AFTER the bar
+	closed, which read as a mysterious freeze in 'Arranging tiles'. We now force it here, under
+	the bar, so #buildInfoLines a moment later just reads the cached values. All three are
+	one-time-per-open costs (results cache on the nodes; depth toggles reuse them)."
 	| treemap overlay panel window total label bounds |
 	total := (self estimatedNodeCount max: 1) * 2.   "build pass + layout pass"
 	treemap := SWACodeTreemapMorph on: self.
 	treemap leafKind: aLeafKindOrNil.
+	"Default coloring: by author -- each author's initials get a stable hue, which reads
+	better than the code-kind categorical tint. Switch via the Color menu once open."
+	treemap colorMode: #author.
 	treemap extent: (Display extent * 0.7) rounded - (0 @ 60).
 	('Code map: ', self name)
 		displayProgressFrom: 0 to: total during: [:bar |
 			| done |
-			bar value: 'Building nodes + counting LOC...'.
+			bar value: 'Reading method source + counting LOC (disk)...'.
 			done := 0.
 			self prewarmDo: [:n |
 				done := done + 1.
 				(done \\ 64 = 0) ifTrue: [bar value: done]].
-			bar value: 'Laying out treemap...'.
+			bar value: 'Arranging tiles (geometry)...'.
 			treemap layoutProgress: [:n |
 				done := done + 1.
 				(done \\ 64 = 0) ifTrue: [bar value: (done min: total)]].
 			treemap ensureLayout.
 			treemap layoutProgress: nil.
+			"Phase 3: force the whole-subtree summary (authors + version churn) now, under the
+			bar, so SWAPane>>buildInfoLines below reads cached values instead of freezing."
+			bar value: 'Summarizing authors...'.
+			treemap runInfoString.
 			bar value: total].
 
 	overlay := SWACodeTreemapOverlay new.
