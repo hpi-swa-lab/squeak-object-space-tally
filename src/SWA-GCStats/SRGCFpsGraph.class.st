@@ -8,7 +8,8 @@ Class {
 		'emaFps',
 		'lastScavengeMs',
 		'lastScavengeCount',
-		'emaScavPerFrame'
+		'emaFramesPerScavenge',
+		'framesSinceScavenge'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -95,13 +96,12 @@ SRGCFpsGraph >> fps [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer 9/16/2026 12:55'
 }
 SRGCFpsGraph >> framesPerScavenge [
 	"nil until a scavenge has been seen, so the label can leave the field out rather
 	than print an infinity."
-	(emaScavPerFrame notNil and: [emaScavPerFrame > 0]) ifFalse: [^ nil].
-	^ 1 / emaScavPerFrame
+	^ emaFramesPerScavenge
 ]
 
 {
@@ -142,18 +142,18 @@ SRGCFpsGraph >> rawFps [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer 9/16/2026 12:55'
 }
 SRGCFpsGraph >> scavengesPerSecond [
-	"Scavenges/frame times frames/second, both EMAs, so this agrees with the printed
+	"Frames/second over frames/scavenge, both EMAs, so this agrees with the printed
 	fps and with #framesPerScavenge instead of being a third independent measurement."
-	(emaScavPerFrame notNil and: [emaFps notNil]) ifFalse: [^ nil].
-	^ emaScavPerFrame * emaFps
+	(emaFramesPerScavenge notNil and: [emaFramesPerScavenge > 0 and: [emaFps notNil]]) ifFalse: [^ nil].
+	^ emaFps / emaFramesPerScavenge
 ]
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer 9/16/2026 12:55'
 }
 SRGCFpsGraph >> updateGraph [
 	"Bar = this frame's time in ms (scaled so maxFrameMs fills the height). The bottom
@@ -162,6 +162,7 @@ SRGCFpsGraph >> updateGraph [
 	no background colouring here."
 
 	| fps alpha frameMs scaled scavengeMs scavMs scavScaled height scavenges scavenged scavDelta |
+	framesSinceScavenge := (framesSinceScavenge ifNil: [0]) + 1.
 	fps := self rawFps.
 	"Fold this frame's instantaneous fps into the label's EMA (the label reads fps)."
 	alpha := self class emaAlpha.
@@ -181,16 +182,19 @@ SRGCFpsGraph >> updateGraph [
 	scavenged := lastScavengeCount notNil and: [scavenges > lastScavengeCount].
 	scavMs := lastScavengeMs ifNil: [0] ifNotNil: [scavengeMs - lastScavengeMs].
 
-	"Scavenges per frame as an EMA -- the rates the label prints are both derived from
-	it, so frames/scavenge and scavenges/s can never disagree. A frame can carry more
-	than one scavenge, so this is a count delta, not the #scavenged boolean."
-	scavDelta := lastScavengeCount ifNil: [nil] ifNotNil: [scavenges - lastScavengeCount].
-	scavDelta ifNotNil: [
-		emaScavPerFrame := emaScavPerFrame
-			ifNil: [scavDelta]
-			ifNotNil: [ | a |
-				a := self class scavengeEmaAlpha.
-				emaScavPerFrame * (1 - a) + (scavDelta * a)]].
+	"Frames per scavenge as an EMA -- the rates the label prints are both derived from
+	it, so frames/scavenge and scavenges/s can never disagree. Sampled once per scavenge
+	rather than once per frame, which is the cadence #scavengeEmaAlpha is chosen for; a
+	per-frame EMA of a signal that is 0 on most frames swings by the whole gap length.
+	A frame can carry more than one scavenge, so this is a count delta, not #scavenged."
+	scavDelta := lastScavengeCount ifNil: [0] ifNotNil: [scavenges - lastScavengeCount].
+	scavDelta > 0 ifTrue: [ | a sample |
+		a := self class scavengeEmaAlpha.
+		sample := framesSinceScavenge / scavDelta.
+		emaFramesPerScavenge := emaFramesPerScavenge
+			ifNil: [sample]
+			ifNotNil: [emaFramesPerScavenge * (1 - a) + (sample * a)].
+		framesSinceScavenge := 0].
 
 	lastScavengeCount := scavenges.
 	lastScavengeMs := scavengeMs.
