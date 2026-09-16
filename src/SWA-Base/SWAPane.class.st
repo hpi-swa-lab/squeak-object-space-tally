@@ -401,7 +401,7 @@ SWAPane class >> on: aViewMorph [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:07'
+	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
 }
 SWAPane class >> open [
 	"Apps-menu action: open the code map on the current WORKING SET (see
@@ -412,12 +412,8 @@ SWAPane class >> open [
 	wide next to Etoys and Morphic. Now it opens on the handful of packages you are
 	working in, and you edit that set from the map itself (pane menu > Add / Remove
 	package > Set as default working set). For the whole image, set the working set to
-	'*' or use 'SWAPane openOnPackageNamed: ''*'' leafKind: #class'.
-
-	Opens at the CLASS level by default -- packages+classes, no method tiles -- which is
-	much faster to build and lay out on a multi-package working set. Cycle deeper (to
-	categories/methods) with the Depth button once the map is up."
-	^ self openOnPackageNamed: self codeMapWorkingSet leafKind: #class
+	'*' or use 'SWAPane openOnPackageNamed: ''*'' leafKind: #class'."
+	^ self openOnPackageNamed: self codeMapWorkingSet leafKind: #method
 ]
 
 {

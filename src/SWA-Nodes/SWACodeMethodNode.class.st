@@ -9,12 +9,10 @@ Class {
 		'cachedSource',
 		'cachedLoc',
 		'cachedTimeStamp',
-		'cachedChangeCount',
-		'cachedLastAuthor'
+		'cachedChangeCount'
 	],
 	#classVars : [
-		'ByteAnalysisCache',
-		'TimeStampCache'
+		'ByteAnalysisCache'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
@@ -91,31 +89,6 @@ SWACodeMethodNode class >> flushByteAnalysisCache [
 	self-evicts as methods are collected), but handy when developing the classifier
 	itself so changed logic re-runs over every method."
 	ByteAnalysisCache := nil
-]
-
-{
-	#category : #'time-metrics',
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:32'
-}
-SWACodeMethodNode class >> flushTimeStampCache [
-	"Drop the whole timeStamp cache. Normally unnecessary (the weak dictionary self-evicts
-	as methods are collected/recompiled), but handy when a mass re-stamp happened and you
-	want authors recomputed on the next open."
-	TimeStampCache := nil
-]
-
-{
-	#category : #'time-metrics',
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:32'
-}
-SWACodeMethodNode class >> timeStampCache [
-	"A WeakIdentityKeyDictionary mapping a CompiledMethod to its raw timeStamp String
-	('<initials> <date> <time>', or '' for none). Keyed on the method OBJECT so the entry
-	survives tree rebuilds -- every code-map reopen builds fresh transient nodes, and the
-	timeStamp comes from a .changes/.sources DISK read that otherwise re-runs for every
-	method on every open (the ~2s 'Summarizing authors...' cost). Weak keys self-evict when
-	the method is recompiled or removed, so a stale author is never shown -- no manual flush."
-	^ TimeStampCache ifNil: [TimeStampCache := WeakIdentityKeyDictionary new]
 ]
 
 {
@@ -315,25 +288,17 @@ SWACodeMethodNode >> kind [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:36'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }
 SWACodeMethodNode >> lastAuthor [
-	"Author initials parsed from the method timeStamp ('<initials> <date> <time>'), or nil.
-	Cached per instance: parsing tokenizes the timeStamp string, and the author walk hits
-	every method on every open, so we hold the PARSED result (not just the timeStamp) to skip
-	the re-tokenize. The ivar stores a String (an author) or the #none symbol for 'no author';
-	nil means 'not computed yet', so a stampless method is not re-parsed every time."
-	| result |
-	cachedLastAuthor ifNotNil: [^ cachedLastAuthor == #none ifTrue: [nil] ifFalse: [cachedLastAuthor]].
-	result := [
-		| ts tokens |
-		ts := self timeStamp.
-		ts isEmpty
-			ifTrue: [nil]
-			ifFalse: [tokens := ts findTokens: ' '.
-				tokens size >= 3 ifTrue: [tokens first] ifFalse: [nil]]] value.
-	cachedLastAuthor := result ifNil: [#none].
-	^ result
+	"Author initials parsed from the cached method timeStamp ('<initials> <date> <time>'),
+	or nil if unavailable."
+	| ts tokens |
+	ts := self timeStamp.
+	ts isEmpty ifTrue: [^ nil].
+	tokens := ts findTokens: ' '.
+	tokens size >= 3 ifFalse: [^ nil].
+	^ tokens first
 ]
 
 {
@@ -423,23 +388,14 @@ SWACodeMethodNode >> styleClassOrNil [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:32'
+	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }
 SWACodeMethodNode >> timeStamp [
-	"Raw method timeStamp string ('<initials> <date> <time>'). Feeds lastAuthor/lastChanged.
-	Two-level cache: a per-instance ivar (fast path within one tree) backed by an image-level
-	WeakIdentityKeyDictionary keyed on the CompiledMethod (see class>>timeStampCache). The
-	image cache is the important one -- it survives tree rebuilds, so re-opening a code map no
-	longer repeats the .changes/.sources DISK read for every method (the ~2s author walk).
-	Empty string means 'looked up, nothing there' so we don't retry the read."
-	cachedTimeStamp ifNotNil: [^ cachedTimeStamp].
-	^ cachedTimeStamp := [
-		| cm cache |
-		cm := subject compiledMethod.
-		cache := self class timeStampCache.
-		cache at: cm ifAbsent: [
-			cache at: cm put: ((subject timeStamp) ifNil: [''])]]
-		on: Error do: [:e | '']
+	"Raw method timeStamp string ('<initials> <date> <time>'), fetched once from the
+	MethodReference and cached. Feeds lastAuthor and lastChanged. Empty string means
+	'looked up, nothing there' so we don't retry the disk read."
+	^ cachedTimeStamp ifNil: [
+		cachedTimeStamp := ([subject timeStamp] on: Error do: [:e | nil]) ifNil: ['']]
 ]
 
 {

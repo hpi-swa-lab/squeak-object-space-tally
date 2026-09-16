@@ -1478,26 +1478,15 @@ SWACodeTreemapMorph >> metaInfoStringForNode: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 18:37'
+	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
 }
 SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 	"Meta line summarising a focused subtree: the primary metric (LOC normally, or
 	the total COVERAGE weight + covered-method count when an overlay is active --
-	LOC is not the point in a coverage view), node count, and distinct authors. The
-	coverage totals are summed from the treemap's own overlay values, so they work for
-	both the coverage-weighted openers and the Load/Cover buttons (which overlay onto an
-	LOC-built tree).
-
-	Version churn (#changeCount / #avgChangeCount) was DROPPED from this line: rolling it
-	up scans the .changes/.sources version history for every method in the subtree (~3s on
-	a multi-package working set), which dominated the open. Per-method version info is still
-	available via the 'versions' color mode and the per-selection info line.
-
-	Authors are collected only from CHILDLESS nodes (method + comment leaves), where
-	#lastAuthor is a cached, non-recursive parse. Calling #lastAuthor on a CONTAINER runs the
-	base version, which re-walks that container's whole subtree every time -- O(n*depth) over
-	thousands of containers, the bulk of the old author-walk cost. Leaves cover every author
-	that any container would report, so the distinct-author count is identical."
+	LOC is not the point in a coverage view), node count, distinct authors, and
+	version churn. The coverage totals are summed from the treemap's own overlay
+	values, so they work for both the coverage-weighted openers and the Load/Cover
+	buttons (which overlay onto an LOC-built tree)."
 	| authors nodeCount covered totalWeight metric |
 	aNode ifNil: [^ ''].
 	authors := Set new.
@@ -1506,8 +1495,7 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 	totalWeight := 0.
 	aNode withAllChildrenDo: [:n |
 		nodeCount := nodeCount + 1.
-		(n children isNil or: [n children isEmpty])
-			ifTrue: [n lastAuthor ifNotNil: [:a | authors add: a]].
+		n lastAuthor ifNotNil: [:a | authors add: a].
 		(coverageKind notNil and: [n kind == #method]) ifTrue: [
 			(self coverageValueForNode: n) ifNotNil: [:v |
 				v > 0 ifTrue: [covered := covered + 1. totalWeight := totalWeight + v]]]].
@@ -1518,7 +1506,9 @@ SWACodeTreemapMorph >> metaInfoStringForSubtree: aNode [
 	^ aNode kind asString, ' ', aNode name,
 		metric,
 		'   ', nodeCount printString, ' nodes',
-		'   ', authors size printString, ' authors'
+		'   ', authors size printString, ' authors',
+		'   ', aNode changeCount printString, ' versions',
+		' (', (aNode avgChangeCount asFloat printShowingDecimalPlaces: 1), '/method)'
 ]
 
 {
