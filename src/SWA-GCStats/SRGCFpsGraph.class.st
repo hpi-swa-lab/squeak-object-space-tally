@@ -7,7 +7,8 @@ Class {
 	#instVars : [
 		'emaFps',
 		'lastScavengeMs',
-		'lastScavengeCount'
+		'lastScavengeCount',
+		'emaScavPerFrame'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -94,20 +95,39 @@ SRGCFpsGraph >> fps [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
+}
+SRGCFpsGraph >> framesPerScavenge [
+	"nil until a scavenge has been seen, so the label can leave the field out rather
+	than print an infinity."
+	(emaScavPerFrame notNil and: [emaScavPerFrame > 0]) ifFalse: [^ nil].
+	^ 1 / emaScavPerFrame
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
 }
 SRGCFpsGraph >> labelString [
-	"As GcGraph>>labelString, but print the frame time in ms next to fps. Derived from
-	the same EMA as fps (1000/fps) so the two read consistently and neither jitters."
+	"As GcGraph>>labelString, plus the frame time and the two scavenge rates. The ms is
+	derived from the same EMA as fps (1000/fps) so the two read consistently and neither
+	jitters. The cumulative scavenge count is not repeated here -- the young lane prints it."
 
-	| ms |
-	ms := (emaFps notNil and: [emaFps > 0]) ifTrue: [1000 / emaFps] ifFalse: [nil].
-	^ String streamContents: [:s |
-		s nextPutAll: 'fps '; print: self fps.
-		ms ifNotNil: [s nextPutAll: '  '; nextPutAll: (ms asFloat printShowingDecimalPlaces: 1); nextPutAll: 'ms'].
-		s nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
-		  nextPutAll: '  scavenge '; print: (Smalltalk vmParameterAt: 9);
-		  nextPutAll: '  rootTable '; print: self rootTableSize]
+	| s ms perSecond perScavenge |
+	s := self labelStreamReset.
+	s nextPutAll: 'fps '; print: self fps.
+	(emaFps notNil and: [emaFps > 0]) ifTrue: [
+		ms := 1000 / emaFps.
+		s nextPutAll: '  '. self tenthsPrint: ms on: s. s nextPutAll: 'ms'].
+	perSecond := self scavengesPerSecond.
+	perScavenge := self framesPerScavenge.
+	perSecond ifNotNil: [
+		s nextPutAll: '  scav '. self tenthsPrint: perSecond on: s. s nextPutAll: '/s'].
+	perScavenge ifNotNil: [
+		s nextPutAll: ' every '. self tenthsPrint: perScavenge on: s. s nextPutAll: 'f'].
+	s nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
+	  nextPutAll: '  rootTable '; print: self rootTableSize.
+	^ s contents
 ]
 
 {
@@ -121,8 +141,19 @@ SRGCFpsGraph >> rawFps [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
+}
+SRGCFpsGraph >> scavengesPerSecond [
+	"Scavenges/frame times frames/second, both EMAs, so this agrees with the printed
+	fps and with #framesPerScavenge instead of being a third independent measurement."
+	(emaScavPerFrame notNil and: [emaFps notNil]) ifFalse: [^ nil].
+	^ emaScavPerFrame * emaFps
+]
+
+{
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 15:10'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
 }
 SRGCFpsGraph >> updateGraph [
 	"Bar = this frame's time in ms (scaled so maxFrameMs fills the height). The bottom
@@ -130,7 +161,7 @@ SRGCFpsGraph >> updateGraph [
 	frame the young-space GC ate. Scavenge *frames* are shown in the FPS bar itself, so
 	no background colouring here."
 
-	| fps alpha frameMs scaled scavengeMs scavMs scavScaled height scavenges scavenged |
+	| fps alpha frameMs scaled scavengeMs scavMs scavScaled height scavenges scavenged scavDelta |
 	fps := self rawFps.
 	"Fold this frame's instantaneous fps into the label's EMA (the label reads fps)."
 	alpha := self class emaAlpha.
@@ -149,6 +180,18 @@ SRGCFpsGraph >> updateGraph [
 	scavengeMs := Smalltalk vmParameterAt: 10.
 	scavenged := lastScavengeCount notNil and: [scavenges > lastScavengeCount].
 	scavMs := lastScavengeMs ifNil: [0] ifNotNil: [scavengeMs - lastScavengeMs].
+
+	"Scavenges per frame as an EMA -- the rates the label prints are both derived from
+	it, so frames/scavenge and scavenges/s can never disagree. A frame can carry more
+	than one scavenge, so this is a count delta, not the #scavenged boolean."
+	scavDelta := lastScavengeCount ifNil: [nil] ifNotNil: [scavenges - lastScavengeCount].
+	scavDelta ifNotNil: [
+		emaScavPerFrame := emaScavPerFrame
+			ifNil: [scavDelta]
+			ifNotNil: [ | a |
+				a := self class scavengeEmaAlpha.
+				emaScavPerFrame * (1 - a) + (scavDelta * a)]].
+
 	lastScavengeCount := scavenges.
 	lastScavengeMs := scavengeMs.
 

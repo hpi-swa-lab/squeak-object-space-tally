@@ -267,14 +267,14 @@ GcGraph >> initialize [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:26'
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:14'
 }
 GcGraph >> labelStreamReset [
 	"A WriteStream retained for the lifetime of the graph, rewound each frame, so building the
 	label allocates neither a WriteStream nor a closure/context (as String streamContents: did).
 	The label text itself (#contents) is the one unavoidable allocation -- it is drawn."
 	labelStream
-		ifNil: [labelStream := WriteStream on: (String new: 96)]
+		ifNil: [labelStream := WriteStream on: (String new: 128)]
 		ifNotNil: [labelStream resetToStart].
 	^ labelStream
 ]
@@ -405,6 +405,18 @@ GcGraph >> stepUpdate [
 	sampled first; strips that plot absolute amounts do not."
 	self updateTime.
 	self updateGraph
+]
+
+{
+	#category : #printing,
+	#'squeak_changestamp' : 'MCPServer 9/15/2026 13:12'
+}
+GcGraph >> tenthsPrint: aNumber on: aStream [
+	"One decimal via integer math -- printShowingDecimalPlaces: allocates a
+	WriteStream/String/Fractions per call; this streams SmallIntegers only."
+	| tenths |
+	tenths := (aNumber * 10) rounded.
+	aStream print: tenths // 10; nextPut: $.; print: tenths \\ 10.
 ]
 
 {

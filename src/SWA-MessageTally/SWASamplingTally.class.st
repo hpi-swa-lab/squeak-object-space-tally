@@ -135,6 +135,20 @@ SWASamplingTally class >> unload [
 ]
 
 {
+	#category : #recording,
+	#'squeak_changestamp' : 'MCPServer 9/16/2026 12:43'
+}
+SWASamplingTally >> assureOutputDirectory [
+	"#recordCommand redirects st-spy's output into a log next to #outputFile, so a
+	missing directory kills the shell line before st-spy runs and leaves nothing to
+	report. Answers the directory."
+	| dir |
+	dir := FileDirectory forFileName: self outputFile.
+	dir assureExistence.
+	^ dir
+]
+
+{
 	#category : #parsing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:05'
 }
@@ -202,7 +216,7 @@ SWASamplingTally >> buildTreeFromEvents [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 09:49'
+	#'squeak_changestamp' : 'MCPServer 9/16/2026 12:43'
 }
 SWASamplingTally >> checkPreflight [
 	"Validate that a recording can actually start, and stash a human-readable
@@ -211,11 +225,17 @@ SWASamplingTally >> checkPreflight [
 	  1. target pid does not exist,
 	  2. a stale st-spy (or other tracer) already holds ptrace on the target --
 	     under ptrace_scope only ONE tracer may attach, so ours would fail its
-	     attach instantly, before writing any banner.
+	     attach instantly, before writing any banner,
+	  3. the output directory is missing -- the shell redirect for the log then
+	     fails before st-spy runs, so there is not even an error to report.
 	Returns true if OK to launch, false (with #preflightError set) otherwise."
-	| tracer |
+	| tracer dir |
 	preflightError := nil.
 	pid ifNil: [preflightError := 'No target pid set.'. ^ false].
+	dir := self assureOutputDirectory.
+	dir exists ifFalse: [
+		preflightError := 'Cannot create output directory ', dir pathName, '.'.
+		^ false].
 	(FileDirectory default fileOrDirectoryExists: '/proc/', pid printString)
 		ifFalse: [preflightError := 'Target process ', pid printString, ' is not running.'. ^ false].
 	tracer := self tracerPid.
@@ -445,12 +465,13 @@ SWASamplingTally >> openTreemap [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:59'
+	#'squeak_changestamp' : 'MCPServer 9/16/2026 12:42'
 }
 SWASamplingTally >> outputFile [
-	"The chrome-trace JSON path st-spy writes to (defaults under /tmp/opencode)."
+	"The chrome-trace JSON path st-spy writes to. #checkPreflight creates the
+	directory, it is not expected to exist."
 	^ outputFile ifNil: [outputFile :=
-		'/tmp/opencode/stspy-', pid printString, '-',
+		'/tmp/st-spy/stspy-', pid printString, '-',
 		(DateAndTime now asUnixTime) printString, '.json']
 ]
 
