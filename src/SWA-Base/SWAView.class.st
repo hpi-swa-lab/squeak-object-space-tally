@@ -619,6 +619,16 @@ SWAView >> effectiveWeightOf: aNode [
 ]
 
 {
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 10:55'
+}
+SWAView >> ensureLayout [
+	"Bring #contentHeight and any cached layout up to date. Subclasses that lay
+	themselves out override this; #isScrollable sends it to every view, so the
+	default has to exist even for views that have no layout to compute."
+]
+
+{
 	#category : #'zoom bar',
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:22'
 }

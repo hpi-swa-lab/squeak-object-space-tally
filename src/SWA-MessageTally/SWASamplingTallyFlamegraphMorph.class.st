@@ -167,13 +167,13 @@ SWASamplingTallyFlamegraphMorph >> drawLabelString: aString in: r on: aCanvas fo
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 10:55'
 }
 SWASamplingTallyFlamegraphMorph >> drawOn: aCanvas [
 	"Blit the cached static layer (rendered once, in local coords). No per-frame
 	recompute or background fill here -- that is what caused the flicker."
 	| form |
-	self ensureFrames.
+	self ensureLayout.
 	form := self ensureCachedForm.
 	aCanvas
 		image: form
@@ -212,9 +212,9 @@ SWASamplingTallyFlamegraphMorph >> ensureCachedForm [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 10:55'
 }
-SWASamplingTallyFlamegraphMorph >> ensureFrames [
+SWASamplingTallyFlamegraphMorph >> ensureLayout [
 	"Recompute the frame layout (and drop the cached form) if it is missing or was
 	laid out for a different extent (the window may have resized the morph)."
 	(frames isNil or: [frames isEmpty or: [framesBounds ~= self bounds]])
@@ -266,13 +266,13 @@ SWASamplingTallyFlamegraphMorph >> focusNode: aNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:05'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 10:55'
 }
 SWASamplingTallyFlamegraphMorph >> frameAt: aPoint [
 	"The topmost frame whose (local-coord) rect contains aPoint. aPoint is in world
 	coords, so translate it into local space first."
 	| local |
-	self ensureFrames.
+	self ensureLayout.
 	local := aPoint - self position.
 	^ frames detect: [:f | (f at: 2) containsPoint: local] ifNone: [nil]
 ]
