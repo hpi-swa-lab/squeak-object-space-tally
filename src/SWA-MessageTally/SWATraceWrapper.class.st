@@ -79,7 +79,7 @@ Class {
 
 {
 	#category : #'trace log',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:22'
 }
 SWATraceWrapper class >> armTrace [
 	"Open a fresh trace log. Bumps the GENERATION, which is how a lane left behind in
@@ -94,7 +94,6 @@ SWATraceWrapper class >> armTrace [
 	TraceGeneration := (TraceGeneration ifNil: [0]) + 1.
 	TraceLanes := OrderedCollection new.
 	TraceStartMicros := Time utcMicrosecondClock.
-	StepLane := nil.
 	GcLane := nil.
 	TraceArmed := true.
 	SWATraceMarker armGcProbe.
@@ -280,7 +279,7 @@ SWATraceWrapper class >> resetLane [
 
 {
 	#category : #'trace log',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:39'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:22'
 }
 SWATraceWrapper class >> resetTrace [
 	"Drop the log and every buffer. MUST be sent from the collecting caller's ensure:,
@@ -295,7 +294,6 @@ SWATraceWrapper class >> resetTrace [
 	TraceArmed := false.
 	TraceLanes := nil.
 	TraceStartMicros := nil.
-	StepLane := nil.
 	GcLane := nil.
 	SWATraceMarker disarmGcProbe.
 	SWATraceSeries reset.
