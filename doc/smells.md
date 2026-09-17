@@ -307,3 +307,81 @@ pane<->view capability protocol), 4.5 (invert the dataset->view class dependency
 
 **Feature open-ends to prioritize:** 6.2 (deterministic tally as a first-class tool),
 6.3 (richer mask algebra), 6.4 / 6.5 (composition/type diagram via ivar edges).
+
+---
+
+## 9. Finding these automatically
+
+Sections 1 to 8 are a hand audit, and a hand audit rots the moment the code
+moves. The suite contains the instruments to re-derive most of it, which makes
+the maintenance of SWA a test of whether SWA works.
+
+### 9.1 Unsent selectors
+
+`SystemNavigation default allUnSentMessagesIn:` over every selector defined in
+the `SWA-*` packages. Run 2026-09-17:
+
+| | |
+|---|---|
+| Selectors defined in `SWA-*` | 2608 |
+| Never sent anywhere in the image | 275 |
+| Excluding SUnit `test*` selectors | 242 |
+| Classes affected | 64 |
+
+It independently confirmed findings made by hand above: `SWAPane>>coverageTally`
+(2.4), and the legacy cross-reference path on `SWAView`
+(`clearCrossReference`, `crossReferenceFrom:`, `highlightWeights`) together with
+`SWAPane`'s `loadCoverageJson:` / `loadDuplicationJson:` / `importCoverage` /
+`clearCoverage`, which is section 3.2 seen from the other end.
+
+**The caveat is structural, and it is the interesting part.** In a live image
+"never sent" includes the entire workspace-facing API. `SWASamplingTally>>
+parseTraceFile:` and `waitForTrace`, and `SWASpaceTally>>exploreCoarse:` and
+`maxVisits:`, are all on the list and all documented as usage in their own class
+comments. They are entry points, not corpses.
+
+So the scan yields candidates and cannot yield conclusions, unless entry points
+are marked. Two ways to mark them, neither yet chosen:
+
+- a method category convention (`api` / `public`), subtracted by the scan;
+- a pragma, which survives recategorisation.
+
+Either would turn a 242-line candidate list into a short one. Without it this
+scan has to be read by hand every time, which is the problem it was meant to
+solve.
+
+### 9.2 Duplication, self-applied
+
+`SWACodeSimilarity` exists to find copy-paste, and had never been pointed at its
+own suite. Run against `SWA-Base` (12 classes, threshold 0.7): **14 s, two pairs
+at score 1.0.**
+
+Two limitations surfaced immediately, both actionable:
+
+1. **It is scoped to one package** (`duplicatesInPackage:`), while every
+   duplication in section 1 is *cross-package* — 1.1 is `SWAView` in `SWA-Base`
+   against `SWACodeTreemapMorph` in `SWA-CodeMap`. A single-package scan
+   structurally cannot find the suite's own worst duplication.
+2. **Cost is pairwise.** 14 s for 12 classes does not extrapolate to 147. A
+   whole-suite scan belongs behind the existing async Generate pattern, not in a
+   synchronous call.
+
+Reported pairs also print as `SWACodeMethodNode(modeSymbol:)` twice, with no
+distinguishing class on either side, which makes a cross-package result unreadable
+even once it can be produced. Worth checking against `SWADuplicationPartnerStub`.
+
+### 9.3 What is still hand-only
+
+Neither scan touches sections 4 (structural), 5 (risk) or 6 (unfinished). Section
+4 in particular — god objects, duck-typed protocols, parallel mechanisms — needs
+the send and coupling graph that does not exist yet
+([todo.md](todo.md) item 6). Trimming the implementation and lighting the *code
+as meaning* region ([views.md](views.md)) are the same piece of work.
+
+This is the sharpest result of the self-application pass, and it is a negative
+one. Section 4 is the section that would tell you whether this suite is becoming
+a big ball of mud, and it is exactly the section no instrument here can reach.
+Everything the tools do measure — size, churn, coverage, duplication, topic — is
+a proxy; mud is a coupling phenomenon. See
+[motivation.md](motivation.md) for why that makes items 6 and 7 load-bearing
+rather than merely interesting.

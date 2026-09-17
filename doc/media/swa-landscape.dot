@@ -1,0 +1,155 @@
+// The SWA measurement landscape: what each tool measures, where the tools
+// overlap, and what nothing measures.
+//
+//   dot -Tsvg swa-landscape.dot -o swa-landscape.svg
+//   dot -Tpng -Gdpi=110 swa-landscape.dot -o swa-landscape.png
+//
+// Laid out as three bands (tools / the join / the gaps) rather than as a graph:
+// the interesting relation here is "measures the same thing as", which is
+// containment, and Graphviz routes far fewer lies through a table than through
+// a cluster layout.
+//
+// Cell fill is HOW the number is obtained:
+//   #cfe2f3 read the image, nothing runs     #fce5cd method wrappers (perturbs)
+//   #fff2cc statistical sampling             #d9ead3 object-memory snapshot/walk
+//   #ead1dc VM / OS counters (continuous)    #e6e6e6 external file or process
+
+digraph SWALandscape {
+	graph [rankdir=TB, fontname="Helvetica", fontsize=11, ranksep=0.45, bgcolor=white];
+	node  [shape=plaintext, fontname="Helvetica", fontsize=10];
+	edge  [color="#bf9000", arrowsize=0.7, penwidth=1.2];
+
+	tools [label=<
+<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="10" CELLPADDING="0">
+ <TR>
+  <TD PORT="structure" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#3d85c6" STYLE="ROUNDED">
+    <TR><TD><FONT COLOR="#3d85c6" POINT-SIZE="13"><B>STRUCTURE</B></FONT><BR/><FONT COLOR="#3d85c6" POINT-SIZE="9">the code as written, nothing runs</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">how big, how documented</FONT></TD></TR>
+    <TR><TD BGCOLOR="#cfe2f3"><B>Code Map</B><BR/><FONT POINT-SIZE="9">LOC / bytes / method count<BR/>code : doc : string byte split</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">how it is shaped</FONT></TD></TR>
+    <TR><TD BGCOLOR="#cfe2f3"><B>Class Diagram</B><BR/><FONT POINT-SIZE="9">inheritance, ivars,<BR/>method compartments</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">what the source text says</FONT></TD></TR>
+    <TR><TD BGCOLOR="#cfe2f3"><B>Duplication</B><BR/><FONT POINT-SIZE="9">Jaccard k-gram shingles</FONT></TD></TR>
+    <TR><TD BGCOLOR="#cfe2f3"><B>Topic Model</B><BR/><FONT POINT-SIZE="9">biterm topics over source</FONT></TD></TR>
+   </TABLE>
+  </TD>
+
+  <TD PORT="history" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#6aa84f" STYLE="ROUNDED">
+    <TR><TD><FONT COLOR="#6aa84f" POINT-SIZE="13"><B>HISTORY</B></FONT><BR/><FONT COLOR="#6aa84f" POINT-SIZE="9">how the code got there</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">edits over time</FONT></TD></TR>
+    <TR><TD BGCOLOR="#e6e6e6"><B>Change Map</B><BR/><FONT POINT-SIZE="9">.changes records, diff lines</FONT></TD></TR>
+    <TR><TD BGCOLOR="#e6e6e6"><B>Git Map / Git Churn</B><BR/><FONT POINT-SIZE="9">commits, lines, recency, authors</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fce5cd"><B>Change Trace</B><BR/><FONT POINT-SIZE="9">live edit events + the cost<BR/>of the notifier fan-out</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">attention, not authorship</FONT></TD></TR>
+    <TR><TD BGCOLOR="#e6e6e6"><B>OpenCode Access</B><BR/><FONT POINT-SIZE="9">reads / writes / sessions per key<BR/>what was looked at, not committed</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">views over any of the above</FONT></TD></TR>
+    <TR><TD BGCOLOR="#ffffff"><B>Timeline / Calendar / Flow</B><BR/><FONT POINT-SIZE="9">generic: anything with<BR/>an eventTimeStamp</FONT></TD></TR>
+   </TABLE>
+  </TD>
+
+  <TD PORT="execution" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#e69138" STYLE="ROUNDED">
+    <TR><TD><FONT COLOR="#e69138" POINT-SIZE="13"><B>EXECUTION</B></FONT><BR/><FONT COLOR="#e69138" POINT-SIZE="9">what ran, when, for how long</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">did this method run, and how much?<BR/>ONE question, five fidelities</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fce5cd"><B>Coverage</B><BR/><FONT POINT-SIZE="9">ran / did not, attributed to tests</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fce5cd"><B>Invocation Tally</B><BR/><FONT POINT-SIZE="9">exact call counts, self-evicting</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fce5cd"><B>Timing Tally</B><BR/><FONT POINT-SIZE="9">exact inclusive / exclusive us,<BR/>overhead-compensated</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fff2cc"><B>Sampling Tracer</B><BR/><FONT POINT-SIZE="9">in-image MessageTally</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fff2cc"><B>Sampling Tally</B><BR/><FONT POINT-SIZE="9">external st-spy, wall us,<BR/>whole VM incl. primitives</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">when exactly, in which process?</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fce5cd"><B>Trace / Flame Chart</B><BR/><FONT POINT-SIZE="9">one span per call, per-process<BR/>lanes, GC marks, memory bands</FONT></TD></TR>
+   </TABLE>
+  </TD>
+
+  <TD PORT="space" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#8e7cc3" STYLE="ROUNDED">
+    <TR><TD><FONT COLOR="#8e7cc3" POINT-SIZE="13"><B>SPACE</B></FONT><BR/><FONT COLOR="#8e7cc3" POINT-SIZE="9">which objects exist, who made them, who keeps them</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">which objects?  ONE walk, five object sets</FONT></TD></TR>
+    <TR><TD BGCOLOR="#d9ead3"><B>Space Tally</B><BR/><FONT POINT-SIZE="9">all reachable, charged to the first-reached parent</FONT></TD></TR>
+    <TR><TD BGCOLOR="#d9ead3"><B>Heap Diff</B><BR/><FONT POINT-SIZE="9">what one action allocated</FONT></TD></TR>
+    <TR><TD BGCOLOR="#d9ead3"><B>Survivor Diff</B><BR/><FONT POINT-SIZE="9">allocated AND survived a scavenge</FONT></TD></TR>
+    <TR><TD BGCOLOR="#d9ead3"><B>Young Space Tally</B><BR/><FONT POINT-SIZE="9">what is in young space now (move detection)</FONT></TD></TR>
+    <TR><TD BGCOLOR="#d9ead3"><B>Survivor Census</B><BR/><FONT POINT-SIZE="9">hash fingerprints, retains nothing</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">who created it?</FONT></TD></TR>
+    <TR><TD BGCOLOR="#fce5cd"><B>Alloc Tracer</B><BR/><FONT POINT-SIZE="9">allocation flamegraph, coloured by retention</FONT></TD></TR>
+    <TR><TD><FONT POINT-SIZE="9" COLOR="#777777">the continuous signal, keyed by time only</FONT></TD></TR>
+    <TR><TD BGCOLOR="#ead1dc"><B>GC Stats / Recorder</B><BR/><FONT POINT-SIZE="9">old / young / free, scavenges, tenures, survivors, fps</FONT></TD></TR>
+    <TR><TD BGCOLOR="#ead1dc"><B>Memory Graph</B><BR/><FONT POINT-SIZE="9">process RSS, non-image bytes, GPU upload, VRAM</FONT></TD></TR>
+   </TABLE>
+  </TD>
+ </TR>
+</TABLE>>];
+
+	bus [label=<
+<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="2" CELLPADDING="6" COLOR="#bf9000" BGCOLOR="#fff8dc" STYLE="ROUNDED">
+ <TR><TD PORT="structure">every tool speaks one vocabulary, the <B>crossRefKey</B><BR/>
+ <FONT POINT-SIZE="10">'Class'&#160;&#160;&#160;'Class&gt;&gt;selector'&#160;&#160;&#160;'Class&gt;&gt;#ivar'</FONT></TD>
+ <TD PORT="history"><FONT POINT-SIZE="10">so any result can become a <B>SWADataset</B> and either<BR/>
+ <B>decorate</B> another map (colour / size / links) or <B>be</B> its tree</FONT></TD>
+ <TD PORT="execution"><FONT POINT-SIZE="10">and a <B>mark</B> set in one view lights up<BR/>in every other view that contains the key</FONT></TD></TR>
+</TABLE>>];
+
+	gaps [label=<
+<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="10" CELLPADDING="0">
+ <TR>
+  <TD PORT="structure" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#cc0000" STYLE="ROUNDED,DASHED">
+    <TR><TD><FONT COLOR="#cc0000" POINT-SIZE="11"><B>nothing measures this: STRUCTURE</B></FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Types</B></FONT><BR/><FONT POINT-SIZE="9">no receiver / argument / return types,<BR/>neither inferred nor observed</FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Sends and coupling</B></FONT><BR/><FONT POINT-SIZE="9">no call graph, no fan-in / fan-out,<BR/>no package dependency map, no ivar access graph</FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Complexity</B></FONT><BR/><FONT POINT-SIZE="9">LOC and bytes are the only size proxies:<BR/>no branches, nesting depth or send count</FONT></TD></TR>
+   </TABLE>
+  </TD>
+  <TD PORT="history" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#cc0000" STYLE="ROUNDED,DASHED">
+    <TR><TD><FONT COLOR="#cc0000" POINT-SIZE="11"><B>nothing measures this: HISTORY</B></FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Failures</B></FONT><BR/><FONT POINT-SIZE="9">no exception, debugger-entry or<BR/>test-failure history per key</FONT></TD></TR>
+   </TABLE>
+  </TD>
+  <TD PORT="execution" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#cc0000" STYLE="ROUNDED,DASHED">
+    <TR><TD><FONT COLOR="#cc0000" POINT-SIZE="11"><B>nothing measures this: EXECUTION</B></FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Scheduling</B></FONT><BR/><FONT POINT-SIZE="9">lanes, but no run / ready / wait states<BR/>and no attribution of blocking</FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>The outside boundary</B></FONT><BR/><FONT POINT-SIZE="9">FFI / GL / file / socket time is<BR/>indistinguishable from primitive self time</FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Values</B></FONT><BR/><FONT POINT-SIZE="9">no argument distributions,<BR/>no collection sizes</FONT></TD></TR>
+   </TABLE>
+  </TD>
+  <TD PORT="space" VALIGN="TOP">
+   <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="4" CELLPADDING="5" COLOR="#cc0000" STYLE="ROUNDED,DASHED">
+    <TR><TD><FONT COLOR="#cc0000" POINT-SIZE="11"><B>nothing measures this: SPACE</B></FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Lifetime</B></FONT><BR/><FONT POINT-SIZE="9">no age distribution over the live set</FONT></TD></TR>
+    <TR><TD><FONT COLOR="#cc0000"><B>Allocation site per live object</B></FONT><BR/><FONT POINT-SIZE="9">the Alloc Tracer knows the stack only<BR/>while it is armed, for classes chosen up front</FONT></TD></TR>
+   </TABLE>
+  </TD>
+ </TR>
+</TABLE>>];
+
+	legend [label=<
+<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="6" CELLPADDING="4">
+ <TR>
+  <TD COLSPAN="6"><FONT POINT-SIZE="10" COLOR="#777777">how the number is obtained, and what it costs you</FONT></TD>
+ </TR>
+ <TR>
+  <TD BGCOLOR="#cfe2f3"><FONT POINT-SIZE="9">read the image<BR/>nothing runs</FONT></TD>
+  <TD BGCOLOR="#e6e6e6"><FONT POINT-SIZE="9">external file<BR/>or process</FONT></TD>
+  <TD BGCOLOR="#fff2cc"><FONT POINT-SIZE="9">statistical sampling<BR/>bounded cost</FONT></TD>
+  <TD BGCOLOR="#fce5cd"><FONT POINT-SIZE="9">method wrappers<BR/>perturbs the subject</FONT></TD>
+  <TD BGCOLOR="#d9ead3"><FONT POINT-SIZE="9">object-memory<BR/>snapshot / walk</FONT></TD>
+  <TD BGCOLOR="#ead1dc"><FONT POINT-SIZE="9">VM / OS counters<BR/>continuous, no key</FONT></TD>
+ </TR>
+</TABLE>>];
+
+	tools:structure:s -> bus:structure:n;
+	tools:history:s   -> bus:history:n;
+	tools:execution:s -> bus:execution:n;
+	tools:space:s     -> bus:execution:n;
+
+	bus:structure:s -> gaps:structure:n [color="#cc0000", style=dashed, dir=back];
+	bus:history:s   -> gaps:history:n   [color="#cc0000", style=dashed, dir=back];
+	bus:execution:s -> gaps:execution:n [color="#cc0000", style=dashed, dir=back];
+	bus:execution:s -> gaps:space:n     [color="#cc0000", style=dashed, dir=back];
+
+	gaps -> legend [style=invis];
+}

@@ -2,9 +2,10 @@
 
 ![](_navigation.html)
 
-A suite of structural-analysis tools for Squeak, sharing one tree/view/navigation
-layer (`SWANode` / `SWAView` / `SWAPane`, in the `SWA-Base` package) and a common
-**dataset** mechanism.
+A suite of program-analysis tools for Squeak covering structure, history,
+execution and memory, sharing one tree/view/navigation layer (`SWANode` /
+`SWAView` / `SWAPane`, in the `SWA-Base` package) and a common **dataset**
+mechanism.
 Each tool visualises a tree of nodes as a navigable squarified treemap (or
 flamegraph), and any tool can be coloured by another's data -- loaded from a file
 or read live from another open panel -- because they all speak the same
@@ -12,14 +13,60 @@ or read live from another open panel -- because they all speak the same
 
 ## Tools
 
+Start at **[views.md](views.md)** for what the suite is for and how well it
+covers its subject. The table below is the inventory; where the tools overlap and
+what none of them measures is derived in **[landscape.md](landscape.md)**,
+individual findings are in **[stories.md](stories.md)**, and the resulting work
+items are in **[todo.md](todo.md)**. Testing the suite itself is planned in
+**[tests.md](tests.md)**.
+
+<!-- MAINTENANCE
+Keep the four groups here in the same order as the four columns of the figure in
+landscape.md (structure, history, execution, space), and keep both in step with
+the SWA-* categories listed in architecture.md. A new tool needs a row here, a
+box in media/swa-landscape.dot, and a re-render of that figure.
+-->
+
+**Structure** -- the code as written, nothing runs:
+
 | Tool | Question it answers | Tree | Tile weight |
 |---|---|---|---|
 | **[SWACodeMap](SWACodeMap.md)** | What is the *shape* of this code -- size, documentation, coverage, churn? | package -> class -> category -> method | LOC / bytes / methods / execution counts |
-| **[SWASpaceTally](SWASpaceTally.md)** | Where does the *memory* go, and who keeps it alive? | live object graph (BFS) | bytes |
-| **[SWAMessageTally](SWAMessageTally.md)** *(stub)* -- Sampling Tally | Where does the *time* go at runtime (statistical sampling)? | sampled call tree | wall time (us) |
+| **Class Diagram** ([journal](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md)) | What is the *inheritance shape* of a package? | class graph | -- (diagram) |
+| **Duplication** (`SWACodeSimilarity`) | Which methods are copies of each other? | -- (a Code Map dataset) | Jaccard score |
+| **Topic Model** (`SWABitermTopicModel`) | What is this code *about*? | -- (a Code Map dataset) | topic mixture |
+
+**History** -- how the code got there:
+
+| Tool | Question it answers | Tree | Tile weight |
+|---|---|---|---|
 | **Change Map** ([journal](../../journal/2026-07-09-swachangeparser-change-treemap-and-recovery.md)) | *When* did the code change, and how much? | `.changes` time buckets | diff lines |
 | **[SWAGitMap](SWAGitMap.md)** | What did these *commits* change -- and what is churning? | month -> day -> commit -> package -> class -> method | diff lines |
-| **Class Diagram** ([journal](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md)) | What is the *inheritance shape* of a package? | class graph | -- (diagram) |
+| **Change Trace** (`SWAChangeTraceRecorder`) | What does one live edit *cost* -- who reacts, for how long, allocating what? | change -> subscriber reaction | us / bytes |
+| **OpenCode Access** ([journal](../../journal/2026-08-05-opencode-sessions-in-swa-and-two-sqlite-bugs.md)) | What did the agent *look at* -- as opposed to commit? | session -> tool call, or file tree | reads / writes / sessions |
+| **Timeline / Calendar / Flow** ([journal](../../journal/2026-08-06-flow-map-timeline-spans-and-the-calendar.md)) | What was the *rhythm* of this work? | any tree with an `eventTimeStamp` | lines / count / commits |
+
+**Execution** -- what ran, when, for how long:
+
+| Tool | Question it answers | Tree | Tile weight |
+|---|---|---|---|
+| **Coverage** (`SWACoverage`) | Did this method run, and which test covered it? | -- (a Code Map dataset) | boolean + covering tests |
+| **Invocation Tally** (`SWATallyWrapper`) | How *often* was it called? | call tree | exact counts |
+| **Timing Tally** (`SWATimingWrapper`) | How *long* did it take, inclusive and exclusive? | call tree | exact us, overhead-compensated |
+| **Sampling Tracer** (`SWASamplingTracer`) | Where does the time go, without instrumenting? | sampled call tree | us (in-image MessageTally) |
+| **[Sampling Tally](SWAMessageTally.md)** *(stub)* | Where does the time go across the *whole VM*? | sampled call tree | wall us (external st-spy) |
+| **Trace / Flame Chart** (`SWATraceMorph`) | What ran *when*, in which process? | per-process lanes of spans | one box per call |
+
+**Space** -- which objects exist, who made them, who keeps them:
+
+| Tool | Question it answers | Tree | Tile weight |
+|---|---|---|---|
+| **[SWASpaceTally](SWASpaceTally.md)** | Where does the *memory* go, and who keeps it alive? | live object graph (BFS) | bytes |
+| **Heap Diff** ([journal](../../journal/2026-08-14-heap-diff-and-per-frame-allocation-provenance.md)) | What did this one action allocate? | new objects + provenance by home method | bytes |
+| **Survivor Diff** ([journal](../../journal/2026-08-18-allocation-survival-flamegraph-and-the-set-dont-new-question.md)) | Of that, what *survived* the scavenge? | as above, post-scavenge | bytes |
+| **Young Space Tally** ([journal](../../journal/2026-08-19-young-space-tally-and-two-dead-ends.md)) | What is in young space right now? | young objects + provenance | bytes |
+| **Alloc Tracer** (`SWAAllocTracer`) | Which *code paths* allocate these -- and are they kept? | allocation call tree | allocations, coloured by retention |
+| **GC Stats / Memory Graph** ([journal](../../journal/2026-08-21c-gc-stats-memory-lanes-and-the-freeze-hunt.md)) | What is the heap doing over time, inside and outside the image? | -- (time series) | bytes / fps / scavenges |
 
 See the **[gallery](gallery.md)** for a screenshot of each.
 

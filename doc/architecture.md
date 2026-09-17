@@ -10,16 +10,18 @@ flamegraph, or a Graphviz diagram), and any tool can be coloured/sized by anothe
 tool's data because they all share one identity vocabulary: the **`crossRefKey`**
 (class names are unique; methods are `'Class>>selector'`, ivars `'Class>>#ivar'`).
 
-Six user-facing tools, plus a shared substrate and supporting data models:
+Around fifteen user-facing tools across four measurement subjects (structure,
+history, execution, space), plus a shared substrate and supporting data models.
+The full tool inventory is in [index.md](index.md) and the zoomed-out view of
+what each measures -- and what none of them measures -- is in
+[landscape.md](landscape.md). The four that define the architecture:
 
 | Tool | Question | Tree | Tile weight |
 |---|---|---|---|
 | **Code Map** | shape of code -- size, docs, coverage, churn, duplication, topics | package -> class -> category -> method | LOC / bytes / methods / execution counts / dataset metric |
 | **Space Tally** | where memory goes, who retains it | live object graph (BFS spanning tree) | bytes |
 | **Sampling Tally** | where wall-clock time goes | external-sampler call tree | microseconds |
-| **Change Map** | when code changed, how much | `.changes` time buckets | diff lines |
 | **Git Map** | what each commit changed; what is churning | month -> day -> commit -> package -> class -> method | diff lines |
-| **Class Diagram** | inheritance shape | class/inheritance graph (Graphviz) | -- (diagram) |
 
 ## 2. Architecture
 
@@ -28,54 +30,96 @@ Six user-facing tools, plus a shared substrate and supporting data models:
                    |  wraps
                  SWAView            (abstract Morph: selection, keyIndex,
                    |                  datasets, cross-ref, coverage, search, marks)
-       +-----------+-----------+
-   SWATreemapMorph      SWASamplingTallyFlamegraphMorph
-       |                SWAClassDiagram
-   concrete treemaps
-   (Code/Space/Sampling/Change)
+       +-----------+-----------+-----------------+----------------+
+   SWATreemapMorph   SWASamplingTally-      SWATemporalView   SWAChatFlowMorph
+       |             FlamegraphMorph             |                  |
+   concrete treemaps      |                 SWATimelineMorph   SWAOpenCodeFlowView
+   (Code/Space/Sampling/  SWAAllocFlamegraphMorph SWACalendarMorph
+    Change/Git/OpenCode)                     SWATraceMorph
+                     SWAClassDiagram
 
                  SWANode            (tree contract: parent/children/crossRefKey/markKey)
                    |
-   SWACodeNode*  SWASpaceTallyNode  SWASamplingTallyNode  SWAChangeNode
-                                                              |
-                                                          SWAGitNode
+   SWACodeNode*  SWASpaceTallyNode  SWASamplingTallyNode  SWATraceNode
+   SWAOpenCodeNode                  SWAChangeNode
+                                        |        \
+                                    SWAGitNode   SWAChangeTraceNode
 
                  SWADataset / SWADatasetMetric   (retained, named overlays, axis-bindable)
+                 SWAStructure                     (tree projections; the Tree button)
                  SWAMarkSet                       (global cross-view bookmarks)
                  SWAMethodWrapper / SWACapturingLayer  (instrumentation substrate)
+                   |
+   SWACoverageWrapper  SWATallyWrapper           (counts)
+                           |
+                       SWATimingWrapper          (exact inclusive/exclusive us)
+                           |
+                       SWATraceWrapper           (one span per call)
+                           |
+                       SWAStepTraceWrapper       (+ memory samples, GC marks)
+                 SWAAllocTracer                  (allocation call tree)
 ```
 
 Two independent inheritance spines meet at the view:
 
 - **Data spine** -- `SWANode` and its per-tool subclasses model the *tree*.
 - **View spine** -- `SWAView` -> `SWATreemapMorph` -> concrete treemaps model the
-  *rendering + interaction*. `SWAView` also directly parents the flamegraph and the
-  class diagram.
+  *rendering + interaction*. `SWAView` also directly parents the flamegraphs, the
+  temporal views, the flow views and the class diagram.
 
 `SWAPane` composes (not subclasses) a `SWAView`, supplying all window chrome.
 
-### Package map (as read earlier from the image)
+A third spine, orthogonal to both, is the **instrumentation** one: a single
+`SWAMethodWrapper` lineage that gets progressively more expensive and more
+precise -- count, then time, then one span per call -- which is what makes the
+five-fidelity overlap in [landscape.md](landscape.md) a family rather than five
+implementations.
+
+### Package map (read from the image, 2026-09-17)
+
+<!-- MAINTENANCE
+Re-read this table from the live image instead of editing it by hand:
+
+	| s |
+	s := WriteStream on: String new.
+	(SystemOrganization categories select: [:c | c beginsWith: 'SWA-']) asSortedCollection do: [:cat |
+		s nextPutAll: cat; nextPutAll: ' ('; print: (SystemOrganization listAtCategoryNamed: cat) size;
+			nextPutAll: '): ';
+			nextPutAll: ((SystemOrganization listAtCategoryNamed: cat)
+				inject: '' into: [:a :b | a, b, ' ']); cr].
+	s contents
+
+Only the Role column is prose; the names and counts come straight from that.
+Bump the date in the heading when you re-run it.
+-->
 
 | Package | Classes | Role |
 |---|---:|---|
 | SWA-Base | 12 | `SWANode`, `SWAView`, `SWATreemapMorph`, `SWATreemapOverlay`, `SWAPane`, `SWADataset`, `SWADatasetMetric`, `SWAMarkSet`, `SWAMaskSource`, `SWAPeerViewSource`, `SWAMethodWrapper`, `SWACapturingLayer` |
-| SWA-Nodes | 11 | code-node hierarchy, `SWASamplingTallyNode`, `SWASpaceTallyNode` |
+| SWA-Nodes | 12 | code-node hierarchy, `SWASamplingTallyNode`, `SWASpaceTallyNode`, `SWATraceNode` |
 | SWA-CodeMap | 3 | `SWACodeTreemapMorph`/`Overlay`, `SWASampleTallyData` |
-| SWA-SpaceTally | 14 | `SWASpaceTally`(+Sim), nodes, explorer, treemap/overlay, class summary, JSON reader/writer, highlight, bucket wrapper, `SimObjectMirror` |
+| SWA-SpaceTally | 13 | `SWASpaceTally`(+Sim), nodes, explorer, treemap/overlay, class summary, JSON reader/writer, highlight, bucket wrapper, `SimObjectMirror` |
 | SWA-Coverage | 5 | `SWACoverage`, `SWACoverageData`, `SWACoverageWrapper`, `SWACoverageLogTailer`, `SWACoverageRunPanel` |
-| SWA-MessageTally | 6 | `SWASamplingTally`, flamegraph, treemap/overlay, `SWAStructure`, `SWATallyWrapper` |
+| SWA-MessageTally | 14 | the whole time/allocation family: `SWASamplingTally` (external), `SWASamplingTracer` (in-image), flamegraph + treemap/overlay, `SWAStructure`, the wrapper lineage `SWATallyWrapper` -> `SWATimingWrapper` -> `SWATraceWrapper` -> `SWAStepTraceWrapper`, `SWATraceSeries`, `SWATraceMarker`, `SWAAllocTracer` + `SWAAllocFlamegraphMorph` |
+| SWA-Timeline | 10 | `SWATemporalView` -> `SWATimelineMorph` / `SWACalendarMorph` / `SWATraceMorph` (flame chart); the live-edit recorder `SWAChangeTraceRecorder` + `SWAInstrumentedActionSequence` + nodes |
+| SWA-HeapDiff | 5 | `SWAHeapDiff`, `SWASurvivorDiff`, `SWAYoungSpaceTally`, `SWAYoungSpaceState`, `SWAHeapDiffSpaceTally` |
+| SWA-GCStats | 21 | the live GC/fps strips (`GcGraph` family, `GcStatsPanel` + surfaces), the recorded counterpart `SRGCRecorder`, `SRSurvivorCensus`, and the XR-side `SRGCStats` |
+| SWA-Memory-Graph | 6 | `SWAMemoryProbe` (`/proc`, NVML), `SWAMemoryGraphMorph` + the RSS/GPU/VRAM strips |
 | SWA-ChangeMap | 4 | `SWAChangeNode`, `SWAChangeParser`, `SWAChangeTreemapMorph`/`Overlay` |
 | SWA-GitMap | 5 | `SWAGitHistory` (GitS commit scanner), `SWAGitNode`, `SWAGitTreemapMorph`/`Overlay`, `SWAGitChurnData` |
+| SWA-OpenCode | 13 | `SWAOpenCodeDb`/`History`/`Session`/`ToolCall`, `SWAOpenCodeAccessData` (the Code Map dataset), treemap + flow/flow-map views + session table |
+| SWA-Flow | 1 | `SWAChatFlowMorph`, the generic zoomable sequence view |
 | SWA-TopicModel | 2 | `SWABitermTopicModel`, `SWATopicData` |
 | SWA-Duplication | 3 | `SWACodeSimilarity`, `SWADuplicationData`, `SWADuplicationPartnerStub` |
 | SWA-Graphviz | 4 | `GraphvizMorph`, `GraphvizPane`, `GraphvizJsonParser`, `GraphvizPlainParser` |
 | SWA-ClassDiagram | 1 | `SWAClassDiagram` |
+| SWA-GitHub | 4 | `GitHubAPI`, PR browser, repository picker -- adjacent, not a measurement tool |
 | SWA-Widgets | 4 | `SWAMarksListMorph`, `SWASearchFieldMorph`, `SWASelectionPainter`, `SWASplitter` |
 | SWA-Tests | 3 | `SWADatasetTest`, `GraphvizPlainParserTest`, container fixture |
 
-> Empty/absorbed categories: `SWA-CodeMap-Duplication`, `SWA-SpaceTally-Sim`,
-> `SWA-Tmp`, `SWA-TopicModel`(shared), `SWA-MessageTally`(shared) show as categories
-> but their classes physically live in the packages above.
+> Empty/scratch categories: `SWA-CodeMap-Duplication` and `SWA-SpaceTally-Sim` are
+> empty (their classes live in the packages above); `SWA-Scratch` and `SWA-Tmp`
+> hold one throwaway class each.
 
 ## 3. `SWANode`
 
@@ -205,8 +249,10 @@ you morph one tool into another):
 
 The single most important architectural idea (journal 2026-06-30 onward). A
 **`SWADataset`** is a named, retained, image-independent overlay wrapping an analysis
-result keyed by `crossRefKey`. Kinds: `#coverage`, `#duplication`, `#spaceTally`,
-`#sampleTally`, `#topic`, `#gitChurn`, `#masked`, `#peer`.
+result keyed by `crossRefKey`. Kinds: `#coverage` (which also carries the call
+counts of an invocation tally and, from a `SWATimingWrapper` run, self and total
+time), `#duplication`, `#spaceTally`, `#sampleTally`, `#topic`, `#gitChurn`,
+`#openCodeAccess`, `#masked`, `#peer`.
 
 A dataset exposes one or more **`SWADatasetMetric`**s, each **axis-bindable** to
 `#color`, `#size`, `#links`, or `#decoration`. A metric answers a raw per-key value
@@ -245,9 +291,24 @@ axis is the conceptual core to keep in mind when evolving the design.
 
 `SWAMethodWrapper` is installed *in place of* a `CompiledMethod` in a method dict;
 sends dispatch to `run:with:in:`, which does minimal bookkeeping then forwards to
-the real method (`realMethod` peels stacked wrappers). Subclasses:
-`SWACoverageWrapper` (attributes each fired method to the running test) and
-`SWATallyWrapper` (invocation count + optional flamegraph call-tree capture).
+the real method (`realMethod` peels stacked wrappers).
+
+The subclasses form a **lineage of increasing cost and increasing precision**,
+which is what lets one substrate serve five of the tools in
+[landscape.md](landscape.md):
+
+| Wrapper | Adds | Answers |
+|---|---|---|
+| `SWACoverageWrapper` | one-shot flag + the running test | did it run, and which test covered it |
+| `SWATallyWrapper` | a counter (+ optional call-tree capture), self-evicting when hot | how often |
+| `SWATimingWrapper` | two clock reads, a per-process frame record, overhead compensation | how long, inclusive *and* exclusive |
+| `SWATraceWrapper` | one `{wrapper. t0. t1. depth}` record per call, in a per-process lane | *when*, as an individual span |
+| `SWAStepTraceWrapper` | (on the Morphic cycle only) a memory sample and a GC-counter drain per frame | the continuous bands under a trace |
+
+`SWAAllocTracer` is the odd one out: same substrate, but installed on a
+constructor rather than on the methods under study, and it folds the *full* live
+sender chain (not only instrumented frames) so ordinary uninstrumented
+application code shows up as an allocation site.
 
 The correctness backbone is **`SWACapturingLayer`**, a process-specific
 `DynamicVariable` holding a suppression depth. "Capturing" is a COP-style *layer*,
@@ -293,6 +354,25 @@ Output: a multi-column `SWASpaceTallyExplorer`, a treemap, a per-class
 `SWASpaceTallyClassSummary` (feeds the Code Map's `#spaceTally` dataset), and a
 single-pass streaming JSON writer/reader that preserves the `otherParents` graph via
 mint-on-first-sight ids.
+
+### The non-perturbing siblings (`SWA-HeapDiff`, `SWA-GCStats`)
+
+The Space Tally walks the *whole* reachable graph, which requires a GC first and
+retains every object it names. Four later tools ask narrower questions where that
+is exactly the wrong thing to do, so they share the enrichment (`#spaceTally`,
+`#addProvenanceBranchUnder:`, `openEnrichedTreemapWithProgress`) and differ only
+in how they select their object set:
+
+| Class | Object set | Why not just use the walker |
+|---|---|---|
+| `SWAHeapDiff` | allocated between two flat `allObjectsOrNil` sweeps | a GC between the sweeps would drop the short-lived objects under study |
+| `SWASurvivorDiff` | the same, minus what one `garbageCollectMost` reclaimed | the retention question needs the collect to happen *between* the snapshots |
+| `SWAYoungSpaceTally` | young space now, found by move-detection across a scavenge | the snapshot array itself is born old, so it cannot contaminate the result |
+| `SRSurvivorCensus` | survivors as 22-bit identityHash fingerprints | holding the objects would keep them alive and destroy the phenomenon |
+
+`SRGCRecorder` and `SWAMemoryProbe` are the continuous counterpart: preallocated
+integer buffers (no allocation while recording) and `/proc` / NVML reads for the
+bytes that live outside the object memory.
 
 ## 9. Cross-cutting mechanisms worth naming
 
@@ -341,3 +421,8 @@ Colour changes flush only the Form; size/zoom/root changes invalidate the layout
   Generate menu entry in `SWAPane` if it should be loadable/generatable.
 - **New structure projection:** have the dataset answer `SWAStructure`s from
   `#structures`, each with a `viewClass` + a lazy `rootBlock`.
+- **New measurement:** the open ones, with their criterion and estimate, are in
+  [todo.md](todo.md); the derivation is
+  [landscape.md §7](landscape.md#7-summary-of-gaps-by-owner). The shortest path for most of
+  them is a `SWAMethodWrapper` subclass producing a `crossRefKey`-keyed
+  Dictionary -- from there the dataset layer carries it into every view.
