@@ -125,19 +125,19 @@ SWASpaceTallyNode >> addChild: aNode [
 
 {
 	#category : #diff,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 17:10'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
 }
 SWASpaceTallyNode >> allObjects [
 	"Return an IdentitySet of all live objects in this subtree."
 
-	| result stack node obj |
+	| result stack node nodeObj |
 	result := IdentitySet new.
 	stack := OrderedCollection new.
 	stack addLast: self.
 	[stack notEmpty] whileTrue: [
 		node := stack removeLast.
-		obj := node object.
-		obj ifNotNil: [result add: obj].
+		nodeObj := node object.
+		nodeObj ifNotNil: [result add: nodeObj].
 		node children do: [:c | stack addLast: c]].
 	^ result
 ]
@@ -613,19 +613,19 @@ SWASpaceTallyNode >> morphNodesDo: aBlock select: aPredicate [
 
 {
 	#category : #walking,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 18:15'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
 }
 SWASpaceTallyNode >> morphNodesUnfilteredDo: aBlock [
 	"Evaluate aBlock with every node in this subtree whose analyzed object is a
 	Morph currently on screen (in a world). No owner filtering or de-duplication."
 
-	| stack node obj |
+	| stack node nodeObj |
 	stack := OrderedCollection new.
 	stack addLast: self.
 	[stack notEmpty] whileTrue: [
 		node := stack removeLast.
-		obj := node object.
-		((obj isKindOf: Morph) and: [obj world notNil])
+		nodeObj := node object.
+		((nodeObj isKindOf: Morph) and: [nodeObj world notNil])
 			ifTrue: [aBlock value: node].
 		node children do: [:c | stack addLast: c]]
 ]
@@ -759,7 +759,7 @@ SWASpaceTallyNode >> openExplorerWindow [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:25'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
 }
 SWASpaceTallyNode >> openParentsGraph [
 	"Open a Graphviz view of WHY this object is retained: the upward strong-
@@ -774,11 +774,11 @@ SWASpaceTallyNode >> openParentsGraph [
 	Bounded: same-class predecessors are grouped and the DAG is capped at a
 	node budget, so it returns quickly. Use zoom/pan to read the structure."
 
-	| result dotString ids truncated pane byId title rootCount |
+	| result dotString ids wasTruncated pane byId title rootCount |
 	result := self retentionGraphMax: 1000 pathsPerRoot: 3.
 	dotString := result first.
 	ids := result second.
-	truncated := result third.
+	wasTruncated := result third.
 
 	pane := GraphvizPane fromDot: dotString.
 
@@ -798,7 +798,7 @@ SWASpaceTallyNode >> openParentsGraph [
 	rootCount := ids keys count: [:n | n parent isNil].
 	title := 'Retention DAG (', ids size printString, ' nodes, ',
 		rootCount printString, ' root', (rootCount = 1 ifTrue: [''] ifFalse: ['s']),
-		(truncated ifTrue: [', bounded'] ifFalse: ['']), ')'.
+		(wasTruncated ifTrue: [', bounded'] ifFalse: ['']), ')'.
 
 	pane extent: 700 @ 500.
 	pane openInWindowLabeled: title.
@@ -831,7 +831,7 @@ SWASpaceTallyNode >> owner: aMorph isUnderAnyOf: aMorphSet [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 12:29'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:25'
 }
 SWASpaceTallyNode >> parentsToRootsGraphMax: maxNodes [
 	"Build a Graphviz DOT graph of this node's ancestry: BFS upward via #parent
@@ -845,13 +845,13 @@ SWASpaceTallyNode >> parentsToRootsGraphMax: maxNodes [
 	it into the collected set. Shape is the node default (box); per-node attrs
 	only add fill style/colour (selected = yellow, root = green)."
 
-	| ids order parentsOf queue visited dot truncated rootOf |
+	| ids order parentsOf queue visited dot wasTruncated rootOf |
 	ids := IdentityDictionary new.       "node -> dot id string"
 	order := OrderedCollection new.        "collected nodes, in discovery order"
 	parentsOf := IdentityDictionary new.  "collected node -> its parent nodes"
 	visited := IdentitySet new.
 	queue := OrderedCollection new.
-	truncated := false.
+	wasTruncated := false.
 	rootOf := [:n | n parent isNil].
 
 	queue addLast: self.
@@ -861,7 +861,7 @@ SWASpaceTallyNode >> parentsToRootsGraphMax: maxNodes [
 		cur := queue removeFirst.
 		(ids includesKey: cur) ifFalse: [
 			ids size >= maxNodes
-				ifTrue: [truncated := true]
+				ifTrue: [wasTruncated := true]
 				ifFalse: [
 					ids at: cur put: 'n', ids size printString.
 					order addLast: cur.
@@ -900,7 +900,7 @@ SWASpaceTallyNode >> parentsToRootsGraphMax: maxNodes [
 				dot nextPutAll: ';'; nextPut: Character lf]]].
 	dot nextPutAll: '}'; nextPut: Character lf.
 
-	^ { dot contents. ids. truncated }
+	^ { dot contents. ids. wasTruncated }
 ]
 
 {
@@ -1136,7 +1136,7 @@ SWASpaceTallyNode >> restoreFromJson: aJsonObject [
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:23'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:25'
 }
 SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
 	"Answer the strong-retention ancestry of the receiver as a DAG, expanded
@@ -1166,7 +1166,7 @@ SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
 	represents N same-class predecessors of its child."
 
 	| maxDistance groupThreshold reachedByObj dist queue unionNodes unionEdges
-	  emittedEdges truncated inUnion groupCounts |
+	  emittedEdges wasTruncated inUnion groupCounts |
 	maxDistance := 200.
 	groupThreshold := 3.
 
@@ -1179,7 +1179,7 @@ SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
 	unionNodes := OrderedCollection new.
 	unionEdges := OrderedCollection new.
 	emittedEdges := Set new.
-	truncated := false.
+	wasTruncated := false.
 
 	reachedByObj at: (self object ifNil: [self]) put: self.
 	dist at: self put: 0.
@@ -1217,7 +1217,7 @@ SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
 						"One representative stands for 'count' same-class preds."
 						(inUnion includes: rep) ifFalse: [
 							unionNodes size >= maxNodes
-								ifTrue: [truncated := true]
+								ifTrue: [wasTruncated := true]
 								ifFalse: [
 									inUnion add: rep.
 									unionNodes add: rep.
@@ -1237,7 +1237,7 @@ SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
 							(canon2 className ifNil: ['?']) = cname ifTrue: [
 								(inUnion includes: canon2) ifFalse: [
 									unionNodes size >= maxNodes
-										ifTrue: [truncated := true]
+										ifTrue: [wasTruncated := true]
 										ifFalse: [
 											inUnion add: canon2.
 											unionNodes add: canon2.
@@ -1248,14 +1248,14 @@ SWASpaceTallyNode >> retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot [
 									(emittedEdges includes: token) ifFalse: [
 										emittedEdges add: token.
 										unionEdges add: cur -> canon2]]]]]]]
-			ifFalse: [truncated := true]].
+			ifFalse: [wasTruncated := true]].
 
-	^ { unionNodes. unionEdges. truncated. groupCounts }
+	^ { unionNodes. unionEdges. wasTruncated. groupCounts }
 ]
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 15:25'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:26'
 }
 SWASpaceTallyNode >> retentionGraphMax: maxNodes pathsPerRoot: kPerRoot [
 	"Build a Graphviz DOT graph of the receiver's strong-retention ancestry as
@@ -1271,11 +1271,11 @@ SWASpaceTallyNode >> retentionGraphMax: maxNodes pathsPerRoot: kPerRoot [
 	A node that stands for several merged same-class predecessors is labelled
 	with a 'xN' multiplier and drawn with a doubled border."
 
-	| ancestry nodes edges truncated groupCounts ids dot inDegree chokeThreshold |
+	| ancestry nodes edges wasTruncated groupCounts ids dot inDegree chokeThreshold |
 	ancestry := self retentionAncestryMax: maxNodes pathsPerRoot: kPerRoot.
 	nodes := ancestry first.
 	edges := ancestry second.
-	truncated := ancestry third.
+	wasTruncated := ancestry third.
 	groupCounts := ancestry fourth.
 
 	ids := IdentityDictionary new.
@@ -1320,7 +1320,7 @@ SWASpaceTallyNode >> retentionGraphMax: maxNodes pathsPerRoot: kPerRoot [
 		dot nextPutAll: ';'; nextPut: Character lf].
 
 	dot nextPutAll: '}'; nextPut: Character lf.
-	^ { dot contents. ids. truncated }
+	^ { dot contents. ids. wasTruncated }
 ]
 
 {

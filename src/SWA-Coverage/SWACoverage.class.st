@@ -1659,7 +1659,7 @@ SWACoverage >> runProvenanceCase: testCase into: cov done: done of: total panel:
 
 {
 	#category : #provenance,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:36'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:23'
 }
 SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 	"THE single provenance core. Runs a FLAT collection of TestCase instances (each
@@ -1676,10 +1676,10 @@ SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 	paint them RED. This is end-of-run bookkeeping, NOT the capture hot path.
 	INVOCATIONS: we also persist each wrapper's raw call count (#count) so the view
 	can size tiles by actual invocation count, not just covering-test count."
-	| cov wrappers total done evictedCount |
+	| cov covWrappers total done evictedCount |
 	cov := SWACoverageData new maxTestsPerMethod: maxTestsPerMethod.
 	watchedMethods := methods asArray.
-	wrappers := watchedMethods collect: [:m |
+	covWrappers := watchedMethods collect: [:m |
 		SWACoverageWrapper new onClass: m methodClass selector: m selector data: cov].
 	total := testCases size max: 1.
 	done := 0.
@@ -1687,9 +1687,9 @@ SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 		' methods, ', testCases size printString, ' test cases ==='.
 	SWACoverageWrapper resetRecordingState.
 	SWACoverageWrapper sink: cov.
-	[	wrappers do: [:w | w installNoFlush].
+	[	covWrappers do: [:w | w installNoFlush].
 		SWAMethodWrapper flushSystemCache.
-		SWACoverage log: '=== STAGE: wrappers installed (', wrappers size printString, '); starting tests ==='.
+		SWACoverage log: '=== STAGE: wrappers installed (', covWrappers size printString, '); starting tests ==='.
 		self withSuppressedUI: [SWAMethodWrapper guardedDo: [
 			testCases do: [:testCase |
 				(aPanelOrNil isNil or: [aPanelOrNil stopRequested not]) ifTrue: [
@@ -1698,12 +1698,12 @@ SWACoverage >> runProvenanceCases: testCases panel: aPanelOrNil [
 		ensure: [
 			SWACoverage log: '=== STAGE: uninstalling wrappers ==='.
 			SWACoverageWrapper resetRecordingState.
-			wrappers do: [:w | w uninstallNoFlush].
+			covWrappers do: [:w | w uninstallNoFlush].
 			SWAMethodWrapper flushSystemCache].
-	evictedCount := wrappers count: [:w | w evicted].
-	wrappers do: [:w | w evicted ifTrue: [cov markEvicted: w methodName]].
+	evictedCount := covWrappers count: [:w | w evicted].
+	covWrappers do: [:w | w evicted ifTrue: [cov markEvicted: w methodName]].
 	"Persist raw invocation counts (lower bound for evicted methods)."
-	wrappers do: [:w | cov recordInvocationCount: w count for: w methodName].
+	covWrappers do: [:w | cov recordInvocationCount: w count for: w methodName].
 	SWACoverage log: '=== STAGE: ', evictedCount printString, ' methods EVICTED (hot, >= ',
 		SWAMethodWrapper defaultEvictAt printString, ' calls) ==='.
 	SWACoverage log: '=== STAGE: provenance complete -- ',

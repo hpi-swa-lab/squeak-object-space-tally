@@ -252,7 +252,7 @@ SWACodeRootNode >> packageNames [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 10:00'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:22'
 }
 SWACodeRootNode >> packageParents [
 	"Memoized map: selected PackageInfo -> its immediate selected PARENT PackageInfo
@@ -269,18 +269,18 @@ SWACodeRootNode >> packageParents [
 		byName := Dictionary new.
 		packages do: [:p | byName at: p packageName put: p].
 		packages do: [:p |
-			| name parent idx |
+			| name pkgParent idx |
 			name := p packageName.
-			parent := nil.
+			pkgParent := nil.
 			"Scan right-to-left for the longest selected prefix ending at a '-'."
 			idx := name size.
-			[parent isNil and: [idx > 1]] whileTrue: [
+			[pkgParent isNil and: [idx > 1]] whileTrue: [
 				(name at: idx) = $- ifTrue: [
 					| cand |
 					cand := name copyFrom: 1 to: idx - 1.
-					parent := byName at: cand ifAbsent: [nil]].
+					pkgParent := byName at: cand ifAbsent: [nil]].
 				idx := idx - 1].
-			parent ifNotNil: [packageParents at: p put: parent]]].
+			pkgParent ifNotNil: [packageParents at: p put: pkgParent]]].
 	^ packageParents
 ]
 

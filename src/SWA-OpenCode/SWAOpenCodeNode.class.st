@@ -376,15 +376,15 @@ SWAOpenCodeNode class >> nodeForSession: aSession [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:04'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
 }
 SWAOpenCodeNode class >> packageNameForClassName: aString [
 	"Package of a class NAMED in a tool call, resolved through the live image, or nil
 	when it no longer exists -- the session may have created and later deleted it."
-	| name cls |
-	name := aString withBlanksTrimmed.
-	(name endsWith: ' class') ifTrue: [name := name copyFrom: 1 to: name size - 6].
-	cls := Smalltalk at: name asSymbol ifAbsent: [nil].
+	| clsName cls |
+	clsName := aString withBlanksTrimmed.
+	(clsName endsWith: ' class') ifTrue: [clsName := clsName copyFrom: 1 to: clsName size - 6].
+	cls := Smalltalk at: clsName asSymbol ifAbsent: [nil].
 	(cls isNil or: [cls isBehavior not]) ifTrue: [^ nil].
 	^ (PackageOrganizer default packageOfClass: cls theNonMetaClass ifNone: [nil])
 		ifNotNil: [:pkg | pkg packageName]

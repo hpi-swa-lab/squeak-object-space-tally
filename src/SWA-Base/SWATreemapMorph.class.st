@@ -152,19 +152,19 @@ SWATreemapMorph >> commitDeferredResize [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:26'
 }
 SWATreemapMorph >> computeLayout [
 	"Build a nested-treemap tile list rooted at currentNode.
 	 Full extent is available for tiles (header is a separate morph)."
 
-	| bounds |
+	| tileBounds |
 	tiles := OrderedCollection new.
 	renderedParents := IdentitySet new.
 	currentNode ifNil: [^ self].
-	bounds := 0 @ 0 extent: self extent.
-	(bounds width <= 0 or: [bounds height <= 0]) ifTrue: [^ self].
-	self layoutChildrenOf: currentNode in: bounds.
+	tileBounds := 0 @ 0 extent: self extent.
+	(tileBounds width <= 0 or: [tileBounds height <= 0]) ifTrue: [^ self].
+	self layoutChildrenOf: currentNode in: tileBounds.
 	"Record which nodes actually got CHILD TILES drawn inside them. Not the same as
 	'has children': recursion stops at #leafKind and at #minRecurseExtent, so a class
 	whose methods were too small to tile is visually a leaf and must be coloured like

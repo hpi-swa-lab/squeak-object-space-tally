@@ -3497,7 +3497,7 @@ SWAPane >> newMarksCollapseButton [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
 }
 SWAPane >> newMarksPanel [
 	"Build the left-hand Marks panel. The content column (burger-menu row, then a
@@ -3508,7 +3508,7 @@ SWAPane >> newMarksPanel [
 	collapses the flap. PLAIN click on a row replaces the selection, SHIFT ranges, CTRL
 	toggles (via the global SWAMarksClickFilter). The burger menu bundles Copy/Clear +
 	Save/Load to a JSON sidecar file. Comments persist in SWAMarkSet."
-	| panel column burgerRow burger commentTitle detailsTitle |
+	| panel column burgerRow burger commentTitle detailsTitleMorph |
 	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
 	burger := self iconButtonGraphic: MenuIcons smallJustifiedIcon action: #openMarksBurgerMenu.
 	burger setBalloonText: 'Marks menu: Copy, Clear, Save, Load'.
@@ -3534,7 +3534,7 @@ SWAPane >> newMarksPanel [
 		hResizing: #spaceFill; vResizing: #spaceFill;
 		color: Color white;
 		textColor: Color black.
-	detailsTitle := StringMorph new
+	detailsTitleMorph := StringMorph new
 		contents: 'Origin';
 		font: (TextStyle default fontOfPointSize: 10);
 		color: (Color gray: 0.7);
@@ -3573,7 +3573,7 @@ SWAPane >> newMarksPanel [
 	column
 		addMorphBack: burgerRow;
 		addMorphBack: marksList;
-		addMorphBack: detailsTitle;
+		addMorphBack: detailsTitleMorph;
 		addMorphBack: marksDetailsMorph;
 		addMorphBack: commentTitle;
 		addMorphBack: commentField.

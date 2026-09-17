@@ -31,7 +31,7 @@ Class {
 
 {
 	#category : #examples,
-	#'squeak_changestamp' : 'MCPServer 6/18/2026 13:24'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:22'
 }
 GraphvizPane class >> example [
 	"Open a scrollable, zoomable Graphviz example in a window.
@@ -54,7 +54,7 @@ GraphvizPane class >> example [
   Cache -> Parse [label="invalidate", style=dotted];
 }'.
 	pane := self fromDot: dot.
-	pane onNodeClick: [:name | Transcript showln: 'Clicked node: ', name].
+	pane onNodeClick: [:nodeName | Transcript showln: 'Clicked node: ', nodeName].
 	pane extent: 500 @ 360.
 	win := pane openInWindowLabeled: 'GraphvizPane  -  +/- zoom, drag bg to pan'.
 	"Start zoomed in a little so content overflows and panning is obvious."

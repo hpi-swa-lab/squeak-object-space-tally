@@ -1381,7 +1381,7 @@ SWACodeTreemapMorph >> link: aKeyPair connectsRestriction: keySetOrNil [
 
 {
 	#category : #duplication,
-	#'squeak_changestamp' : 'MCPServer 6/30/2026 17:42'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:23'
 }
 SWACodeTreemapMorph >> loadDuplicationData: aSWADuplicationData [
 	"Populate the duplication cache (#dupScores) from a previously GENERATED,
@@ -1398,20 +1398,20 @@ SWACodeTreemapMorph >> loadDuplicationData: aSWADuplicationData [
 
 	Sets #dupLoaded so entering #duplication colorMode keeps this data instead of
 	recomputing."
-	| keyIndex allLeaves |
+	| leafByKey allLeaves |
 	aSWADuplicationData ifNil: [dupScores := nil. dupLoaded := false. ^ self changed].
 	"index every method leaf in the WHOLE tree by crossRefKey for identity resolution
 	(rootNode, not currentNode, so partners outside the current zoom still resolve)"
 	allLeaves := OrderedCollection new.
 	self collectMethodLeavesFrom: rootNode into: allLeaves.
-	keyIndex := Dictionary new.
-	allLeaves do: [:m | keyIndex at: m crossRefKey put: m].
+	leafByKey := Dictionary new.
+	allLeaves do: [:m | leafByKey at: m crossRefKey put: m].
 	dupScores := Dictionary new.
 	aSWADuplicationData matchesByKeyDo: [:methodKey :keyMatches |
 		dupScores at: methodKey put: (keyMatches collect: [:assoc |
 			| partnerKey partnerNode |
 			partnerKey := assoc value.
-			partnerNode := keyIndex at: partnerKey ifAbsent: [
+			partnerNode := leafByKey at: partnerKey ifAbsent: [
 				SWADuplicationPartnerStub new
 					crossRefKey: partnerKey
 					loc: (aSWADuplicationData locForKey: partnerKey)].

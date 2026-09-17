@@ -91,7 +91,7 @@ SWAMemoryProbe class >> derivePageSizeKB [
 
 {
 	#category : #'gpu memory',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:23'
 }
 SWAMemoryProbe class >> gpuDrmKB [
 	"Per-process GPU kilobytes reported by the kernel DRM fdinfo interface
@@ -101,9 +101,9 @@ SWAMemoryProbe class >> gpuDrmKB [
 	| resident vram |
 	resident := 0.
 	vram := 0.
-	[(FileDirectory on: '/proc/self/fdinfo') fileNames do: [:name |
+	[(FileDirectory on: '/proc/self/fdinfo') fileNames do: [:fdName |
 		| text |
-		text := self contentsOfProcFile: '/proc/self/fdinfo/', name limit: 4000.
+		text := self contentsOfProcFile: '/proc/self/fdinfo/', fdName limit: 4000.
 		text ifNotNil: [
 			text linesDo: [:line |
 				| parts |

@@ -219,7 +219,7 @@ SWASimSpaceTally >> clearWalkerState [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 6/17/2026 14:14'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
 }
 SWASimSpaceTally >> defaultRootOops [
 	"Curated, labelled roots for a whole-image walk of the simulated heap,
@@ -251,20 +251,20 @@ SWASimSpaceTally >> defaultRootOops [
 	The deep-sweep nets anything no root reached into LostAndFound. Absent
 	globals are simply skipped."
 
-	| om roots processOops |
+	| om rootList processOops |
 	om := sim objectMemory.
-	roots := OrderedCollection new.
+	rootList := OrderedCollection new.
 	"Specific / interesting first."
-	(self globalNamed: 'Display') ifNotNil: [:o | roots add: 'Display' -> o].
-	(self globalNamed: 'ActiveWorld') ifNotNil: [:o | roots add: 'ActiveWorld' -> o].
+	(self globalNamed: 'Display') ifNotNil: [:o | rootList add: 'Display' -> o].
+	(self globalNamed: 'ActiveWorld') ifNotNil: [:o | rootList add: 'ActiveWorld' -> o].
 	processOops := self instanceOopsOfClassNamed: 'Process'.
-	processOops isEmpty ifFalse: [roots add: 'Processes' -> processOops].
-	(self globalNamed: 'Processor') ifNotNil: [:o | roots add: 'Processor' -> o].
+	processOops isEmpty ifFalse: [rootList add: 'Processes' -> processOops].
+	(self globalNamed: 'Processor') ifNotNil: [:o | rootList add: 'Processor' -> o].
 	"Broad catch-alls last."
-	roots add: 'Globals' -> self smalltalkOop.
-	roots add: 'Classes' -> om classTableRootObj.
-	roots add: 'SpecialObjects' -> om specialObjectsOop.
-	^ roots
+	rootList add: 'Globals' -> self smalltalkOop.
+	rootList add: 'Classes' -> om classTableRootObj.
+	rootList add: 'SpecialObjects' -> om specialObjectsOop.
+	^ rootList
 ]
 
 {
