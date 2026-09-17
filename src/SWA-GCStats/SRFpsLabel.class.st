@@ -39,6 +39,14 @@ SRFpsLabel class >> framesPerUpdate [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 12:55'
+}
+SRFpsLabel class >> in: aWorld [
+	^ aWorld children detect: [:each | each isKindOf: self] ifNone: [nil]
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
 }
@@ -48,17 +56,48 @@ SRFpsLabel class >> textureScale [
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 12:56'
 }
-SRFpsLabel class >> xrMenuSpawn: aMenu [
-	<xrMenu: #(world debug) label: 'FPS Label (Fast)' priority: 436>
+SRFpsLabel class >> xrMenuToggle: aMenu [
+	<xrMenu: #(world debug) label: #xrMenuToggleLabel: priority: 436>
 	| label |
+	(self in: aMenu world) ifNotNil: [:existing | existing remove. ^ nil].
 	label := self new
 		position: aMenu position;
 		yourself.
 	aMenu world addChild: label.
 	^ label
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 12:56'
+}
+SRFpsLabel class >> xrMenuToggleLabel: aMenu [
+	^ (self in: aMenu world)
+		ifNil: ['FPS Label: OFF']
+		ifNotNil: [:label | 'FPS Label: ON']
+]
+
+{
+	#category : #collisions,
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 12:55'
+}
+SRFpsLabel >> collisionGeometry [
+	"Without a collider the hand ray cannot hit this label, so it can be neither grabbed
+	nor context-menued. The child meshObject carries the oriented quad, so derive the
+	frame from it rather than from self."
+
+	| xf |
+	xf := meshObject globalTransform.
+	^ (SRCollisionPlane
+		point: meshObject globalTranslation
+		normal: (xf localDirToGlobal: Vector3 up) normalize
+		up: (xf localDirToGlobal: 0 @ 0 @ 1) normalize
+		width: meshObject globalScale x
+		height: meshObject globalScale z)
+		object: self.
 ]
 
 {
