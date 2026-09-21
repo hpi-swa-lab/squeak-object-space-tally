@@ -1127,7 +1127,7 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection [
 
 {
 	#category : #'xr profiling',
-	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:44'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:25'
 }
 SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
 	"Trace twin of #measureXRFrames:packages:in:: instrument aGlobCollection with
@@ -1143,11 +1143,10 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
 	One requirement of its own: the lanes are freed in that same ensure:, because they
 	strongly hold every wrapper they recorded.
 
-	THE LOOP BODY IS SRWorld>>loop's, not a bare #doOneCycle: the #scavengeIfEdenFull
-	and the #yield are the two things the real loop does between frames, and a trace
-	whose subject is where the gaps go cannot leave out the handover that creates them.
-	Without the yield the world process holds the CPU across the whole run and the
-	Morphic lane comes out empty -- an artifact of the harness, read as a finding.
+	The #yield is SRWorld>>loop's and must stay: a trace whose subject is where the
+	gaps go cannot leave out the handover that creates them. Without it the world
+	process holds the CPU across the whole run and the Morphic lane comes out empty --
+	an artifact of the harness, read as a finding.
 
 	WHY THIS IS THE ONE THAT WANTS FRAME-EXACTNESS MOST. A timing profile of ten
 	frames gives you ten frames' worth of averages, and averages survive a stray
@@ -1160,7 +1159,6 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
 		methodsForPackages: aGlobCollection.
 	cov instrumentTrace.
 	[aCount timesRepeat: [
-		aWorld scavengeIfEdenFull.
 		aWorld doOneCycle.
 		Processor yield]]
 		ensure: [

@@ -14,6 +14,7 @@ Class {
 	#superclass : #SWAMethodWrapper,
 	#classVars : [
 		'AllocClassFilter',
+		'AllocClassNames',
 		'AllocHashesByNode',
 		'AllocRoot',
 		'AllocSurvivalByNode',
@@ -36,7 +37,7 @@ SWAAllocTracer class >> allocRoot [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:00'
 }
 SWAAllocTracer class >> armFor: aCollectionOfClasses [
 	"Start tracing allocations of the given classes. Install ONE wrapper on the shared
@@ -49,6 +50,8 @@ SWAAllocTracer class >> armFor: aCollectionOfClasses [
 	self disarm.
 	AllocRoot := SWASamplingTallyNode new name: 'allocations'; yourself.
 	AllocClassFilter := IdentitySet withAll: aCollectionOfClasses.
+	"Names for the report, so #releaseClassFilter can drop the classes themselves."
+	AllocClassNames := (aCollectionOfClasses collect: [:c | c name]) asArray.
 	AllocHashesByNode := IdentityDictionary new.
 	"Install a wrapper on each funnel the requested classes route through (Array via
 	Array class>>new:, Vector subclasses via Vector class>>new). Eviction off: the
@@ -191,7 +194,7 @@ SWAAllocTracer class >> isCapturing [
 
 {
 	#category : #survival,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 16:41'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:01'
 }
 SWAAllocTracer class >> measureSurvival [
 	"Scavenge, then work out for every allocation site how many of the objects it made
@@ -203,7 +206,7 @@ SWAAllocTracer class >> measureSurvival [
 	funnel wrapper gone) and with the traced objects' fates already decided -- i.e. the
 	caller allocated, we scavenge here, whatever the caller no longer references dies."
 	| survivors |
-	AllocRoot ifNil: [^ self].
+	AllocRoot ifNil: [^ self releaseClassFilter].
 	Smalltalk garbageCollectMost.
 	survivors := self survivorHashSetOfTracedClasses.
 	AllocSurvivalByNode := IdentityDictionary new.
@@ -213,12 +216,13 @@ SWAAllocTracer class >> measureSurvival [
 		AllocSurvivalByNode at: node put: (Array with: lived with: hashes size)].
 	"Roll up: each node's pair is its own plus all descendants'."
 	self rollUpSurvivalOf: AllocRoot.
+	self releaseClassFilter.
 	^ self
 ]
 
 {
 	#category : #viewing,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 16:46'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:01'
 }
 SWAAllocTracer class >> openFlamegraph [
 	"Open the allocation flamegraph in the shared SWAPane chrome: each frame is a
@@ -241,7 +245,7 @@ SWAAllocTracer class >> openFlamegraph [
 			ifFalse: [((p first * 100.0 / p second) roundTo: 1) printString, '% retained (', p first printString, '/', p second printString, ' kept)']].
 	flame metaInfo: total printString, ' allocations',
 		'   ', survPct,
-		'   classes: ', ((AllocClassFilter ifNil: [#()]) collect: [:c | c name]) asArray printString,
+		'   classes: ', (AllocClassNames ifNil: [#()]) printString,
 		'   [RED = kept (bad)   green = collected (good)   grey = stack]'.
 	panel := SWAPane on: flame.
 	window := panel openInWindow.
@@ -318,6 +322,20 @@ SWAAllocTracer class >> recordHash: aHash forNode: aNode [
 ]
 
 {
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:00'
+}
+SWAAllocTracer class >> releaseClassFilter [
+	"A class is owned by Smalltalk globals; the tracer only refers to it. Holding the
+	filter past the run pins every traced class, so reloading the package leaves the
+	old versions unreclaimable -- 44 obsolete classes, once. #AllocClassNames carries
+	what the report still needs."
+
+	AllocClassFilter := nil.
+
+]
+
+{
 	#category : #'traced classes',
 	#'squeak_changestamp' : 'MCPServer 9/15/2026 17:26'
 }
@@ -390,7 +408,7 @@ SWAAllocTracer class >> survivalFractionOf: aNode [
 
 {
 	#category : #survival,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 16:41'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:01'
 }
 SWAAllocTracer class >> survivorHashSetOfTracedClasses [
 	"The identityHashes of every LIVE instance of a traced class, right now. Built after
@@ -401,6 +419,9 @@ SWAAllocTracer class >> survivorHashSetOfTracedClasses [
 	Vector3/Matrix4x4 a collision is rare, so membership is a reliable survival test at
 	this scale. Uses #allInstances per class -- a bounded walk, and the instances are not
 	retained past building the hash set."
+	"Only meaningful between #armFor: and #measureSurvival: the filter is released
+	after that, and this then answers an empty set."
+
 	| set |
 	set := Set new: 4096.
 	(AllocClassFilter ifNil: [#()]) do: [:cls |

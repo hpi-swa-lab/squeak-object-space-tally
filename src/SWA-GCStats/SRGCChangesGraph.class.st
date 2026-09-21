@@ -108,16 +108,16 @@ SRGCChangesGraph >> ticker [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:06'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:55'
 }
 SRGCChangesGraph >> updateGraph [
 	"One frame: drain the ticker, plot the change span as the bar, colour the frame when
 	any change fired. Cheap -- one drain, one addValue:, no allocation/GC probing."
-	| ticker n span height scaled fired |
-	ticker := self ticker.
-	ticker frameCountAndSpanMicrosThenReset.
-	n := ticker drainCount.
-	span := ticker drainSpan.
+	| changeTicker n span height scaled fired |
+	changeTicker := self ticker.
+	changeTicker frameCountAndSpanMicrosThenReset.
+	n := changeTicker drainCount.
+	span := changeTicker drainSpan.
 	lastCount := n.
 	totalChanges := (totalChanges ifNil: [0]) + n.
 	height := self graph height.
