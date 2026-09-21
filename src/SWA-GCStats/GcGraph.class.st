@@ -15,7 +15,14 @@ Class {
 		'lastTenurCount',
 		'graph',
 		'deltaTime',
-		'labelStream'
+		'labelStream',
+		'ceiling',
+		'ceilingWindowMax',
+		'ceilingHoldCount',
+		'valueRing',
+		'flagRing',
+		'ringHead',
+		'ringCount'
 	],
 	#classVars : [
 		'CoralColor',
@@ -97,6 +104,32 @@ GcGraph class >> enable [
 
 {
 	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:10'
+}
+GcGraph class >> fpsCeilingCap [
+	"Highest fps reading allowed to raise the lane's ceiling.
+
+	#maxFps clamps a reading at 1000, which its own comment calls implausible -- it
+	exists to stop a near-zero paint delta spiking the graph. Such a reading must not
+	be allowed to set the SCALE either, or one bad delta flattens the lane for as long
+	as #ceilingHoldPaints. Above any real display rate, below the clamp."
+
+	^ 240.
+]
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:09'
+}
+GcGraph class >> fpsCeilingFloor [
+	"Frame rate that fills the plain fps lane's height. 100 keeps a 72 Hz headset near
+	the top and 60 Hz at three fifths, which is the range worth resolving."
+
+	^ 100.
+]
+
+{
+	#category : #constants,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 12:00'
 }
 GcGraph class >> maxFps [
@@ -126,13 +159,13 @@ GcGraph class >> paleOceanColor [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:13'
 }
 GcGraph class >> scavengeEmaAlpha [
-	"Smoothing factor for the exponential moving average of scavenge time. The sample
-	cadence is one per scavenge (not per frame), so ~0.1 is about a 10-scavenge time
-	constant: stable enough to read a sub-ms value, still tracks a changing load."
-	^ 0.1
+	"Smoothing factor for the exponential moving averages sampled once per scavenge.
+	One scavenge is seconds apart on an idle image, so a 10-scavenge time constant was
+	most of a minute before the number settled. ~0.3 is about 3 scavenges."
+	^ 0.3
 ]
 
 {
@@ -201,6 +234,58 @@ GcGraph class >> zoomMarkColor [
 ]
 
 {
+	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:09'
+}
+GcGraph >> backgroundColorForFlags: flagByte [
+	"Full GC wins over tenure: it is the rarer and more expensive event."
+
+	(flagByte bitAnd: 1) ~= 0 ifTrue: [^ self class coralColor].
+	(flagByte bitAnd: 2) ~= 0 ifTrue: [^ self class seafoamColor].
+	^ self class backgroundColor.
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:04'
+}
+GcGraph >> ceiling [
+	"The value that currently fills the lane height."
+
+	^ ceiling ifNil: [ceiling := self ceilingFloor].
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:09'
+}
+GcGraph >> ceilingFloor [
+	"The lowest value that may fill the lane height, or nil for a lane that does not
+	use the auto ceiling at all.
+
+	It is a FLOOR and not a fixed scale: a quiet lane keeps the scale a reader has
+	learned, so a good frame stays a short bar, while a lane that exceeds it rescales
+	rather than clipping.
+
+	The value here serves GcGraph's OWN lane, which plots fps. The memory and stacked
+	branches scale against something real -- eden, committed memory, the strip total --
+	never call #ceiling, and so never see this."
+
+	^ self class fpsCeilingFloor.
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:04'
+}
+GcGraph >> ceilingHoldPaints [
+	"How many paints a lower peak must persist for before the ceiling comes back down.
+	The panel paints ~10 times a second, so this is a couple of seconds."
+
+	^ 20.
+]
+
+{
 	#category : #'vm statistics',
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:41'
 }
@@ -208,6 +293,27 @@ GcGraph >> committedSpace [
 	"All memory the object memory currently occupies, in kilobytes:
 	live old space + free old space + used young space."
 	^self oldSpace + self usedYoungSpace
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:09'
+}
+GcGraph >> drawRingColumnAt: x value: fps flags: flagByte height: h [
+	"Repaint one column of the fps lane at the current ceiling, background mark
+	included. Subclasses that use the ring override this for their own colouring."
+
+	| bar |
+	graph form
+		fill: (x @ 0 corner: (x + 2) @ h)
+		rule: Form over
+		fillColor: (self backgroundColorForFlags: flagByte).
+	bar := (fps * h / self ceiling) rounded min: h.
+	bar <= 0 ifTrue: [^ self].
+	graph form
+		fill: ((x + 1) @ (h - bar) corner: (x + 2) @ h)
+		rule: Form over
+		fillColor: self class deepOceanColor.
 ]
 
 {
@@ -281,13 +387,15 @@ GcGraph >> labelStreamReset [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:26'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:10'
 }
 GcGraph >> labelString [
 	| s |
 	s := self labelStreamReset.
-	s nextPutAll: 'fps '; print: self fps rounded;
-	  nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
+	s nextPutAll: 'fps '; print: self fps rounded.
+	self ceiling > self ceilingFloor ifTrue: [
+		s nextPutAll: '\'; print: self ceiling].
+	s nextPutAll: '  fullGC '; print: (Smalltalk vmParameterAt: 7);
 	  nextPutAll: '  scavenge '; print: (Smalltalk vmParameterAt: 9);
 	  nextPutAll: '  rootTable '; print: self rootTableSize.
 	^ s contents
@@ -364,6 +472,31 @@ GcGraph >> msPrint: aFloat on: aStream [
 ]
 
 {
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:05'
+}
+GcGraph >> niceCeilingFor: aValue [
+	"Round aValue up to the next 1-2-5 x 10^n value, never below #ceilingFloor.
+
+	Absolute 1-2-5 steps rather than multiples of the floor, so a frame-time lane reads
+	33, 50, 100, 200, 500 ms and not 66, 165, 330 -- the ceiling is a number the reader
+	has to hold in their head to interpret bar heights.
+
+	Stepping in recognisable multiples is the whole point. A ceiling that tracked the
+	peak exactly would rescale on nearly every paint, and a lane whose scale moves
+	continuously cannot be read at all -- you can no longer tell a taller bar from a
+	smaller scale."
+
+	| floor magnitude |
+	floor := self ceilingFloor ifNil: [^ aValue].
+	aValue <= floor ifTrue: [^ floor].
+	magnitude := 10 raisedTo: (aValue log: 10) floor.
+	#(1 2 5 10) do: [:mantissa |
+		mantissa * magnitude >= aValue ifTrue: [^ (mantissa * magnitude) max: floor]].
+	^ (10 * magnitude) max: floor.
+]
+
+{
 	#category : #update,
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 17:58'
 }
@@ -379,12 +512,95 @@ GcGraph >> niceScaleFor: kbPerPixel [
 ]
 
 {
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:04'
+}
+GcGraph >> noteCeilingValue: aValue [
+	"Fold one reading into the window the ceiling is chosen from. Called once per
+	sample, which for a per-frame lane is once per frame, so this must stay arithmetic
+	into an instance variable."
+
+	ceilingWindowMax := (ceilingWindowMax ifNil: [0]) max: aValue.
+]
+
+{
 	#category : #'vm statistics',
 	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:41'
 }
 GcGraph >> oldSpace [
 	"Total committed old space, in kilobytes. Includes the free old space."
 	^(Smalltalk vmParameterAt: 1) // 1024
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:04'
+}
+GcGraph >> pushColumn: aValue flags: flagByte [
+	"Remember one drawn column's VALUE, so a rescale can redraw it. Same circular
+	buffer as SRGCMemGraph>>pushUsed:, for the same reason: a fixed Array sized to the
+	number of 2px columns the lane shows, written through a cursor, so steady state is
+	two slot stores and no allocation. The instrument must not itself allocate young
+	garbage on a path that measures young garbage.
+
+	Without this the lane keeps PIXELS and not values, and a rescale leaves the old
+	columns drawn at the old scale -- two scales in one picture, which is worse than
+	the clipping it fixes."
+
+	| cap |
+	cap := (graph width // 2) max: 1.
+	(ringHead isNil or: [(valueRing isKindOf: Array) not] or: [valueRing size ~= cap])
+		ifTrue: [
+			valueRing := Array new: cap withAll: 0.
+			flagRing := ByteArray new: cap.
+			ringHead := 1.
+			ringCount := 0].
+	valueRing at: ringHead put: aValue.
+	flagRing at: ringHead put: (flagByte bitAnd: 255).
+	ringHead := ringHead \\ cap + 1.
+	ringCount < cap ifTrue: [ringCount := ringCount + 1].
+]
+
+{
+	#category : #initialization,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
+}
+GcGraph >> release [
+	super release.
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:04'
+}
+GcGraph >> repaintColumns [
+	"Redraw every remembered column at the current ceiling, oldest left, newest right.
+
+	Runs only on a rescale, which #updateCeiling makes rare. FormGraph maps value v to
+	form row (height - v), hence the arithmetic; the columns are drawn straight into
+	the retained Form rather than through #addValue:, which only ever touches the
+	rightmost column."
+
+	| h w x idx cap |
+	h := graph height.
+	w := graph width.
+	graph form
+		fill: (0 @ 0 corner: w @ h)
+		rule: Form over
+		fillColor: self class backgroundColor.
+	(valueRing isNil or: [ringCount isNil or: [ringCount = 0]]) ifTrue: [^ self].
+	cap := valueRing size.
+	x := 2.
+	idx := (ringHead - 2) \\ cap + 1.
+	ringCount timesRepeat: [
+		self
+			drawRingColumnAt: w - x
+			value: (valueRing at: idx)
+			flags: (flagRing at: idx)
+			height: h.
+		x := x + 2.
+		x > w ifTrue: [^ self].
+		idx := (idx - 2) \\ cap + 1].
 ]
 
 {
@@ -405,6 +621,17 @@ GcGraph >> stepUpdate [
 	sampled first; strips that plot absolute amounts do not."
 	self updateTime.
 	self updateGraph
+]
+
+{
+	#category : #update,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:53'
+}
+GcGraph >> stretchToColumns: aCount [
+	"This strip drew one column for an interval in which the fps strip drew aCount.
+	Repeat it so every lane shares one x axis."
+
+	(aCount - 1) timesRepeat: [self graph repeatLastColumn].
 ]
 
 {
@@ -433,38 +660,74 @@ GcGraph >> update [
 ]
 
 {
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:04'
+}
+GcGraph >> updateCeiling [
+	"Choose the ceiling for the columns about to be drawn. Answers whether it changed.
+
+	ASYMMETRIC ON PURPOSE. It rises IMMEDIATELY, before this paint draws, so a spike
+	is scaled by a ceiling that already contains it and is never the flat-topped bar
+	that made this whole lane unreadable. It falls only after #ceilingHoldPaints of
+	lower peaks, so one hitch does not permanently flatten the lane and a run of
+	hitches does not make the scale oscillate.
+
+	Send once per paint, before drawing."
+
+	| want |
+	self ceilingFloor ifNil: [^ false].
+	ceilingWindowMax ifNil: [^ false].
+	ceilingWindowMax > self ceiling ifTrue: [
+		ceiling := self niceCeilingFor: ceilingWindowMax.
+		ceilingWindowMax := 0.
+		ceilingHoldCount := 0.
+		^ true].
+	ceilingHoldCount := (ceilingHoldCount ifNil: [0]) + 1.
+	ceilingHoldCount < self ceilingHoldPaints ifTrue: [^ false].
+	want := self niceCeilingFor: ceilingWindowMax.
+	ceilingWindowMax := 0.
+	ceilingHoldCount := 0.
+	want = self ceiling ifTrue: [^ false].
+	ceiling := want.
+	^ true.
+]
+
+{
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 7/30/2026 12:57'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:10'
 }
 GcGraph >> updateGraph [
-	| gcCount fps tenurCount |
+	"One column of frame rate, with the column's background marking a full GC (coral)
+	or a tenure (seafoam) since the last paint.
 
+	SCALED, not plotted raw. This used to pass fps straight to #addValue:, which reads
+	its argument as PIXELS -- so on a 30 px lane every rate above 30 fps was clipped to
+	full height and the lane showed a solid block across the whole range anyone cares
+	about."
+
+	| gcCount fps tenurCount height scaled flags |
 	gcCount := Smalltalk vmParameterAt: 7.
 	tenurCount := Smalltalk vmParameterAt: 11.
-	
 	fps := self fps.
-	(lastGcCount = gcCount)
+	flags := 0.
+	lastGcCount = gcCount
 		ifTrue: [
 			lastTenurCount = tenurCount
-				ifTrue: [
-					self graph
-						addValue: fps
-						color: self class deepOceanColor
-						bgColor: self class backgroundColor]
-				ifFalse: [
-					self graph
-						addValue: fps
-						color: self class deepOceanColor
-						bgColor: self class seafoamColor.
-					lastTenurCount := tenurCount]]
+				ifFalse: [flags := 2. lastTenurCount := tenurCount]]
 		ifFalse: [
-			self graph
-				addValue: fps
-				color: self class deepOceanColor
-				bgColor: self class coralColor.
+			flags := 1.
 			lastTenurCount := tenurCount.
 			lastGcCount := gcCount].
 
+	height := self graph height.
+	self noteCeilingValue: (fps min: self class fpsCeilingCap).
+	self updateCeiling ifTrue: [self repaintColumns].
+	scaled := (fps * height / self ceiling) rounded min: height.
+	self pushColumn: fps flags: flags.
+	self graph
+		addValue: scaled
+		color: self class deepOceanColor
+		bgColor: (self backgroundColorForFlags: flags).
 ]
 
 {

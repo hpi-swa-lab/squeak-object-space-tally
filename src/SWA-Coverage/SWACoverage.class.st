@@ -48,7 +48,8 @@ Class {
 		'wallMicros',
 		'traceRoot',
 		'traceEvictedCount',
-		'traceEventCount'
+		'traceEventCount',
+		'traceEvictedNames'
 	],
 	#classVars : [
 		'CurrentTestName',
@@ -159,6 +160,18 @@ SWACoverage class >> everyTestClass [
 		tc isAbstract not and: [tc testSelectors notEmpty and: [
 			(nameExcl anySatisfy: [:g | g match: tc name]) not
 			and: [(catExcl anySatisfy: [:g | g match: cat]) not]]]]) asArray
+]
+
+{
+	#category : #constants,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 13:06'
+}
+SWACoverage class >> evictedNamesShown [
+	"How many evicted method names #traceStatus names before summarising the rest. The
+	status line is a window subtitle, so this is a legibility limit, not a data one --
+	#traceEvictedNames answers all of them."
+
+	^ 6.
 ]
 
 {
@@ -606,6 +619,44 @@ SWACoverage class >> logFileNameForOutput: aFilePath [
 	^ dotIndex = 0
 		ifTrue: [aFilePath, '.log']
 		ifFalse: [(aFilePath copyFrom: 1 to: dotIndex - 1), '.log']
+]
+
+{
+	#category : #instrumenting,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:43'
+}
+SWACoverage class >> morphicProbeMethods [
+	"The Morphic cycle's structural entry points, named one by one. Wrapped as ordinary
+	trace wrappers on every trace run and never evicted.
+
+	They cannot come in through the package globs. HandMorph is in Morphic-Kernel,
+	which #substratePackagePatterns forbids outright, and WorldState/PasteUpMorph are
+	in package Morphic -- 8299 methods, which on a frame trace measures the
+	instrumentation rather than the frame. So the only way to see the Morphic loop next
+	to the XR loop is to name the half-dozen sends that are its shape.
+
+	This duplicates nothing: an earlier version of #stepProbeMethods wrapped
+	#runStepMethods and #displayWorldSafely: and was cut because Morphic was in the
+	package set at the time and the call graph already had those rows. It is not, and
+	cannot be.
+
+	#interCyclePause: is in the list because it is the Morphic loop's IDLE, and the
+	whole question these traces exist to answer is who owns the gaps.
+
+	Guarded by #includesSelector: so a refactored Morphic drops probes instead of
+	breaking every trace."
+
+	^ (OrderedCollection new
+		add: WorldState -> #doOneCycleFor:;
+		add: WorldState -> #interCyclePause:;
+		add: WorldState -> #runStepMethodsIn:;
+		add: WorldState -> #displayWorldSafely:;
+		add: WorldState -> #displayWorld:submorphs:;
+		add: PasteUpMorph -> #runStepMethods;
+		add: HandMorph -> #processEvents;
+		yourself)
+			select: [:each | each key includesSelector: each value]
+			thenCollect: [:each | each key >> each value].
 ]
 
 {
@@ -1061,6 +1112,26 @@ SWACoverage >> collectCallTree [
 ]
 
 {
+	#category : #tally,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 13:05'
+}
+SWACoverage >> collectEvictedNames [
+	"The names of the methods that evicted, most-called first.
+
+	A COUNT of evicted methods does not help anyone: the reader is looking for a
+	specific method, cannot find it, and has no way to tell whether it never ran or
+	stopped being recorded. The per-cube and per-node methods are exactly the ones
+	that evict first and exactly the ones a frame trace is opened to look at."
+
+	traceEvictedNames := wrappers
+		ifNil: [#()]
+		ifNotNil: [:ws |
+			((ws select: [:w | w evicted])
+				asSortedCollection: [:a :b | a count >= b count])
+					asArray collect: [:w | w methodName]].
+]
+
+{
 	#category : #'invocation tally',
 	#'squeak_changestamp' : 'MCPServer 7/28/2026 18:01'
 }
@@ -1123,7 +1194,7 @@ SWACoverage >> collectTiming [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 13:05'
 }
 SWACoverage >> collectTrace [
 	"Harvest a TRACE run: everything #collectTiming produces (counts, inclusive and
@@ -1149,6 +1220,7 @@ SWACoverage >> collectTrace [
 	METHODS still being recorded at the end, so count the ones that evicted. Their
 	counts and times are lower bounds and their calls stop appearing in the tree."
 	traceEvictedCount := wrappers ifNil: [0] ifNotNil: [:ws | ws count: [:w | w evicted]].
+	self collectEvictedNames.
 	traceRoot := SWATraceNode fromLanes: lanes.
 	^ resultMap
 ]
@@ -1349,7 +1421,7 @@ SWACoverage >> instrumentTiming [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:17'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:43'
 }
 SWACoverage >> instrumentTrace [
 	"TRACE mode: everything #instrumentTiming does, plus an EVENT LOG. Each wrapped
@@ -1381,7 +1453,7 @@ SWACoverage >> instrumentTrace [
 	install.
 
 	The log itself is UNBOUNDED (chunked, never truncated) -- eviction is the bound."
-	| steps |
+	| steps probes |
 	kind := #trace.
 	SWATimingWrapper resetFrames.
 	self captureCallTree
@@ -1389,7 +1461,8 @@ SWACoverage >> instrumentTrace [
 		ifFalse: [SWATallyWrapper resetCallTree].
 	SWATraceWrapper armTrace.
 	steps := SWACoverage stepProbeMethods.
-	methods := methods reject: [:m | steps includes: m].
+	probes := SWACoverage morphicProbeMethods reject: [:m | steps includes: m].
+	methods := methods reject: [:m | (steps includes: m) or: [probes includes: m]].
 	wrappers := methods collect: [:m |
 		(SWATraceWrapper new
 			onClass: m methodClass selector: m selector evictAt: evictAt)
@@ -1400,6 +1473,13 @@ SWACoverage >> instrumentTrace [
 	ordinary one would, plus the per-cycle memory sample and the GC drain. See
 	SWACoverage class>>stepProbeMethods."
 	wrappers := wrappers asOrderedCollection.
+	"The Morphic probes go in on the same terms as the step probe -- always present,
+	never evicted -- because their whole point is the LAST frame of a long trace as
+	much as the first. See SWACoverage class>>morphicProbeMethods."
+	probes do: [:m |
+		wrappers add: ((SWATraceWrapper new
+			onClass: m methodClass selector: m selector evictAt: nil)
+			installNoFlush; yourself)].
 	steps do: [:m |
 		wrappers add: ((SWAStepTraceWrapper new
 			onClass: m methodClass selector: m selector evictAt: nil)
@@ -1802,15 +1882,24 @@ SWACoverage >> timeMap [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 13:05'
+}
+SWACoverage >> traceEvictedNames [
+
+	^ traceEvictedNames ifNil: [#()].
+]
+
+{
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 13:05'
 }
 SWACoverage >> traceStatus [
 	"One line about the captured trace, EVICTION INCLUDED. A method that evicted stops
 	appearing in the tree and its count and times stop growing, so a run with heavy
 	eviction looks like a run that quietly got simpler. This string is meant to be
 	shown, not just available."
-	| lanes |
+	| lanes named |
 	traceRoot ifNil: [^ 'Trace: nothing recorded'].
 	lanes := traceRoot children size.
 	^ String streamContents: [:s |
@@ -1822,7 +1911,17 @@ SWACoverage >> traceStatus [
 		(traceEvictedCount ifNil: [0]) > 0 ifTrue: [
 			s nextPutAll: ' -- '; print: traceEvictedCount;
 			nextPutAll: ' methods evicted after '; print: (evictAt ifNil: [0]);
-			nextPutAll: ' calls (their counts/times are lower bounds)']]
+			nextPutAll: ' calls (their counts/times are lower bounds): '.
+			"Most-called first, so the per-cube and per-node methods -- the ones a
+			frame trace is opened to look at -- are the ones that get named."
+			named := self traceEvictedNames.
+			(named first: (named size min: self class evictedNamesShown))
+				do: [:each | s nextPutAll: each]
+				separatedBy: [s nextPutAll: ', '].
+			named size > self class evictedNamesShown ifTrue: [
+				s nextPutAll: ', +';
+					print: named size - self class evictedNamesShown;
+					nextPutAll: ' more']]]
 ]
 
 {

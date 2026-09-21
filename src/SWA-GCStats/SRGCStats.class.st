@@ -14,7 +14,9 @@ Class {
 		'meshObject',
 		'panel',
 		'labelFont',
-		'suspended'
+		'suspended',
+		'periodMillis',
+		'lastPaintMillis'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -53,21 +55,12 @@ SRGCStats class >> textureScale [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 17:04'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:05'
 }
 SRGCStats class >> xrMenuFullGC: aMenu [
-	"Run a full GC (mark-sweep-compact old space + scavenge) and report the reclaimed
-	young/old bytes on the Transcript."
 
 	<xrMenu: #(world debug) label: 'Full GC' priority: 434>
-	| youngBefore oldBefore |
-	youngBefore := Smalltalk vmParameterAt: 2.
-	oldBefore := Smalltalk vmParameterAt: 1.
-	Smalltalk garbageCollect.
-	Transcript showln: 'Full GC: young ', (youngBefore // 1024) printString, 'K -> ',
-		((Smalltalk vmParameterAt: 2) // 1024) printString, 'K  old ',
-		(oldBefore // 1024) printString, 'K -> ',
-		((Smalltalk vmParameterAt: 1) // 1024) printString, 'K'.
+	GcStatsPanel fullGC.
 	^ self
 ]
 
@@ -87,13 +80,21 @@ SRGCStats class >> xrMenuSpawn: aMenu [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:31'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:49'
 }
 SRGCStats >> addCustomMenuItemsTo: aMenu [
 	"Toggle each GC Stats lane on/off. Stored in Squeak preferences (GcStatsPanel class-side
 	<preference:> booleans), so it persists and affects the Morphic panel too. Each toggle
 	re-fits every live panel via GcStatsPanel>>refreshAllPanels."
 	super addCustomMenuItemsTo: aMenu.
+	aMenu
+		addItem: 'Full GC'
+		action: [self world
+			ifNil: [GcStatsPanel fullGC]
+			ifNotNil: [:w | w addDeferredFrameMessage: [GcStatsPanel fullGC]]].
+	aMenu
+		addItem: SRGCFpsGraph frameDisplayModeLabel
+		action: [SRGCFpsGraph cycleFrameDisplayMode].
 	GcStatsPanel lanePrefsDo: [:label :getter :setter |
 		aMenu
 			addItem: (((GcStatsPanel perform: getter) ifTrue: ['[x] '] ifFalse: ['[ ] ']), label)
@@ -177,12 +178,14 @@ SRGCStats >> fastTexture [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:57'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:39'
 }
 SRGCStats >> initialize [
 
 	super initialize.
 	self name: 'GCStats'.
+	periodMillis := 100.
+	lastPaintMillis := Time millisecondClockValue.
 	self buildPanelAndMesh
 ]
 
@@ -219,11 +222,53 @@ SRGCStats >> labelStripHeight [
 ]
 
 {
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
+}
+SRGCStats >> onWorldStopped [
+	"A stopped world is usually abandoned rather than emptied, so #remove never comes."
+
+	panel release.
+]
+
+{
+	#category : #stepping,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:44'
+}
+SRGCStats >> paint [
+	"The fps lane already holds every frame of the interval, measured in #step:."
+
+	| before |
+	before := Smalltalk vmParameterAt: 34.
+	panel stepGraphsWithDelta: nil.
+	panel renderOn: (GcStatsTextureSurface new source: source font: self labelFont).
+	source notifyTextureChanged.
+	panel discountBytes: (Smalltalk vmParameterAt: 34) - before.
+	lastPaintMillis := Time millisecondClockValue.
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 11:26'
 }
 SRGCStats >> panel [
 	^ panel
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:30'
+}
+SRGCStats >> periodMillis [
+	^ periodMillis ifNil: [periodMillis := 100].
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:30'
+}
+SRGCStats >> periodMillis: anInteger [
+	periodMillis := anInteger max: 50.
 ]
 
 {
@@ -260,11 +305,10 @@ SRGCStats >> reconfigure [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
 }
 SRGCStats >> remove [
-	"Release the change ticker when this panel leaves the XR world."
-	SRChangeTicker current disarmFor: self.
+	panel release.
 	super remove
 ]
 
@@ -305,23 +349,24 @@ SRGCStats >> source [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:51'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:38'
 }
 SRGCStats >> step: deltaTime [
 
 	"Advance the graphs and composite them onto the texture via the shared panel --
 	the exact same layout/composite code the desktop GcGraphMorph uses, just aimed at
 	an SRTextureSource surface instead of a Canvas."
-	"Register as a ticker user here rather than in a world-enter hook (SRObject has
-	none): armFor: is a Set add, so calling it every frame is harmless, and the changes
-	lane has data while this panel is alive. #remove drops the registration."
 	"Skip while suspended -- a reconfigure (lane toggle) is resizing the panel's graph forms
 	and source, which must not run under a live step/composite."
+	"Every frame counts, but only every #periodMillis composites and re-uploads the
+	texture: doing that per frame costs more than everything it measures."
+	"Every frame is measured; only every #periodMillis composites and re-uploads the
+	texture, which costs far more than the frame it would be reporting."
 	suspended == true ifTrue: [^ self].
-	SRChangeTicker current armFor: self.
-	panel stepGraphsWithDelta: deltaTime.
-	panel renderOn: (GcStatsTextureSurface new source: source font: self labelFont).
-	source notifyTextureChanged
+	panel noteFrameMillis: (deltaTime ifNil: [0]).
+	lastPaintMillis ifNil: [lastPaintMillis := Time millisecondClockValue].
+	Time millisecondClockValue - lastPaintMillis < self periodMillis ifTrue: [^ self].
+	self paint
 ]
 
 {

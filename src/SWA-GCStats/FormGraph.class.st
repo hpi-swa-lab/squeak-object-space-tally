@@ -147,6 +147,22 @@ FormGraph >> position: aPosition [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:53'
+}
+FormGraph >> repeatLastColumn [
+	"Scroll left and duplicate the newest 2px column, so a strip sampled once per paint
+	can be stretched to the column count of a strip drawn once per frame. Reuses the
+	retained BitBlt, so no allocation."
+
+	self shiftBy: 2.
+	blt sourceForm: form; halftoneForm: nil.
+	blt sourceX: width - 4; sourceY: 0.
+	blt destX: width - 2 destY: 0 width: 2 height: height.
+	blt copyBits
+]
+
+{
 	#category : #adding,
 	#'squeak_changestamp' : 'MCPServer 8/21/2026 12:57'
 }

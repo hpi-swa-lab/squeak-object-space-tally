@@ -16,7 +16,8 @@ Class {
 	#superclass : #GcGraph,
 	#instVars : [
 		'totalChanges',
-		'lastCount'
+		'lastCount',
+		'ticker'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -33,8 +34,43 @@ SRGCChangesGraph class >> maxSpanMicros [
 ]
 
 {
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:05'
+}
+SRGCChangesGraph >> ceilingFloor [
+	"5 ms of change span fills the lane, and above that the ceiling moves. A burst of
+	recompilation runs to hundreds of milliseconds, which on the fixed scale was a
+	flat-topped bar indistinguishable from any other flat-topped bar."
+
+	^ self class maxSpanMicros.
+]
+
+{
+	#category : #'auto scale',
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:07'
+}
+SRGCChangesGraph >> drawRingColumnAt: x value: span flags: flagByte height: h [
+	"A change frame keeps its 1px minimum through a rescale, so an isolated edit whose
+	span rounds below a pixel does not vanish when the scale grows."
+
+	| bar fired |
+	fired := (flagByte bitAnd: 1) ~= 0.
+	bar := (span * h // self ceiling) min: h.
+	fired ifTrue: [bar := bar max: 1].
+	graph form
+		fill: (x @ 0 corner: (x + 2) @ h)
+		rule: Form over
+		fillColor: (fired ifTrue: [self class shallowOceanColor] ifFalse: [self class backgroundColor]).
+	bar <= 0 ifTrue: [^ self].
+	graph form
+		fill: ((x + 1) @ (h - bar) corner: (x + 2) @ h)
+		rule: Form over
+		fillColor: self class coralColor.
+]
+
+{
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:27'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:07'
 }
 SRGCChangesGraph >> labelString [
 	| s |
@@ -42,30 +78,57 @@ SRGCChangesGraph >> labelString [
 	s nextPutAll: 'changes '; print: (totalChanges ifNil: [0]).
 	(lastCount notNil and: [lastCount > 0]) ifTrue: [
 		s nextPutAll: '  (+'; print: lastCount; nextPutAll: ' this frame)'].
-	SRChangeTicker current isArmed ifFalse: [s nextPutAll: '  [disarmed]'].
+	self ceiling > self ceilingFloor ifTrue: [
+		s nextPutAll: '  full '; print: self ceiling // 1000; nextPutAll: 'ms'].
+	self ticker isArmed ifFalse: [s nextPutAll: '  [disarmed]'].
 	^ s contents
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
+}
+SRGCChangesGraph >> release [
+	"SystemChangeNotifier keeps a strong reference to an armed ticker."
+
+	super release.
+	ticker ifNotNil: [:t | t stop. ticker := nil].
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:15'
+}
+SRGCChangesGraph >> ticker [
+	"Started on first use rather than from an open hook: the desktop Morph and the XR
+	panel have no hook in common, and the lane has data from its first frame either way."
+
+	^ ticker ifNil: [ticker := SRChangeTicker new start; yourself].
+]
+
+{
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 14:09'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:06'
 }
 SRGCChangesGraph >> updateGraph [
 	"One frame: drain the ticker, plot the change span as the bar, colour the frame when
 	any change fired. Cheap -- one drain, one addValue:, no allocation/GC probing."
 	| ticker n span height scaled fired |
-	ticker := SRChangeTicker current.
+	ticker := self ticker.
 	ticker frameCountAndSpanMicrosThenReset.
 	n := ticker drainCount.
 	span := ticker drainSpan.
 	lastCount := n.
 	totalChanges := (totalChanges ifNil: [0]) + n.
 	height := self graph height.
-	scaled := (span * height // self class maxSpanMicros) min: height.
+	self noteCeilingValue: span.
+	self updateCeiling ifTrue: [self repaintColumns].
+	scaled := (span * height // self ceiling) min: height.
 	fired := n > 0.
 	"A change frame shows at least 1px even when its span rounds below a pixel, so a
 	single isolated edit is never invisible."
 	fired ifTrue: [scaled := scaled max: 1].
+	self pushColumn: span flags: (fired ifTrue: [1] ifFalse: [0]).
 	self graph
 		addValue: scaled
 		color: self class coralColor

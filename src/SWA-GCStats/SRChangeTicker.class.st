@@ -1,18 +1,13 @@
 "
-Ultralight system-change counter for the GC-stats changes lane.
+Counts SystemChangeNotifier events and the time span they covered, so the
+changes lane of a GC Stats panel can draw one bar per frame.
 
-The live SWAChangeTraceRecorder builds a full reaction tree per edit -- far too heavy
-to drive an in-frame overlay. This does the opposite: a single SystemChangeNotifier
-subscriber that only bumps a counter and remembers the first and last change time of
-the current frame. No tree, no allocation probing, no GC -- just mark and time.
+One ticker per graph, not one for the system: the drain is destructive, so a
+shared ticker would let whichever panel updated first take the count and leave
+the others drawing zero.
 
-The changes graph drains it once per frame with #frameCountAndSpanMicrosThenReset,
-which answers { changesThisFrame . spanMicros } and clears the accumulators. spanMicros
-is first-to-last change time within the frame, a cheap proxy for how long system-change
-work stole from the frame.
-
-SRChangeTicker current is the shared armed instance. Arming subscribes; disarming
-unsubscribes, so an idle panel costs nothing.
+SystemChangeNotifier holds its subscribers strongly, so an armed ticker is
+alive until #stop. Whoever owns one owes it a #stop.
 "
 Class {
 	#name : #SRChangeTicker,
@@ -22,79 +17,12 @@ Class {
 		'firstMicros',
 		'lastMicros',
 		'armed',
-		'users',
 		'drainCount',
 		'drainSpan'
-	],
-	#classVars : [
-		'Current'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
 }
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 14:59'
-}
-SRChangeTicker class >> current [
-	^ Current ifNil: [Current := self new]
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 15:16'
-}
-SRChangeTicker class >> releaseCurrent [
-	^ Current := nil
-]
-
-{
-	#category : #control,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
-}
-SRChangeTicker >> arm [
-	"A default user (e.g. a workspace test). Prefer #armFor: from a panel so it releases
-	on close."
-	self armFor: self
-]
-
-{
-	#category : #control,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
-}
-SRChangeTicker >> armFor: aUser [
-	"Register aUser (a panel) as needing the ticker. A Set, so calling it every frame
-	with the same panel is harmless. The subscription goes up on the first user."
-	(users ifNil: [users := IdentitySet new]) add: aUser.
-	armed ifTrue: [^ self].
-	armed := true.
-	count := 0. firstMicros := nil. lastMicros := nil.
-	SystemChangeNotifier uniqueInstance
-		notify: self ofAllSystemChangesUsing: #noteChange:
-]
-
-{
-	#category : #control,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
-}
-SRChangeTicker >> disarm [
-	self disarmFor: self
-]
-
-{
-	#category : #control,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
-}
-SRChangeTicker >> disarmFor: aUser [
-	"aUser (a panel) no longer needs the ticker. Unsubscribe only when the last one
-	goes -- desktop and XR panels can be open at once."
-	users ifNotNil: [users remove: aUser ifAbsent: []].
-	(users notNil and: [users notEmpty]) ifTrue: [^ self].
-	armed ifFalse: [^ self].
-	armed := false.
-	SystemChangeNotifier uniqueInstance noMoreNotificationsFor: self
-]
 
 {
 	#category : #frame,
@@ -140,12 +68,11 @@ SRChangeTicker >> frameCountAndSpanMicrosThenReset [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:15'
 }
 SRChangeTicker >> initialize [
 	count := 0.
 	armed := false.
-	users := IdentitySet new.
 ]
 
 {
@@ -168,4 +95,26 @@ SRChangeTicker >> noteChange: anEvent [
 	count := count + 1.
 	firstMicros ifNil: [firstMicros := now].
 	lastMicros := now
+]
+
+{
+	#category : #arming,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:15'
+}
+SRChangeTicker >> start [
+	armed ifTrue: [^ self].
+	armed := true.
+	count := 0. firstMicros := nil. lastMicros := nil.
+	SystemChangeNotifier uniqueInstance
+		notify: self ofAllSystemChangesUsing: #noteChange:.
+]
+
+{
+	#category : #arming,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:15'
+}
+SRChangeTicker >> stop [
+	armed ifFalse: [^ self].
+	armed := false.
+	SystemChangeNotifier uniqueInstance noMoreNotificationsFor: self.
 ]

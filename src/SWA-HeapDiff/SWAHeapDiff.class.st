@@ -226,7 +226,7 @@ SWAHeapDiff class >> spaceTallyXRFrames: aCount [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAHeapDiff class >> xrMenuMemoryHundredFrames: aMenu [
 	"Memory-alloc profile of a hundred frames, opened as a Space Tally treemap --
@@ -234,13 +234,13 @@ SWAHeapDiff class >> xrMenuMemoryHundredFrames: aMenu [
 	re-upload) show up. The world is frozen for the whole run plus the walk
 	afterward, so this reads as a hang, not slow rendering."
 
-	<xrMenu: #(world profile) label: 'memory 100 frames' priority: 200>
+	<xrMenu: #(world profile memory) label: '100 frames' priority: 200>
 	^ self spaceTallyXRFrames: 100
 ]
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAHeapDiff class >> xrMenuMemoryOneFrame: aMenu [
 	"Memory-alloc profile of a single frame, opened as a Space Tally treemap of the
@@ -248,20 +248,20 @@ SWAHeapDiff class >> xrMenuMemoryOneFrame: aMenu [
 	so the frame this click is part of is NOT the one measured. The pragma is only
 	ever scanned by SRMenuRegistry, so this method is inert without SqueakXR."
 
-	<xrMenu: #(world profile) label: 'memory 1 frame' priority: 180>
+	<xrMenu: #(world profile memory) label: '1 frame' priority: 180>
 	^ self spaceTallyXRFrames: 1
 ]
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 10:44'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAHeapDiff class >> xrMenuMemoryTenFrames: aMenu [
 	"Memory-alloc profile of ten frames, opened as a Space Tally treemap:
 	per-frame jitter averages out, still short enough that the two array sweeps
 	do not freeze the world for long."
 
-	<xrMenu: #(world profile) label: 'memory 10 frames' priority: 190>
+	<xrMenu: #(world profile memory) label: '10 frames' priority: 190>
 	^ self spaceTallyXRFrames: 10
 ]
 

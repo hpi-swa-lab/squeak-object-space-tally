@@ -24,6 +24,7 @@ Class {
 		'changesGraph',
 		'youngGraph',
 		'oldZoomGraph',
+		'instanceGraph',
 		'labelFont',
 		'backingForm',
 		'backingCanvas',
@@ -36,6 +37,7 @@ Class {
 	#classVars : [
 		'ShowChangesLane',
 		'ShowFpsLane',
+		'ShowInstanceLane',
 		'ShowOldFullLane',
 		'ShowOldZoomLane',
 		'ShowSurvivorLane',
@@ -46,8 +48,34 @@ Class {
 }
 
 {
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:15'
+}
+GcStatsPanel class >> fullGC [
+	"Survivors before and after. Whatever the full GC removes was pinned by a dead old
+	object through the remembered set, and no number of scavenges would have found it:
+	floating garbage is flat across scavenges, which is what makes it look live."
+
+	| survivorsBefore oldBefore tenuresBefore retained survivorsAfter |
+	Smalltalk garbageCollectMost.
+	survivorsBefore := Smalltalk vmParameterAt: 35.
+	oldBefore := Smalltalk vmParameterAt: 1.
+	tenuresBefore := Smalltalk vmParameterAt: 11.
+	Smalltalk garbageCollect.
+	retained := Smalltalk vmParameterAt: 35.
+	Smalltalk garbageCollectMost.
+	survivorsAfter := Smalltalk vmParameterAt: 35.
+	Transcript showln: 'Full GC: surv ', survivorsBefore printString, ' -> ', survivorsAfter printString,
+		' (floating ', (survivorsBefore - survivorsAfter) printString, ')',
+		'   kept ', retained printString,
+		'   tenured ', ((Smalltalk vmParameterAt: 11) - tenuresBefore) printString,
+		'   old ', (oldBefore // 1024) printString, 'K -> ',
+			((Smalltalk vmParameterAt: 1) // 1024) printString, 'K'.
+]
+
+{
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:02'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:14'
 }
 GcStatsPanel class >> lanePrefsDo: aBlock [
 	"Evaluate aBlock with (menuLabel, getterSelector, setterSelector) for each lane
@@ -57,7 +85,8 @@ GcStatsPanel class >> lanePrefsDo: aBlock [
 	aBlock value: 'Old zoomed-in lane' value: #showOldZoomLane value: #showOldZoomLane:.
 	aBlock value: 'Old full lane' value: #showOldFullLane value: #showOldFullLane:.
 	aBlock value: 'Survivor lane' value: #showSurvivorLane value: #showSurvivorLane:.
-	aBlock value: 'Changes lane' value: #showChangesLane value: #showChangesLane:
+	aBlock value: 'Changes lane' value: #showChangesLane value: #showChangesLane:.
+	aBlock value: 'Instance-count lane (slow)' value: #showInstanceLane value: #showInstanceLane:
 ]
 
 {
@@ -119,6 +148,27 @@ GcStatsPanel class >> showFpsLane [
 GcStatsPanel class >> showFpsLane: aBoolean [
 	ShowFpsLane := aBoolean.
 	self refreshAllPanels
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:14'
+}
+GcStatsPanel class >> showInstanceLane [
+	<preference: 'GC Stats: instance-count lane'
+		category: 'SqueakXR'
+		description: 'Show a lane counting live instances of one class (RlVector3 by default). Off by default because it scans the heap at every panel update: measured 23 ms and 16 KB per sample, which at 10 fps is a quarter of all wall time.'
+		type: #Boolean>
+	^ ShowInstanceLane ifNil: [ShowInstanceLane := false].
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:15'
+}
+GcStatsPanel class >> showInstanceLane: aBoolean [
+	ShowInstanceLane := aBoolean.
+	self refreshAllPanels.
 ]
 
 {
@@ -203,6 +253,14 @@ GcStatsPanel class >> showYoungLane [
 GcStatsPanel class >> showYoungLane: aBoolean [
 	ShowYoungLane := aBoolean.
 	self refreshAllPanels
+]
+
+{
+	#category : #stepping,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:44'
+}
+GcStatsPanel >> discountBytes: anInteger [
+	graph discountBytes: anInteger.
 ]
 
 {
@@ -319,7 +377,7 @@ GcStatsPanel >> graphs [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:14'
 }
 GcStatsPanel >> initialize [
 	"The GC-stats graph models. The old memory lane is now split into three toggleable
@@ -330,6 +388,17 @@ GcStatsPanel >> initialize [
 	fullGraph := SRGCMemGraph new.
 	survivorGraph := SRGCSurvivorGraph new.
 	changesGraph := SRGCChangesGraph new.
+	instanceGraph := SRGCInstanceGraph new.
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:17'
+}
+GcStatsPanel >> instanceGraph [
+	"Lazy: panels built before this lane existed have nil here."
+
+	^ instanceGraph ifNil: [instanceGraph := SRGCInstanceGraph new].
 ]
 
 {
@@ -379,7 +448,7 @@ GcStatsPanel >> labelStripHeightFor: aSurface [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:17'
 }
 GcStatsPanel >> laneSpecs [
 	"The single source of truth for the lanes, top-to-bottom: each is
@@ -392,7 +461,20 @@ GcStatsPanel >> laneSpecs [
 		{ oldZoomGraph.   80.  self class showOldZoomLane }.
 		{ fullGraph.      200. self class showOldFullLane }.
 		{ survivorGraph.  50.  self class showSurvivorLane }.
-		{ changesGraph.   35.  self class showChangesLane } }
+		{ changesGraph.   35.  self class showChangesLane }.
+		{ self instanceGraph.  50.  self class showInstanceLane } }
+]
+
+{
+	#category : #stepping,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:44'
+}
+GcStatsPanel >> noteFrameMillis: ms [
+	"Per frame, from a host that only draws every so often. #stepGraphs costs 37 KB
+	and 425 us, so it cannot be the thing that runs per frame; this can."
+
+	graph noteFrameMillis: ms.
+	youngGraph noteFrame.
 ]
 
 {
@@ -424,6 +506,18 @@ GcStatsPanel >> refresh [
 	blits self form (no re-issuing of draw ops)."
 	self stepGraphs.
 	self render
+]
+
+{
+	#category : #initialization,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
+}
+GcStatsPanel >> release [
+	"Whoever showed this panel owes it a #release: the changes graph holds a ticker
+	that SystemChangeNotifier keeps alive."
+
+	super release.
+	self laneSpecs do: [:each | each first release].
 ]
 
 {
@@ -500,19 +594,27 @@ GcStatsPanel >> stepGraphs [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:54'
 }
 GcStatsPanel >> stepGraphsWithDelta: aDeltaMsOrNil [
 	"Advance the three graph models one frame. aDeltaMsOrNil, when supplied, is the
 	authoritative render-loop frame delta (XR passes SRFrame's deltaTime); when nil the
 	fps graph measures wall-clock time between steps."
+	| columns |
 	graph updateTimeWith: aDeltaMsOrNil.
 	graph updateGraph.
-	youngGraph updateGraph.
-	oldZoomGraph updateGraph.
-	fullGraph updateGraph.
-	survivorGraph updateGraph.
-	changesGraph updateGraph
+	"The fps lane may have drawn one column per rendered frame; the rest sample once
+	per paint, so they are stretched to the same width."
+	columns := graph lastColumnCount.
+	youngGraph updateGraph; stretchToColumns: columns.
+	oldZoomGraph updateGraph; stretchToColumns: columns.
+	fullGraph updateGraph; stretchToColumns: columns.
+	survivorGraph updateGraph; stretchToColumns: columns.
+	changesGraph updateGraph; stretchToColumns: columns.
+	"Unlike the others this one is not stepped while hidden: its update is a heap scan,
+	and history you cannot see is not worth 23 ms a frame."
+	self class showInstanceLane ifTrue: [
+		self instanceGraph updateGraph; stretchToColumns: columns]
 ]
 
 {

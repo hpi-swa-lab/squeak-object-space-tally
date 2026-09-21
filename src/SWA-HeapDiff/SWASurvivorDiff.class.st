@@ -90,37 +90,37 @@ SWASurvivorDiff class >> measureXRFrames: aCount in: aWorld [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 15:55'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:52'
 }
 SWASurvivorDiff class >> xrMenuSurvivorsHundredFrames: aMenu [
 	"Survivors of a hundred frames: long enough for periodic allocators to show, and
 	for the retained working set to settle to its plateau. The world is frozen for the
 	whole run plus the walk. Sits beside 'memory 100 frames'."
 
-	<xrMenu: #(world profile) label: 'survivors 100 frames' priority: 201>
+	<xrMenu: #(world profile survivors) label: '100 frames' priority: 201>
 	^ self spaceTallyXRFrames: 100
 ]
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 15:55'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWASurvivorDiff class >> xrMenuSurvivorsOneFrame: aMenu [
 	"Survivors of a single frame: render one frame, scavenge, treemap what survived --
 	with closures & Contexts grouped by home method. Sits beside 'memory 1 frame'."
 
-	<xrMenu: #(world profile) label: 'survivors 1 frame' priority: 181>
+	<xrMenu: #(world profile survivors) label: '1 frame' priority: 181>
 	^ self spaceTallyXRFrames: 1
 ]
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 15:55'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:52'
 }
 SWASurvivorDiff class >> xrMenuSurvivorsTenFrames: aMenu [
 	"Survivors of ten frames: per-frame jitter averages out, still a short freeze.
 	Sits beside 'memory 10 frames'."
 
-	<xrMenu: #(world profile) label: 'survivors 10 frames' priority: 191>
+	<xrMenu: #(world profile survivors) label: '10 frames' priority: 191>
 	^ self spaceTallyXRFrames: 10
 ]

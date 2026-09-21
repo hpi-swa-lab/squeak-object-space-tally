@@ -1127,7 +1127,7 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection [
 
 {
 	#category : #'xr profiling',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:00'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:44'
 }
 SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
 	"Trace twin of #measureXRFrames:packages:in:: instrument aGlobCollection with
@@ -1143,6 +1143,12 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
 	One requirement of its own: the lanes are freed in that same ensure:, because they
 	strongly hold every wrapper they recorded.
 
+	THE LOOP BODY IS SRWorld>>loop's, not a bare #doOneCycle: the #scavengeIfEdenFull
+	and the #yield are the two things the real loop does between frames, and a trace
+	whose subject is where the gaps go cannot leave out the handover that creates them.
+	Without the yield the world process holds the CPU across the whole run and the
+	Morphic lane comes out empty -- an artifact of the harness, read as a finding.
+
 	WHY THIS IS THE ONE THAT WANTS FRAME-EXACTNESS MOST. A timing profile of ten
 	frames gives you ten frames' worth of averages, and averages survive a stray
 	frame. A trace does not average -- it shows the actual sequence -- so an extra
@@ -1153,7 +1159,10 @@ SWAPane class >> traceXRFrames: aCount packages: aGlobCollection in: aWorld [
 		captureCallTree: true;
 		methodsForPackages: aGlobCollection.
 	cov instrumentTrace.
-	[aCount timesRepeat: [aWorld doOneCycle]]
+	[aCount timesRepeat: [
+		aWorld scavengeIfEdenFull.
+		aWorld doOneCycle.
+		Processor yield]]
 		ensure: [
 			[cov collectTrace. cov uninstall]
 				ensure: [
@@ -1211,10 +1220,10 @@ SWAPane class >> xrMenuOpenSqueakXRCodeMap: aMenu [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 18:07'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAPane class >> xrMenuProfileHundredFrames: aMenu [
-	<xrMenu: #(world profile) label: '100 frames' priority: 140>
+	<xrMenu: #(world profile flamegraph) label: '100 frames' priority: 140>
 	"A hundred frames. Long enough that anything periodic -- a step that only runs
 	every n frames, a GC, a texture re-upload -- shows up at all, which the shorter
 	runs can miss entirely.
@@ -1227,10 +1236,10 @@ SWAPane class >> xrMenuProfileHundredFrames: aMenu [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAPane class >> xrMenuProfileOneFrame: aMenu [
-	<xrMenu: #(world profile) label: '1 frame' priority: 110>
+	<xrMenu: #(world profile flamegraph) label: '1 frame' priority: 110>
 	"Profile a single frame and open a flamegraph on it. The menu action runs in the
 	world process, so the profile is deferred to the next frame boundary -- which
 	also means the frame this menu click is part of is NOT the one measured.
@@ -1241,10 +1250,10 @@ SWAPane class >> xrMenuProfileOneFrame: aMenu [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAPane class >> xrMenuProfileTenFrames: aMenu [
-	<xrMenu: #(world profile) label: '10 frames' priority: 120>
+	<xrMenu: #(world profile flamegraph) label: '10 frames' priority: 120>
 	"Ten frames: enough that per-frame jitter averages out, still short enough that
 	the untimed-eviction-free tracing overhead stays bounded."
 	^ self profileXRFrames: 10
@@ -1252,10 +1261,10 @@ SWAPane class >> xrMenuProfileTenFrames: aMenu [
 
 {
 	#category : #'xr frame profiling',
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 18:07'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAPane class >> xrMenuProfileThousandFrames: aMenu [
-	<xrMenu: #(world profile) label: '1000 frames' priority: 150>
+	<xrMenu: #(world profile flamegraph) label: '1000 frames' priority: 150>
 	"A thousand frames. Expect TENS OF SECONDS of a completely frozen world: the
 	loop is blocked inside the between-frame action driving #doOneCycle itself, and
 	timing wrappers never evict (SWACoverage>>instrumentTiming), so the per-call
@@ -1269,10 +1278,37 @@ SWAPane class >> xrMenuProfileThousandFrames: aMenu [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:01'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 13:08'
+}
+SWAPane class >> xrMenuTraceHundredFrames: aMenu [
+	<xrMenu: #(world profile trace) label: '100 frames' priority: 180>
+	"A hundred frames traced, for the shape of a SECOND and a half rather than of a
+	frame: where the scavenge lands, how often Morphic gets a turn, whether the slow
+	frame recurs on a period.
+
+	EVICTION BITES HARDEST HERE, and asymmetrically. The outer structure -- the frame,
+	the render pass, each Morphic cycle, the probes, which are never evicted at all --
+	survives all hundred frames. A PER-INSTANCE method does not: SRFastCube>>renderOn:
+	runs once per cube, so a thousand cubes exhaust the 1000-call budget inside frame
+	one and it is absent from the remaining ninety-nine. The methods that vanish are
+	not the uninteresting tail, they are whatever there are many of.
+
+	So read this for the shape of the window and '1 frame' for what a frame contains.
+	The subtitle names the evicted methods, most-called first -- check it before
+	concluding something did not run.
+
+	Do not read the timing columns off this one. #timeMap and #selfTimeMap become
+	lower bounds for every evicted method, and at this length that is most of them --
+	see SWACoverage>>instrumentTrace. Use the profile entries for numbers."
+	^ self traceXRFrames: 100
+]
+
+{
+	#category : #'xr menu',
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:51'
 }
 SWAPane class >> xrMenuTraceOneFrame: aMenu [
-	<xrMenu: #(world profile) label: 'trace 1 frame' priority: 160>
+	<xrMenu: #(world profile trace) label: '1 frame' priority: 160>
 	"Trace a single frame and open a flame chart on it: every call that frame made, in
 	the order it made them, on a real time axis.
 
@@ -1290,10 +1326,10 @@ SWAPane class >> xrMenuTraceOneFrame: aMenu [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 13:10'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:44'
 }
 SWAPane class >> xrMenuTraceTenFrames: aMenu [
-	<xrMenu: #(world profile) label: 'trace 10 frames' priority: 170>
+	<xrMenu: #(world profile trace) label: '10 frames' priority: 170>
 	"Ten frames traced. The reason to want this over one frame is precisely that a trace
 	does not average: ten frames side by side make a PER-FRAME pattern visible -- the
 	step that only runs every third frame, the upload that happens once and then never,
@@ -1308,9 +1344,10 @@ SWAPane class >> xrMenuTraceTenFrames: aMenu [
 	spends the budget on the repetitive tail of hot methods instead of on the end of
 	the run.
 
-	There is deliberately no 100- or 1000-frame trace to match the profile entries. A
-	profile can average over a thousand frames and say something true; a trace cannot
-	average, and a thousand frames of spans is not a picture anyone reads."
+	Ten frames is the middle of three lengths, not a maximum: '1 frame' for the full
+	depth of one, '100 frames' for the shape of a second and a half with the inner
+	levels evicted away. There is still no 1000-frame trace -- a profile can average
+	over a thousand frames and say something true, a trace cannot average."
 	^ self traceXRFrames: 10
 ]
 

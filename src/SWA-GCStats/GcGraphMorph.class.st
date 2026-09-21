@@ -160,18 +160,15 @@ GcGraphMorph >> initialize [
 
 {
 	#category : #'stepping and presenter',
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
 }
 GcGraphMorph >> intoWorld: aWorld [
-	"Arm the change ticker when the panel opens, so the changes lane has data; it stays
-	cheap (just a counter) while armed."
-	super intoWorld: aWorld.
-	SRChangeTicker current armFor: self
+	super intoWorld: aWorld
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:32'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 18:49'
 }
 GcGraphMorph >> invokeLaneMenu: anEvent [
 	"Pop a menu that toggles each GC Stats lane. Same preferences as the XR panel
@@ -180,6 +177,11 @@ GcGraphMorph >> invokeLaneMenu: anEvent [
 	| menu |
 	menu := MenuMorph new.
 	menu addTitle: 'GC Stats lanes'.
+	menu
+		add: SRGCFpsGraph frameDisplayModeLabel
+		target: SRGCFpsGraph
+		selector: #cycleFrameDisplayMode.
+	menu addLine.
 	GcStatsPanel lanePrefsDo: [:label :getter :setter |
 		menu
 			add: (((GcStatsPanel perform: getter) ifTrue: ['[x] '] ifFalse: ['[ ] ']), label)
@@ -213,12 +215,12 @@ GcGraphMorph >> mouseDown: anEvent [
 
 {
 	#category : #'stepping and presenter',
-	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:18'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 13:16'
 }
 GcGraphMorph >> outOfWorld: aWorld [
 	"Disarm when the panel closes -- no subscriber left behind once nothing shows it."
 	super outOfWorld: aWorld.
-	SRChangeTicker current disarmFor: self
+	panel release
 ]
 
 {

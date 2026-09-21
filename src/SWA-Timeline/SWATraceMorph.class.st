@@ -47,9 +47,36 @@ Class {
 		'laneBands',
 		'hiddenCount'
 	],
+	#classVars : [
+		'ShowGraphBands'
+	],
 	#category : #'SWA-Timeline',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:54'
+}
+SWATraceMorph class >> showGraphBands [
+	"Whether to draw the step-time and memory bands above the lanes. OFF: both
+	quantities have their own instrument in the GC Stats panel, which samples them
+	continuously instead of only for the length of a trace.
+
+	Shared vertical alignment with the spans was the reason to put them here, and it
+	is still the reason to keep the switch rather than delete the bands."
+
+	^ ShowGraphBands ifNil: [false].
+]
+
+{
+	#category : #preferences,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:54'
+}
+SWATraceMorph class >> showGraphBands: aBoolean [
+
+	ShowGraphBands := aBoolean.
+]
 
 {
 	#category : #layout,
@@ -677,12 +704,13 @@ SWATraceMorph >> graphBandHeight [
 
 {
 	#category : #constants,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:40'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:54'
 }
 SWATraceMorph >> graphBandsHeight [
 	"Vertical space the continuous bands take off the top, and therefore where the lanes
 	start. Zero when the run has no samples -- a trace collected without step boundaries
 	(no Morphic running) draws exactly as it did before."
+	self class showGraphBands ifFalse: [^ 0].
 	rootNode ifNil: [^ 0].
 	^ rootNode series isEmpty ifTrue: [0] ifFalse: [2 * self graphBandHeight]
 ]
@@ -1168,7 +1196,7 @@ SWATraceMorph >> selectedSourceString [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 18:23'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:54'
 }
 SWATraceMorph >> showMenuAt: evt [
 	"Right-click: zoom control, colour meaning, and the two PRINT paths -- the
@@ -1187,6 +1215,12 @@ SWATraceMorph >> showMenuAt: evt [
 		menu
 			add: (self colorMode == pair first ifTrue: ['* '] ifFalse: ['   ']), pair second
 			selector: #colorMode: argument: pair first].
+	menu addLine.
+	menu
+		add: (self class showGraphBands ifTrue: ['* '] ifFalse: ['   ']),
+			'step time + memory bands'
+		selector: #toggleGraphBands
+		argument: nil.
 	menu addLine.
 	menu add: 'print trace (text)' selector: #printTrace argument: nil.
 	menu add: 'export Chrome/Perfetto JSON...' selector: #exportChromeTrace argument: nil.
@@ -1321,6 +1355,19 @@ SWATraceMorph >> timeSpan [
 SWATraceMorph >> timeUnitsOf: aNode [
 	"Microseconds. The whole reason SWATemporalView has a pluggable time base."
 	^ aNode eventMicros
+]
+
+{
+	#category : #bands,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 11:54'
+}
+SWATraceMorph >> toggleGraphBands [
+	"The bands sit above the lanes, so switching them changes where every lane starts
+	and the cached layout no longer matches."
+
+	self class showGraphBands: self class showGraphBands not.
+	self flushLayout.
+	self changed.
 ]
 
 {

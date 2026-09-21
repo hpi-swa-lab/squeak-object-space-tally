@@ -10,7 +10,8 @@ Class {
 		'lastScavengeCount',
 		'lastScavengeMs',
 		'emaScavengeMs',
-		'survivorYoung'
+		'survivorYoung',
+		'frameScavengeCount'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -42,8 +43,28 @@ SRGCYoungGraph >> labelString [
 ]
 
 {
+	#category : #measuring,
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:44'
+}
+SRGCYoungGraph >> noteFrame [
+	"The survivor floor has to be read at the frame the scavenge happened. Read it at
+	the next paint instead and eden has already refilled: at 16 MB/s a 100 ms paint
+	interval puts 1.6 MB of fresh garbage under the line, which is how the band came to
+	show 600 KB while the heap diff measured 1.7 KB.
+
+	Two vmParameterAt: reads, so it is affordable per frame."
+
+	| scavenges |
+	scavenges := Smalltalk vmParameterAt: 9.
+	frameScavengeCount
+		ifNil: [frameScavengeCount := scavenges. ^ self].
+	scavenges > frameScavengeCount ifTrue: [survivorYoung := self usedYoungSpace].
+	frameScavengeCount := scavenges.
+]
+
+{
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 11:00'
+	#'squeak_changestamp' : 'MCPServer 9/18/2026 15:44'
 }
 SRGCYoungGraph >> updateGraph [
 	"Young space, full height: the scavenge sawtooth (used young vs eden), with the survivor
@@ -59,7 +80,8 @@ SRGCYoungGraph >> updateGraph [
 		alpha := self class scavengeEmaAlpha.
 		sample := (scavengeMs - lastScavengeMs) / countDelta.
 		emaScavengeMs := emaScavengeMs ifNil: [sample] ifNotNil: [emaScavengeMs * (1 - alpha) + (sample * alpha)].
-		survivorYoung := self usedYoungSpace].
+		"#survivorYoung is latched in #noteFrame, at the frame of the scavenge."
+		frameScavengeCount ifNil: [survivorYoung := self usedYoungSpace]].
 	lastScavengeCount := scavenges.
 	lastScavengeMs := scavengeMs.
 

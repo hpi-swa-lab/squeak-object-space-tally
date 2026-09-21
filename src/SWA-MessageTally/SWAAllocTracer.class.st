@@ -595,19 +595,19 @@ SWAAllocTracer class >> workingSetClasses [
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:52'
 }
 SWAAllocTracer class >> xrMenuAllocOneFrame: aMenu [
 	"Trace allocations of the classes of interest (#tracedClasses -- Vector3/Matrix4x4 by
 	default, add Array etc. via #traceClass:) over a single rendered frame."
 
-	<xrMenu: #(world profile) label: 'alloc survival 1 frame' priority: 209>
+	<xrMenu: #(world profile allocation) label: '1 frame' priority: 209>
 	^ self traceXRFrames: 1
 ]
 
 {
 	#category : #'xr menu',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 9/17/2026 17:52'
 }
 SWAAllocTracer class >> xrMenuAllocTenFrames: aMenu [
 	"Trace allocations of the classes of interest (#tracedClasses) over ten rendered
@@ -615,7 +615,7 @@ SWAAllocTracer class >> xrMenuAllocTenFrames: aMenu [
 	render loop. NB: keep the set small/cold for 10 frames -- adding Array here folds
 	every array the render path makes across ten frames plus a full survivor sweep."
 
-	<xrMenu: #(world profile) label: 'alloc survival 10 frames' priority: 210>
+	<xrMenu: #(world profile allocation) label: '10 frames' priority: 210>
 	^ self traceXRFrames: 10
 ]
 
