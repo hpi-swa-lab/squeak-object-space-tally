@@ -873,6 +873,25 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 18:02'
+}
+SWAView >> intensityColorFor: aValue max: aMax [
+	"GitHub-style single-hue intensity ramp: a dark empty cell, then four steps of
+	green. Log-normalised against aMax, because these counts are heavily skewed.
+
+	Lives here rather than on SWATemporalView because SWAOpenCodeTreemapMorph's
+	#writes and #reads colour modes also send it -- and did not inherit it, so both
+	modes raised doesNotUnderstand: on every draw."
+	| t |
+	aValue <= 0 ifTrue: [^ Color gray: 0.17].
+	t := aMax <= 1
+		ifTrue: [1.0]
+		ifFalse: [(((aValue max: 1) ln / aMax ln) min: 1.0) max: 0.0].
+	^ Color h: 135 s: 0.35 + (t * 0.45) v: 0.32 + (t * 0.58)
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:32'
 }

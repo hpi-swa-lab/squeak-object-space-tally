@@ -300,22 +300,6 @@ SWATemporalView >> initialize [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:35'
-}
-SWATemporalView >> intensityColorFor: aValue max: aMax [
-	"GitHub-style single-hue intensity ramp for an AGGREGATE bucket (a day, a bar):
-	a dark empty cell, then four steps of green. Log-normalised against aMax for the
-	same skew reason as #heatColorForNode:."
-	| t |
-	aValue <= 0 ifTrue: [^ Color gray: 0.17].
-	t := aMax <= 1
-		ifTrue: [1.0]
-		ifFalse: [(((aValue max: 1) ln / aMax ln) min: 1.0) max: 0.0].
-	^ Color h: 135 s: 0.35 + (t * 0.45) v: 0.32 + (t * 0.58)
-]
-
-{
-	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 8/6/2026 16:07'
 }
 SWATemporalView >> isCategoricalColorMode: aSymbol [
