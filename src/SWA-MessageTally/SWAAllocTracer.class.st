@@ -20,11 +20,24 @@ Class {
 		'AllocSurvivalByNode',
 		'AllocWatched',
 		'Armed',
+		'CaptureAll',
 		'TracedClasses'
 	],
 	#category : #'SWA-MessageTally',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:52'
+}
+SWAAllocTracer class >> abandonTraceUntilStop [
+	"Panel closed without pressing STOP. Close the gates and uninstall -- a wrapper left
+	on a universal funnel taxes every allocation in the image for the rest of the session."
+	self captureAll: false.
+	self disarm.
+	self releaseClassFilter
+]
 
 {
 	#category : #accessing,
@@ -37,7 +50,7 @@ SWAAllocTracer class >> allocRoot [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 9/21/2026 17:00'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:56'
 }
 SWAAllocTracer class >> armFor: aCollectionOfClasses [
 	"Start tracing allocations of the given classes. Install ONE wrapper on the shared
@@ -48,6 +61,7 @@ SWAAllocTracer class >> armFor: aCollectionOfClasses [
 	is useless -- so the caller MUST #disarm to stop paying the per-send overhead."
 	| funnels |
 	self disarm.
+	self clearProcessGates.
 	AllocRoot := SWASamplingTallyNode new name: 'allocations'; yourself.
 	AllocClassFilter := IdentitySet withAll: aCollectionOfClasses.
 	"Names for the report, so #releaseClassFilter can drop the classes themselves."
@@ -71,8 +85,19 @@ SWAAllocTracer class >> armFor: aCollectionOfClasses [
 ]
 
 {
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:51'
+}
+SWAAllocTracer class >> captureAll: aBoolean [
+	"Fold allocations from EVERY process, not just one gated block. What a live
+	trace-until-stop wants: the UI process, the XR world's render process and whatever
+	else is running all contribute. Only meaningful while armed."
+	CaptureAll := aBoolean
+]
+
+{
 	#category : #'context gate',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:23'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:51'
 }
 SWAAllocTracer class >> captureDuring: aBlock [
 	"Run aBlock with the context gate ON for its dynamic extent in this process, so the
@@ -80,25 +105,67 @@ SWAAllocTracer class >> captureDuring: aBlock [
 	dormant everywhere else. Restores the previous value afterwards (nested regions are
 	safe). This is the measuring window: keep it tight -- one method call, not a whole
 	Morphic cycle -- and never let it span an MCP round-trip, or the reading side gets
-	instrumented too."
+	instrumented too.
+
+	Restores ABSENT (nil), not false: false is a real state that would mask the global
+	#captureAll: flag for the rest of this process's life."
 	| proc prior |
 	proc := Processor activeProcess.
-	prior := proc environmentAt: self ifAbsent: [false].
+	prior := proc environmentAt: self ifAbsent: [nil].
 	proc environmentAt: self put: true.
 	^ aBlock ensure: [proc environmentAt: self put: prior]
 ]
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:24'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:56'
+}
+SWAAllocTracer class >> clearProcessGates [
+	"Drop every per-process gate value, so the global #captureAll: flag is what decides.
+
+	A stale explicit false MASKS the global flag for the life of that process, and a
+	long-lived process (the UI process, the XR world) outlives many traces. This is not
+	hypothetical: the gate used to restore false rather than absent, which left both of
+	those processes permanently unable to capture."
+	Process allSubInstances do: [:p |
+		p environmentRemoveKey: self ifAbsent: [nil]]
+]
+
+{
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:52'
 }
 SWAAllocTracer class >> disarm [
 	"Stop tracing: uninstall the funnel wrapper and roll up the tree totals. Idempotent.
 	Answers the root node (or nil if never armed), ready for #openFlamegraph."
 	AllocWatched ifNotNil: [:ws | ws do: [:w | w uninstall]. AllocWatched := nil].
 	Armed := false.
+	"Belt and braces: a CaptureAll left standing would be harmless with the wrappers
+	gone, but would silently fold the next armed capture's whole image."
+	CaptureAll := false.
 	AllocRoot ifNotNil: [:r | r rollUpTotals].
 	^ AllocRoot
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:52'
+}
+SWAAllocTracer class >> finishTraceUntilStop: aPanel [
+	"STOP pressed. Close the gates and uninstall FIRST, so nothing below is traced, then
+	measure and open.
+
+	The measure runs a beat later: #measureSurvival is a full GC plus a survivor sweep
+	over every traced class and blocks the UI for seconds, so the status line has to be
+	drawn before it starts or the user watches a frozen image with 'Tracing...' still
+	on it."
+	self captureAll: false.
+	self disarm.
+	aPanel status: 'Measuring survival (full GC + survivor sweep) ...'.
+	SWAPane afterMilliseconds: 200 doInUI: [
+		self measureSurvival.
+		aPanel closeWindow.
+		self openFlamegraph]
 ]
 
 {
@@ -178,18 +245,23 @@ SWAAllocTracer class >> initialize [
 ]
 
 {
-	#category : #'context gate',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:23'
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:51'
 }
 SWAAllocTracer class >> isCapturing [
-	"True only inside a #captureDuring: region in THIS process. DEFAULT OFF: the hot path
-	the wrapper consults answers false for every allocation the rest of the image makes
-	(MCP server, Morphic, the render loop), so those pay only this one probe plus the
-	primitive-fast forward -- which is what makes wrapping a class as hot as Array
-	survivable. Only allocations that happen dynamically inside the profiled block are
-	folded. Read straight from the process environment, no #value dispatch, so the guard
-	stays as cheap as possible."
-	^ (Processor activeProcess environmentAt: self ifAbsent: [false]) == true
+	"Whether the wrapper folds this allocation. Read straight from the process
+	environment, no #value dispatch, so the guard stays as cheap as possible -- every
+	allocation in the image pays it while armed.
+
+	THREE states, because the per-process gate has to override the global one in BOTH
+	directions: an explicit true (#captureDuring:, the frame-exact captures) or false
+	(#withGateOff:, which stops our own fold re-entering) wins, and only when the
+	process says nothing does the global #captureAll: flag decide. That flag is what
+	lets a live trace-until-stop see the whole image instead of one chosen process."
+	| v |
+	v := Processor activeProcess environmentAt: self ifAbsent: [nil].
+	v ifNil: [^ CaptureAll == true].
+	^ v == true
 ]
 
 {
@@ -263,6 +335,57 @@ SWAAllocTracer class >> openMorphicStepsFlamegraph [
 	"Apps-menu action: trace allocations of the classes of interest (#tracedClasses)
 	over 30 Morphic cycles and open the allocation flamegraph."
 	^ self traceMorphicStepsThenOpen: 30
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:52'
+}
+SWAAllocTracer class >> openTraceUntilStop [
+	"Apps-menu action: trace allocations of #tracedClasses until you press STOP, then
+	measure survival and open the flamegraph.
+
+	Replaces a fixed count of Morphic cycles, which was wrong twice over: driving the
+	cycles ourselves made the desktop unusable for the duration (all you could do was
+	feed it mouse events), and it recorded nothing from a running XR world, which
+	renders in its own process. Here the user drives, and #captureAll: folds EVERY
+	process -- including the MCP server, which is the price of seeing the XR world.
+
+	THE STOP BUTTON GOES UP FIRST and arming is held back a beat behind it, because
+	wrapping a universal funnel is not instant and a frozen image with no way to stop
+	is the one thing worse than a slow one. Each phase names itself: instrumenting,
+	tracing, measuring -- the measure is a full GC plus a survivor sweep and is easily
+	the slowest part, which was invisible before."
+	| panel classes |
+	classes := self tracedClasses.
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'SWA Trace Allocations -- do the ONE thing, then Stop';
+		yourself.
+	panel status: 'Instrumenting ', classes size printString, ' classes ...'.
+	panel
+		onStop: [self finishTraceUntilStop: panel];
+		onClose: [self abandonTraceUntilStop].
+	SWAPane afterMilliseconds: 300 doInUI: [
+		"Gone already? Then #onClose: has run and there is nothing to instrument."
+		panel world ifNotNil: [
+			self armFor: classes.
+			self captureAll: true.
+			panel status: 'Tracing ', classes size printString,
+				' classes in every process. Do the one thing, then press STOP.']].
+	^ panel
+]
+
+{
+	#category : #controlling,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:58'
+}
+SWAAllocTracer class >> pinnedClasses [
+	"The traced set as a MUTABLE collection, pinning the working set on first edit.
+	#tracedClasses only reads TracedClasses and answers a copy, so editing through it
+	sent #remove: to nil whenever no set had been pinned yet."
+	TracedClasses ifNil: [
+		TracedClasses := OrderedCollection withAll: self workingSetClasses].
+	^ TracedClasses
 ]
 
 {
@@ -367,12 +490,11 @@ SWAAllocTracer class >> rollUpSurvivalOf: aNode [
 
 {
 	#category : #'traced classes',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:58'
 }
 SWAAllocTracer class >> stopTracingClass: aClass [
 	"Remove a class of interest from the traced set. Answers the current set."
-	self tracedClasses.
-	TracedClasses remove: aClass ifAbsent: [].
+	self pinnedClasses remove: aClass ifAbsent: [].
 	^ self tracedClasses
 ]
 
@@ -450,15 +572,16 @@ SWAAllocTracer class >> traceBlock: aBlock for: aCollectionOfClasses [
 
 {
 	#category : #'traced classes',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:37'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:58'
 }
 SWAAllocTracer class >> traceClass: aClass [
 	"Add a class of interest to the traced set (idempotent). Only classes with a known
 	allocation funnel are actually caught -- Array (via Array class>>new:) and Vector
 	subclasses (via Vector class>>new); see #funnelsFor:. Adding one with no funnel is
 	harmless but records nothing for it. Answers the current set."
-	self tracedClasses.
-	(TracedClasses includes: aClass) ifFalse: [TracedClasses add: aClass].
+	| pinned |
+	pinned := self pinnedClasses.
+	(pinned includes: aClass) ifFalse: [pinned add: aClass].
 	^ self tracedClasses
 ]
 
@@ -474,7 +597,7 @@ SWAAllocTracer class >> traceClasses: aCollection [
 
 {
 	#category : #controlling,
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 16:42'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:46'
 }
 SWAAllocTracer class >> traceMorphicStepsThenOpen: aCount [
 	"Desktop one-shot: arm, drive aCount Morphic cycles, disarm, open the flamegraph.
@@ -485,7 +608,12 @@ SWAAllocTracer class >> traceMorphicStepsThenOpen: aCount [
 	self armFor: self tracedClasses.
 	"ensure: the hot funnel wrapper is ALWAYS uninstalled -- a stray wrapper on
 	Vector class>>new with eviction disabled would tax every allocation forever."
-	[world ifNotNil: [aCount timesRepeat: [world doOneCycleNow]]]
+	"#captureDuring: is not optional: the wrapper's first act is to consult the
+	default-off context gate, so without it every allocation takes the fast forward and
+	the trace comes out empty. Being per-process it also keeps the concurrent MCP server
+	and any background process out of the tree."
+	[self captureDuring: [
+		world ifNotNil: [aCount timesRepeat: [world doOneCycleNow]]]]
 		ensure: [self disarm].
 	"Scavenge and score survival AFTER the wrapper is gone, so the measurement walk does
 	not itself get traced."
@@ -580,7 +708,7 @@ SWAAllocTracer class >> tracedPackages [
 
 {
 	#category : #'context gate',
-	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:24'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:51'
 }
 SWAAllocTracer class >> withGateOff: aBlock [
 	"Run aBlock with the context gate forced OFF, restoring it after. Wraps the fold and
@@ -589,7 +717,7 @@ SWAAllocTracer class >> withGateOff: aBlock [
 	and recurse. The COP #withoutCapturing: analogue, but for our own default-off gate."
 	| proc prior |
 	proc := Processor activeProcess.
-	prior := proc environmentAt: self ifAbsent: [false].
+	prior := proc environmentAt: self ifAbsent: [nil].
 	proc environmentAt: self put: false.
 	^ aBlock ensure: [proc environmentAt: self put: prior]
 ]

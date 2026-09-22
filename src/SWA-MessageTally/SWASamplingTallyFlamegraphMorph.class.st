@@ -66,7 +66,7 @@ SWASamplingTallyFlamegraphMorph >> baseColorForNode: aNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 15:22'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:03'
 }
 SWASamplingTallyFlamegraphMorph >> breadcrumbString [
 	"Compact breadcrumb of the zoom focus (root .. focusNode), elided from the
@@ -79,7 +79,7 @@ SWASamplingTallyFlamegraphMorph >> breadcrumbString [
 		node := node parent].
 	path := parts inject: '' into: [:s :p | s isEmpty ifTrue: [p] ifFalse: [s , ' / ' , p]].
 	path := self elideHead: path to: 90.
-	^ path, '   ', (rootNode formatMicros: (focusNode ifNil: [0] ifNotNil: [:n | n totalSize])), ' total'
+	^ path, '   ', (self formatWeight: (focusNode ifNil: [0] ifNotNil: [:n | n totalSize])), ' total'
 ]
 
 {
@@ -262,6 +262,17 @@ SWASamplingTallyFlamegraphMorph >> focusNode: aNode [
 	frames := OrderedCollection new.
 	cachedForm := nil.
 	self changed
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:03'
+}
+SWASamplingTallyFlamegraphMorph >> formatWeight: aNumber [
+	"Flamegraph weights are microseconds of wall time. Subclasses whose tree counts
+	something else override this -- the node only ever answers a bare number, so the
+	unit lives here, in the view that knows what was measured."
+	^ rootNode formatMicros: aNumber
 ]
 
 {
@@ -480,7 +491,7 @@ SWASamplingTallyFlamegraphMorph >> selectedSourceString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:03'
 }
 SWASamplingTallyFlamegraphMorph >> selectionPathString [
 	"Detail line for the SELECTED frame: name, time, percent of the whole tree, and
@@ -490,9 +501,9 @@ SWASamplingTallyFlamegraphMorph >> selectionPathString [
 	rootTotal := rootNode totalSize max: 1.
 	pct := (selectedNode totalSize * 100.0 / rootTotal) roundTo: 0.1.
 	^ selectedNode name,
-		'   ', (rootNode formatMicros: selectedNode totalSize),
+		'   ', (self formatWeight: selectedNode totalSize),
 		' (', pct printString, '%)',
-		'   self ', (rootNode formatMicros: selectedNode selfSize)
+		'   self ', (self formatWeight: selectedNode selfSize)
 ]
 
 {

@@ -20,6 +20,17 @@ The diff excludes its own scaffolding (both snapshot arrays, the identity set,
 the counts dictionary) by identity, but genuine transient churn in a live image
 (the XR render loop, the MCP server servicing the call) still shows up -- expect
 a noise floor of ~1500-2300 objects even when 'nothing' happens.
+
+RELATED, AND EASY TO CONFUSE -- three tools walk the same heap and answer different
+questions. Pick by the question, not by the picture; they all end in the same enriched
+treemap:
+  SWASpaceTally    what is reachable at all, charged to the first parent reaching it.
+  SWAHeapDiff      what ONE step allocated (no GC between the sweeps, so garbage counts).
+  SWASurvivorDiff  of that, what survived a scavenge.
+  SWAYoungSpaceTally  what stands in young space NOW -- a population, not a step.
+
+The distinction that matters: a diff is bounded by an ACTION you supply, young space is
+bounded by the COLLECTOR. A step that allocates nothing still has a young space.
 "
 Class {
 	#name : #SWAHeapDiff,

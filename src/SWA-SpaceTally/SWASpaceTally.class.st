@@ -460,16 +460,23 @@ SWASpaceTally class >> loadFromFile: aFilePath [
 
 {
 	#category : #opening,
-	#'squeak_changestamp' : 'MCPServer 6/16/2026 16:46'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:27'
 }
 SWASpaceTally class >> open [
-	"Open a space tally explorer from the Apps/World menu.
-	Unlike #explore, this does NOT compact the walk, so the full walker
-	state (object refs, etc.) is kept around for diffing the result later."
+	"Apps-menu action: walk the default roots and open the TREEMAP -- the picture is
+	what the entry is for; #explore opens the multi-column explorer on the same walk.
+
+	Still does not compact. At the default threshold of 0 that prunes nothing and only
+	sets the [compacted] marker, so leaving it off keeps the tree honest for a later
+	#diffFrom:. Answers the tally, which is what #exploreDiffFrom: wants as a baseline.
+
+	Two phases, both under a progress bar: #walk shows 'Walking heap...', then
+	#openTreemapWithProgress shows 'Space Treemap: laying out...'. Neither is quick at
+	half a gigabyte and a few million visits, and a silent freeze reads as a hang."
 
 	| t |
 	t := self walk.
-	t openExplorer.
+	t openTreemapWithProgress.
 	^ t
 ]
 
@@ -1477,6 +1484,40 @@ SWASpaceTally >> openTreemap [
 	window setLabel: (self isDiff ifTrue: ['Space Treemap  DIFF'] ifFalse: ['Space Treemap']).
 	desiredExtent := (Display extent * 0.75) rounded.
 	window extent: desiredExtent.
+	window center: Display center.
+	^ window
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:27'
+}
+SWASpaceTally >> openTreemapWithProgress [
+	"#openTreemap, but with the layout done up front under a progress bar.
+
+	The walk has its own bar ('Walking heap...'), so this is the SECOND phase: without
+	it the bar finishes, the window appears, and the image then freezes silently while
+	the first draw squarifies a tree of a few million nodes. Answers the window."
+	| treemap overlay panel window total done |
+	treemap := SWASpaceTallyTreemapMorph on: rootNode.
+	overlay := SWASpaceTallyTreemapOverlay new.
+	overlay treemapMorph: treemap.
+	overlay extent: treemap extent.
+	treemap overlayMorph: overlay.
+	treemap addMorph: overlay.
+	total := (visitCount ifNil: [0]) max: 1.
+	'Space Treemap: laying out...' displayProgressFrom: 0 to: total during: [:bar |
+		done := 0.
+		treemap layoutProgress: [:n |
+			done := done + 1.
+			done \\ 2048 = 0 ifTrue: [bar value: (done min: total)]].
+		treemap ensureLayout.
+		treemap layoutProgress: nil.
+		bar value: total].
+	panel := SWAPane on: treemap.
+	window := panel openInWindow.
+	window setLabel: (self isDiff ifTrue: ['Space Treemap  DIFF'] ifFalse: ['Space Treemap']).
+	window extent: (Display extent * 0.75) rounded.
 	window center: Display center.
 	^ window
 ]

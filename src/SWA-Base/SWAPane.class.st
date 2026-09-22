@@ -1567,6 +1567,18 @@ SWAPane >> addGitChurnDataset: aGitChurnData name: aName [
 ]
 
 {
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> addPackageHere [
+	"[+] acts on whatever set the list is showing: this map's own packages, or the
+	shared working set when the view has none."
+	^ self packagesShowWorkingSet
+		ifTrue: [self addPackageToWorkingSet]
+		ifFalse: [self addPackageToCodeMap]
+]
+
+{
 	#category : #'code map - working set',
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
 }
@@ -1592,6 +1604,31 @@ SWAPane >> addPackageToCodeMap [
 	root addPackages: glob.
 	self renameCodeRootToItsPackages.
 	self rebuildCodeMap
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> addPackageToWorkingSet [
+	"[+] on a pane with no package set of its own: widen the SHARED working set.
+	Offers every package not already in it, plus free text for globs like 'Morphic*'."
+	| shown candidates choice glob |
+	shown := self packagesListItems asSet.
+	candidates := ((PackageInfo allPackages collect: [:p | p packageName])
+		reject: [:n | shown includes: n]) asSortedCollection asArray.
+	choice := UIManager default
+		chooseFrom: (Array with: 'Glob or comma list...'), candidates
+		values: (Array with: #glob), candidates
+		title: 'Add package to the working set'.
+	choice ifNil: [^ self].
+	glob := choice == #glob
+		ifTrue: [UIManager default request: 'Package glob(s) to add' initialAnswer: '']
+		ifFalse: [choice].
+	(glob isNil or: [glob withBlanksTrimmed isEmpty]) ifTrue: [^ self].
+	SWAPane codeMapWorkingSet:
+		(self packagesListItems asOrderedCollection add: glob withBlanksTrimmed; yourself).
+	self updatePackagesList
 ]
 
 {
@@ -3667,7 +3704,7 @@ SWAPane >> newMarksTab [
 
 {
 	#category : #'marks panel',
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:26'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
 }
 SWAPane >> newPackagesSection [
 	"The Packages section at the top of the Marks panel: a title row carrying the count
@@ -3687,13 +3724,13 @@ SWAPane >> newPackagesSection [
 		color: (Color gray: 0.7);
 		hResizing: #spaceFill; vResizing: #rigid;
 		yourself.
-	plus := self buttonLabelled: '+' action: #addPackageToCodeMap.
-	plus setBalloonText: 'Add a package to this map'.
-	minus := self buttonLabelled: '-' action: #removeSelectedPackage.
-	minus setBalloonText: 'Remove the selected package from this map'.
-	reset := self buttonLabelled: 'Reset' action: #resetCodeMapToWorkingSet.
+	plus := self buttonLabelled: '+' action: #addPackageHere.
+	plus setBalloonText: 'Add a package'.
+	minus := self buttonLabelled: '-' action: #removePackageHere.
+	minus setBalloonText: 'Remove the selected package'.
+	reset := self buttonLabelled: 'Reset' action: #resetPackagesHere.
 	reset setBalloonText: 'Back to the stored working set'.
-	default := self buttonLabelled: 'Default' action: #saveCodeMapWorkingSet.
+	default := self buttonLabelled: 'Default' action: #savePackagesHere.
 	default setBalloonText: 'Make this package list the default every new map opens on'.
 	titleRow := Morph new
 		color: (Color gray: 0.12);
@@ -4056,31 +4093,45 @@ SWAPane >> packagesIndex: anIndex [
 
 {
 	#category : #'marks panel',
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:21'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
 }
 SWAPane >> packagesListItems [
 	"The packages this map is actually showing. Empty for a view with no code root,
 	which is what keeps the section collapsed for non-code views."
 	| root |
-	root := self codeRoot ifNil: [^ #()].
+	root := self codeRoot
+		ifNil: [^ (SWACodeRootNode globsFrom: SWAPane codeMapWorkingSet)
+			asSortedCollection asArray].
 	^ root packageNames asSortedCollection asArray
 ]
 
 {
 	#category : #'marks panel',
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:06'
 }
 SWAPane >> packagesListMenu: aMenu [
 	"Right-click menu for the Packages list. The working-set actions live here rather
 	than on buttons: they change what EVERY new map opens on, not just this one."
-	aMenu addTitle: 'Packages'.
-	aMenu add: 'Add...' target: self selector: #addPackageToCodeMap.
+	aMenu addTitle: (self packagesShowWorkingSet ifTrue: ['Working set'] ifFalse: ['Packages']).
+	aMenu add: 'Add...' target: self selector: #addPackageHere.
 	self selectedPackageName ifNotNil: [:n |
-		aMenu add: 'Remove ', n target: self selector: #removeSelectedPackage].
+		aMenu add: 'Remove ', n target: self selector: #removePackageHere].
 	aMenu addLine.
-	aMenu add: 'Reset to working set' target: self selector: #resetCodeMapToWorkingSet.
-	aMenu add: 'Set as default working set' target: self selector: #saveCodeMapWorkingSet.
+	aMenu add: 'Reset' target: self selector: #resetPackagesHere.
+	aMenu add: 'Set as default working set' target: self selector: #savePackagesHere.
 	^ aMenu
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> packagesShowWorkingSet [
+	"True when this pane has no package set of its own and the list therefore shows the
+	SHARED working set. Views other than the Code Map still rest on it -- the allocation
+	tracer traces its classes, the trace instruments its methods -- so hiding it there
+	hid the very thing that decided what was measured."
+	^ self codeRoot isNil
 ]
 
 {
@@ -4446,6 +4497,16 @@ SWAPane >> removePackageFromCodeMap [
 ]
 
 {
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> removePackageHere [
+	^ self packagesShowWorkingSet
+		ifTrue: [self removeSelectedPackageFromWorkingSet]
+		ifFalse: [self removeSelectedPackage]
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
 }
@@ -4484,6 +4545,25 @@ SWAPane >> removeSelectedPackage [
 	packagesIndex := 0.
 	self renameCodeRootToItsPackages.
 	self rebuildCodeMap
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> removeSelectedPackageFromWorkingSet [
+	"[-] on a pane with no package set of its own. Refuses to empty the working set --
+	every tool that rests on it would then measure nothing."
+	| name items |
+	name := self selectedPackageName ifNil: [
+		^ self treemapCoverageStatus: 'Working set: select a package first'].
+	items := self packagesListItems asOrderedCollection.
+	items size <= 1 ifTrue: [
+		^ self treemapCoverageStatus: 'Working set: cannot remove the last package'].
+	items remove: name ifAbsent: [].
+	SWAPane codeMapWorkingSet: items.
+	packagesIndex := 0.
+	self updatePackagesList
 ]
 
 {
@@ -4583,6 +4663,22 @@ SWAPane >> resetCodeMapToWorkingSet [
 	root addPackages: SWAPane codeMapWorkingSet.
 	root name: SWAPane codeMapWorkingSet.
 	self rebuildCodeMap
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> resetPackagesHere [
+	"Reset means 'back one level'. For a map with its own packages that is the stored
+	working set; for the working set itself there is nowhere left to go but the
+	shipped default."
+	self packagesShowWorkingSet ifFalse: [^ self resetCodeMapToWorkingSet].
+	SWAPane codeMapWorkingSet: SWAPane defaultCodeMapWorkingSet.
+	packagesIndex := 0.
+	self updatePackagesList.
+	^ self treemapCoverageStatus:
+		'Working set reset: ', SWAPane codeMapWorkingSet
 ]
 
 {
@@ -4696,6 +4792,18 @@ SWAPane >> saveMarks [
 	SWAMarkSet default saveToFile: name.
 	self flashMarksMessage: 'Saved ', SWAMarkSet default keys size printString,
 		' mark(s) to ', (FileDirectory localNameFor: name)
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
+}
+SWAPane >> savePackagesHere [
+	"'Default' only has work to do when this map has a package set of its own; the
+	working set already IS the default."
+	self packagesShowWorkingSet ifFalse: [^ self saveCodeMapWorkingSet].
+	^ self treemapCoverageStatus:
+		'This IS the working set: ', SWAPane codeMapWorkingSet
 ]
 
 {
@@ -5278,17 +5386,20 @@ SWAPane >> updateMarksList [
 
 {
 	#category : #'marks panel',
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:05'
 }
 SWAPane >> updatePackagesList [
 	"Refresh the Packages list and its count after the map's package set changed."
 	| items |
 	items := self packagesListItems.
 	self packagesIndex > items size ifTrue: [packagesIndex := 0].
-	packagesTitleMorph ifNotNil: [
+	packagesTitleMorph ifNotNil: [ | label |
+		"Name which set this is: editing the working set changes what every other tool
+		measures, editing a map's own packages changes only that map."
+		label := self packagesShowWorkingSet ifTrue: ['Working set'] ifFalse: ['Packages'].
 		packagesTitleMorph contents: (items isEmpty
-			ifTrue: ['Packages']
-			ifFalse: ['Packages (', items size printString, ')'])].
+			ifTrue: [label]
+			ifFalse: [label, ' (', items size printString, ')'])].
 	packagesList ifNotNil: [packagesList updateList]
 ]
 

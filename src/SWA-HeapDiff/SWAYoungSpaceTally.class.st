@@ -23,6 +23,16 @@ treemap shows young-object containment and the Provenance branch names the code
 
 survivors: the collected young objects, held only for the analysis window. Drop this
 instance (or null survivors) afterward so they are not pinned as an MCP eval result.
+
+VERSUS SWAHeapDiff -- the overlap is real and the two are easy to mistake for each other.
+Both end in the same enriched treemap with the same provenance-by-home-method branch, and
+both are about young objects. They differ in what BOUNDS the object set:
+  SWAHeapDiff      an ACTION you supply. Nothing runs, nothing is reported.
+  SWAYoungSpaceTally  the COLLECTOR. Young space has a standing floor that no single
+  step created, and that floor is invisible to a diff.
+
+So a diff answers ""what did THIS cost?"" and this answers ""what is sitting there?"".
+Use the diff when you have one action to blame, this when you do not.
 "
 Class {
 	#name : #SWAYoungSpaceTally,

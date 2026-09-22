@@ -76,6 +76,17 @@ SWAAllocFlamegraphMorph >> classForNode: aNode [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 16:03'
+}
+SWAAllocFlamegraphMorph >> formatWeight: aNumber [
+	"Allocation counts, not microseconds: the inherited #formatMicros: read 41000
+	allocations as '41.0 ms'."
+	aNumber = 1 ifTrue: [^ '1 alloc'].
+	^ aNumber asInteger asStringWithCommas , ' allocs'
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 17:47'
 }

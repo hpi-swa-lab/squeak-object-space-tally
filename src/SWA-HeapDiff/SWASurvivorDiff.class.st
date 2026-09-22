@@ -6,6 +6,14 @@ SWAHeapDiff answers ""what did one step allocate?"" -- (after - before) with no 
 The mechanism is one line different: run the work, then #garbageCollectMost (young-only; p9 +1, p7 +0) BEFORE #captureAfter. Everything the collect reclaims drops out of the after-snapshot, so (after - before) is exactly the newly allocated objects that survived -- the ~4000 Vector3 + ~3000 FullBlockClosure/Context set the journal could name by class but not by code.
 
 Because the survivors are real objects here (not identityHash fingerprints as in SRSurvivorCensus), the inherited enrichment applies unchanged: the Provenance branch groups the surviving closures and Contexts by home method (category > Class > Class>>selector), naming the CODE that keeps them reachable. That is the journal's next-step #1, reusing the tool that already implements it.
+
+NOT IN THE APPS MENU, deliberately. One idle Morphic cycle allocates ~750 objects of
+which ~13 survive, and a treemap of 13 objects reads as a broken tool. It needs a step
+that actually retains something:
+  SWASurvivorDiff around: [ theWorkYouCareAbout ]
+  SWASurvivorDiff measureXRFrames: 10 in: SRWorld current
+or the XR menu (profile > survivors > 1 / 10 / 100 frames), where a render frame retains
+thousands. A Morphic game that does real work in its step qualifies too.
 "
 Class {
 	#name : #SWASurvivorDiff,
