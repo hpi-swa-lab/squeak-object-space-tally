@@ -80,7 +80,7 @@ SWASpaceTallyTreemapOverlay >> classForAllocTraceOf: aNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:05'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:29'
 }
 SWASpaceTallyTreemapOverlay >> colorModeOptions [
 	| opts |
@@ -91,6 +91,9 @@ SWASpaceTallyTreemapOverlay >> colorModeOptions [
 		(#type           'By type (Morphic/Collection/Value/Other)')
 		(#bitmap         'Bitmap (render Forms)')
 	).
+	(treemapMorph respondsTo: #fateByObject) ifTrue: [
+		treemapMorph fateByObject ifNotNil: [
+			opts addFirst: #(#fate 'By fate (red kept / green collected)')]].
 	^ opts asArray
 ]
 

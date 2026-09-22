@@ -44,6 +44,10 @@ Interaction:
 Class {
 	#name : #SWASpaceTallyTreemapMorph,
 	#superclass : #SWATreemapMorph,
+	#instVars : [
+		'fateByObject',
+		'fateSummary'
+	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }
@@ -69,7 +73,7 @@ SWASpaceTallyTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:05'
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:29'
 }
 SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch to the active color strategy. A minted dataset-metric symbol (e.g. a
@@ -78,6 +82,7 @@ SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 	intrinsic strategies."
 	(self metricForMode: colorMode) ifNotNil: [:metric |
 		^ (metric colorForNode: aNode) ifNil: [Color gray: 0.22]].
+	self colorMode == #fate ifTrue: [^ self colorByFate: aNode].
 	self colorMode == #children ifTrue: [^ self colorByChildren: aNode].
 	self colorMode == #otherParents ifTrue: [^ self colorByOtherParents: aNode].
 	self colorMode == #type ifTrue: [^ self colorByType: aNode].
@@ -114,6 +119,38 @@ SWASpaceTallyTreemapMorph >> colorByClass: aNode [
 	sat := 0.45 + ((aNode depth \\ 5) * 0.06).
 	bright := 0.85 - ((aNode depth \\ 5) * 0.04).
 	^ Color h: hue s: sat v: bright
+]
+
+{
+	#category : #fate,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 10:50'
+}
+SWASpaceTallyTreemapMorph >> colorByFate: aNode [
+	"Red kept, green collected, amber the old-space object doing the keeping. Red and green
+	are the same reading as the allocation-survival flamegraph, where red is the cost and
+	green is a generational GC working as intended.
+
+	There is no colour for objects born after the snapshot, because a snapshot has exactly
+	two outcomes and they were not in it.
+
+	A node with no recorded fate is structural (a branch header or a provenance label),
+	not a third outcome, so it stays neutral."
+	| fate |
+	fateByObject ifNil: [^ Color gray: 0.22].
+	fate := fateByObject at: aNode object ifAbsent: [nil].
+	fate == #survived ifTrue: [^ Color r: 0.85 g: 0.25 b: 0.2].
+	fate == #collected ifTrue: [^ Color r: 0.25 g: 0.7 b: 0.35].
+	"Promoted: alive, and no longer in young space at all -- a third outcome, not a
+	variety of survival."
+	fate == #promoted ifTrue: [^ Color r: 0.25 g: 0.5 b: 0.78].
+	fate == #retainer ifTrue: [^ Color r: 0.8 g: 0.6 b: 0.15].
+	fate == #owner ifTrue: [^ Color r: 0.55 g: 0.35 b: 0.1].
+	"The two stand-ins: a captor whose owner was not found stays in the amber family but
+	desaturated; survivors nothing points at get a hue of their own, because that tile is
+	the one worth looking at."
+	fate == #unowned ifTrue: [^ Color r: 0.5 g: 0.44 b: 0.34].
+	fate == #noRoot ifTrue: [^ Color r: 0.6 g: 0.28 b: 0.7].
+	^ Color gray: 0.22
 ]
 
 {
@@ -225,6 +262,36 @@ SWASpaceTallyTreemapMorph >> exploreNode: aNode [
 ]
 
 {
+	#category : #fate,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:29'
+}
+SWASpaceTallyTreemapMorph >> fateByObject [
+	^ fateByObject
+]
+
+{
+	#category : #fate,
+	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:29'
+}
+SWASpaceTallyTreemapMorph >> fateByObject: anIdentityDictionary [
+	"object -> #survived | #collected | #born, from a young-space fate pass. Keyed by
+	object rather than by node because #compact: rebuilds the tree and node identity does
+	not survive it."
+	fateByObject := anIdentityDictionary.
+	^ self
+]
+
+{
+	#category : #fate,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 10:13'
+}
+SWASpaceTallyTreemapMorph >> fateSummary: aString [
+	"Whole-run statistics line shown in the panel's info area."
+	fateSummary := aString.
+	^ self
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:10'
 }
@@ -287,6 +354,18 @@ SWASpaceTallyTreemapMorph >> overlayClass [
 	"The event/menu overlay class this view uses -- a view-policy hook so the
 	SWAPane can (re)wire an overlay when morphing structures."
 	^ SWASpaceTallyTreemapOverlay
+]
+
+{
+	#category : #fate,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 10:13'
+}
+SWASpaceTallyTreemapMorph >> runInfoString [
+	"Line 1 of the panel info area: whole-run statistics, independent of the selection, so
+	it stays put while clicking around. Falls back to the focused-subtree meta line for
+	views with no fate pass behind them. (SWAPane content protocol.)"
+	fateSummary ifNil: [^ self metaInfoString].
+	^ fateSummary
 ]
 
 {

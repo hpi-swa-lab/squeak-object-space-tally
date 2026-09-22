@@ -14,7 +14,8 @@ Class {
 		'maxRoot',
 		'maxTenures',
 		'lastFullGcCount',
-		'retained'
+		'retained',
+		'retainedAt'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -85,13 +86,22 @@ SRGCSurvivorGraph >> initialize [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 13:27'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:10'
 }
 SRGCSurvivorGraph >> labelString [
-	| s |
+	"Both surv and kept are OBJECT COUNTS (p35 is 'number of survivor objects after
+	current IGC/FGC'), and they are not the same quantity: surv is sampled at a scavenge,
+	kept at a full GC, which also drops the floating garbage a scavenge must keep. kept
+	carries its age because it only changes when a full GC happens, which on a quiet image
+	can be minutes -- unlabelled, a stale number reads as a current one."
+	| s age |
 	s := self labelStreamReset.
 	s nextPutAll: 'surv '; print: survivors; nextPutAll: '  kept '.
-	retained ifNil: [s nextPut: $?] ifNotNil: [s print: retained].
+	retained ifNil: [s nextPut: $?] ifNotNil: [
+		s print: retained.
+		retainedAt ifNotNil: [
+			age := (Time millisecondClockValue - retainedAt) // 1000.
+			s nextPutAll: ' ('; print: age; nextPutAll: 's)']].
 	s nextPutAll: '  root '; print: rootTable;
 	  nextPutAll: '  ten/scav '; print: tenuresPerScav rounded.
 	^ s contents
@@ -112,7 +122,7 @@ SRGCSurvivorGraph >> plotValue: value max: aMax color: aColor [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 8/14/2026 16:02'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:10'
 }
 SRGCSurvivorGraph >> updateGraph [
 	"Sample p35/p21/tenures at each scavenge (held between scavenges) and plot three
@@ -141,7 +151,14 @@ SRGCSurvivorGraph >> updateGraph [
 	truly retained set, usually far below the per-scavenge survivors."
 	fullGcs := Smalltalk vmParameterAt: 7.
 	fullGced := lastFullGcCount notNil and: [fullGcs > lastFullGcCount].
-	fullGced ifTrue: [retained := Smalltalk vmParameterAt: 35].
+	fullGced ifTrue: [
+		retained := Smalltalk vmParameterAt: 35.
+		retainedAt := Time millisecondClockValue.
+		"Scale the retained line against a max that includes it. It was scaled against
+		maxSurvivors, which only ever tracks SCAVENGE survivors, so a full GC that kept
+		more than any scavenge had -- routine, since the two count different things --
+		pinned the line to the top of the lane for good."
+		maxSurvivors := maxSurvivors max: retained].
 	lastFullGcCount := fullGcs.
 
 	graph shiftBy: 2.
