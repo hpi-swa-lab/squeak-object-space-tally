@@ -46,11 +46,34 @@ Class {
 	#superclass : #SWATreemapMorph,
 	#instVars : [
 		'fateByObject',
-		'fateSummary'
+		'fateSummary',
+		'ageByObject',
+		'maxAge'
 	],
 	#category : #'SWA-SpaceTally',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #age,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:01'
+}
+SWASpaceTallyTreemapMorph >> ageByObject [
+	^ ageByObject
+]
+
+{
+	#category : #age,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:01'
+}
+SWASpaceTallyTreemapMorph >> ageByObject: anIdentityDictionary [
+	"object -> age in samples, from a young-space series."
+	ageByObject := anIdentityDictionary.
+	maxAge := 1.
+	anIdentityDictionary ifNotNil: [
+		anIdentityDictionary valuesDo: [:age | maxAge := maxAge max: age]].
+	^ self
+]
 
 {
 	#category : #accessing,
@@ -73,7 +96,7 @@ SWASpaceTallyTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:29'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:01'
 }
 SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch to the active color strategy. A minted dataset-metric symbol (e.g. a
@@ -83,6 +106,7 @@ SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 	(self metricForMode: colorMode) ifNotNil: [:metric |
 		^ (metric colorForNode: aNode) ifNil: [Color gray: 0.22]].
 	self colorMode == #fate ifTrue: [^ self colorByFate: aNode].
+	self colorMode == #age ifTrue: [^ self colorByAge: aNode].
 	self colorMode == #children ifTrue: [^ self colorByChildren: aNode].
 	self colorMode == #otherParents ifTrue: [^ self colorByOtherParents: aNode].
 	self colorMode == #type ifTrue: [^ self colorByType: aNode].
@@ -90,6 +114,27 @@ SWASpaceTallyTreemapMorph >> baseColorForNode: aNode [
 		"Non-Form tiles get a dim gray so actual images stand out."
 		^ Color gray: 0.18].
 	^ self colorByClass: aNode
+]
+
+{
+	#category : #age,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:55'
+}
+SWASpaceTallyTreemapMorph >> colorByAge: aNode [
+	"Cool for fresh, hot for old: an object still here after every scavenge in the series
+	is what costs, because the scavenger copies it every single time.
+
+	A node with no age is structural, not age zero, so it stays neutral."
+	| age |
+	ageByObject ifNil: [^ Color gray: 0.22].
+	aNode object ifNil: [^ Color gray: 0.22].
+	"Not in the series means born after sampling started, i.e. age 1 -- not 'unknown'."
+	age := ageByObject at: aNode object ifAbsent: [1].
+	maxAge <= 1 ifTrue: [^ Color r: 0.85 g: 0.25 b: 0.2].
+	^ Color
+		h: 210 - (200 * (age - 1) / (maxAge - 1))
+		s: 0.75
+		v: 0.85
 ]
 
 {

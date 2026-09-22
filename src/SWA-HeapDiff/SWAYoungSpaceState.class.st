@@ -35,7 +35,8 @@ Class {
 		'fpSize',
 		'fpCount',
 		'tblObj',
-		'tblMore'
+		'tblMore',
+		'sampleBuffers'
 	],
 	#classInstVars : [
 		'Default'
@@ -177,6 +178,16 @@ SWAYoungSpaceState >> basicEmulatedYoungMark [
 			at: #msTotal put: msTotal;
 			yourself);
 		yourself
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:50'
+}
+SWAYoungSpaceState >> bufferAt: index [
+	"The sample buffer as filled, without clearing it. #sampleBufferAt: clears on access
+	because it hands out a buffer to be written."
+	^ sampleBuffers ifNotNil: [sampleBuffers at: index]
 ]
 
 {
@@ -727,6 +738,29 @@ SWAYoungSpaceState >> fateOfYoungSpaceExact [
 ]
 
 {
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:50'
+}
+SWAYoungSpaceState >> fillSampleBuffer: index [
+	"Record the identities of young space into reusable buffer `index`. Answers the count.
+
+	Nothing is allocated except the prim 178 snapshot, which is far too big for eden so it
+	goes straight to old space and never appears in a sample; its slots are erased before
+	it is dropped so it pins nothing. No class or size arrays: for ages the objects that
+	matter are alive and can be asked directly at analysis time."
+	| all n boundary buf count |
+	all := SystemNavigation default allObjectsOrNil.
+	all ifNil: [^ 0].
+	n := all size.
+	boundary := self youngBoundaryIn: all.
+	count := (n - boundary + 1) min: self sampleCapacity.
+	buf := self sampleBufferAt: index.
+	1 to: count do: [:i | buf at: i put: (all at: boundary + i - 1)].
+	all atAllPut: nil.
+	^ count
+]
+
+{
 	#category : #fingerprinting,
 	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:25'
 }
@@ -804,6 +838,14 @@ SWAYoungSpaceState >> markYoungFrom: rootYoung [
 		self youngReferentsOf: o do: [:each |
 			(marked includes: each) ifFalse: [marked add: each. queue addLast: each]]].
 	^ marked
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:49'
+}
+SWAYoungSpaceState >> maxSamples [
+	^ 12
 ]
 
 {
@@ -953,6 +995,40 @@ SWAYoungSpaceState >> retainersOf: targetObjects excluding: ourObjects [
 ]
 
 {
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:49'
+}
+SWAYoungSpaceState >> sampleBufferAt: index [
+	"A reusable WeakArray for sample `index`, allocated ONCE at a size big enough to be
+	born in old space and never reallocated.
+
+	Allocating one per sample was the bug: a WeakArray of a few thousand slots is small
+	enough to be born YOUNG, so it appeared in the next sample and dominated it -- '4
+	objects, 1.1 MB' was the tool's own buffers, not the program's. That is the rule
+	2026-08-21 already wrote down and I ignored.
+
+	Cleared by contents on reuse, never by reallocation, for the same reason."
+	| buf |
+	sampleBuffers ifNil: [sampleBuffers := Array new: self maxSamples].
+	buf := sampleBuffers at: index.
+	buf ifNil: [
+		buf := WeakArray new: self sampleCapacity.
+		sampleBuffers at: index put: buf].
+	buf atAllPut: nil.
+	^ buf
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:49'
+}
+SWAYoungSpaceState >> sampleCapacity [
+	"Slots per sample buffer. 250000 is both well above the largest young population seen
+	here (~90k) and large enough that the buffer is born in old space."
+	^ 250000
+]
+
+{
 	#category : #marking,
 	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:54'
 }
@@ -1016,6 +1092,47 @@ SWAYoungSpaceState >> scavengeFate [
 ]
 
 {
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:51'
+}
+SWAYoungSpaceState >> takeWeakSample [
+	"One snapshot of young space that holds NOTHING strongly. Answers
+	{ weakArray. classes. byteSizes. scavengeCount. millisecondClock. youngBytes }.
+
+	A WeakArray preserves identity without keeping anything alive, which is what makes a
+	series possible at all: samples can be compared object by object later, with no
+	fingerprints and no risk that holding sample 1 changes the answer for sample 2. The
+	class and size are recorded now because a dead object cannot be asked later.
+
+	The parallel arrays are large enough to be born in old space, so the sample does not
+	appear in the next one."
+	| all n boundary weak classes sizes mirror |
+	all := SystemNavigation default allObjectsOrNil.
+	all ifNil: [^ nil].
+	n := all size.
+	boundary := self youngBoundaryIn: all.
+	n := n - boundary + 1.
+	weak := WeakArray new: n.
+	classes := Array new: n.
+	sizes := Array new: n.
+	mirror := thisContext.
+	1 to: n do: [:i |
+		| o cls |
+		o := all at: boundary + i - 1.
+		cls := mirror objectClass: o.
+		weak at: i put: o.
+		classes at: i put: cls.
+		sizes at: i put: (self byteSizeOfClass: cls size: (mirror objectSize: o) object: o)].
+	all atAllPut: nil.
+	all := nil.
+	^ {
+		weak. classes. sizes.
+		Smalltalk vmParameterAt: 9.
+		Time millisecondClockValue.
+		Smalltalk vmParameterAt: 2 }
+]
+
+{
 	#category : #verification,
 	#'squeak_changestamp' : 'MCPServer 9/21/2026 18:58'
 }
@@ -1067,6 +1184,55 @@ SWAYoungSpaceState >> validateEmulatedMark [
 		at: #saidLiveButGone put: fp;
 		at: #saidGarbageAndDied put: tn;
 		at: #tenuredObjects put: p11b - p11a;
+		yourself
+]
+
+{
+	#category : #verification,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:53'
+}
+SWAYoungSpaceState >> validateWeakOracle [
+	"Check the one mechanism the whole fate measurement rests on: that a weak slot is
+	nilled by a SCAVENGE exactly when its object dies, and never otherwise.
+
+	A strong array cannot substitute for this -- holding an object prevents the death you
+	are trying to observe -- so if weak references are unreliable here, per-object fate is
+	not measurable at all and the tool should be deleted rather than believed.
+
+	Answers a Dictionary. liveButNilled must be 0: that is the direction that makes a live
+	object look dead. deadNotNilled must be 0 immediately, which also establishes that
+	nilling happens IN the scavenge rather than in a later finalization pass, so reading
+	straight afterwards is sound.
+
+	Covers plain objects only. Weak objects and ephemerons inside a real sample have their
+	own rules and are not exercised here; the cross-check that does cover the real
+	population is #survived against the VM's own p35, which agrees within a few objects."
+	| n weak strong liveButNilled deadNotNilled deadNotNilledLater |
+	n := 20000.
+	Smalltalk garbageCollect.
+	weak := WeakArray new: n * 2.
+	strong := Array new: n.
+	1 to: n do: [:i |
+		| o |
+		o := Array new: 3.
+		strong at: i put: o.
+		weak at: i put: o].
+	1 to: n do: [:i | weak at: n + i put: (Array new: 3)].
+	Smalltalk garbageCollectMost.
+	liveButNilled := 0.
+	1 to: n do: [:i | (weak at: i) isNil ifTrue: [liveButNilled := liveButNilled + 1]].
+	deadNotNilled := 0.
+	n + 1 to: n * 2 do: [:i | (weak at: i) ifNotNil: [deadNotNilled := deadNotNilled + 1]].
+	(Delay forMilliseconds: 300) wait.
+	deadNotNilledLater := 0.
+	n + 1 to: n * 2 do: [:i | (weak at: i) ifNotNil: [deadNotNilledLater := deadNotNilledLater + 1]].
+	strong := nil.
+	^ Dictionary new
+		at: #sampleSize put: n;
+		at: #liveButNilled put: liveButNilled;
+		at: #deadNotNilled put: deadNotNilled;
+		at: #deadNotNilledAfterDelay put: deadNotNilledLater;
+		at: #trustworthy put: (liveButNilled = 0 and: [deadNotNilled = 0]);
 		yourself
 ]
 

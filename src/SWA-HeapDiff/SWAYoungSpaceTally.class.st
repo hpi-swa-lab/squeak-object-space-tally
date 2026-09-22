@@ -35,7 +35,9 @@ Class {
 		'unownedMarker',
 		'noRootMarker',
 		'youngBytesAtCapture',
-		'scavengesAtCapture'
+		'scavengesAtCapture',
+		'series',
+		'ages'
 	],
 	#category : #'SWA-HeapDiff',
 	#'squeak_changestamp' : '<historical>'
@@ -90,7 +92,7 @@ SWAYoungSpaceTally class >> gcComparison [
 
 {
 	#category : #initialization,
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:38'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:01'
 }
 SWAYoungSpaceTally class >> initialize [
 	"Register the two Apps-menu entries. Same 'SWA ' prefix as the rest of the suite so
@@ -105,6 +107,10 @@ SWAYoungSpaceTally class >> initialize [
 		{self. #openYoungSpaceNow}.
 		'Young space exactly as it stands -- no scavenge, no full GC, nothing collected -- with the old-space objects that point into it and who owns those. Makes no claim about what survives, because deciding that requires a collection that would destroy it' }.
 	TheWorldMenu registerOpenCommand: {
+		'SWA Young Space ages (5 samples)'.
+		{self. #openAges}.
+		'Sample young space five times, one scavenge apart, and show the SURVIVORS grouped and coloured by how many samples they have lasted. Cool = fresh, hot = still here after every scavenge. Holds nothing and runs no GC' }.
+	TheWorldMenu registerOpenCommand: {
 		'SWA Young Space fate at next scavenge'.
 		{self. #openScavengeFate}.
 		'What the next scavenge does to young space: red survived it, blue was tenured out to old space, green was collected -- with the old-space objects holding each survivor. No full GC' }.
@@ -116,6 +122,17 @@ SWAYoungSpaceTally class >> initialize [
 		'SWA Young Space retained (no collected)'.
 		{self. #openRetained}.
 		'Only what young space is still holding -- survivors and promoted -- with the collected mass left out so the retained objects are readable' }
+]
+
+{
+	#category : #running,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:55'
+}
+SWAYoungSpaceTally class >> openAges [
+	"The normal scavenge-fate view with age as a second colour mode: five samples, one
+	scavenge apart, then the usual analysis."
+	self new openScavengeFateWithAges: 5 waitScavenges: 1.
+	^ nil
 ]
 
 {
@@ -268,8 +285,56 @@ SWAYoungSpaceTally >> addCollectedBranchUnder: rootNode [
 ]
 
 {
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:50'
+}
+SWAYoungSpaceTally >> ageByObject [
+	"object -> age in samples, for everything still alive. Age N means it was already
+	there at the oldest sample.
+
+	Walking the samples oldest first and keeping the FIRST index at which an object
+	appears is the whole computation: nothing resurrects, so an object alive now that
+	appears in sample i was alive at every sample after i. No intersection, no
+	fingerprints, no identityHash -- the weak arrays hold the objects themselves.
+
+	An object promoted out of young space mid-series stops appearing in later samples but
+	keeps its entry in the earlier one, so its age is still right."
+	| first count map |
+	map := IdentityDictionary new.
+	series isNil ifTrue: [^ map].
+	count := series size.
+	series doWithIndex: [:sample :i |
+		| weak filled |
+		weak := sample at: 1.
+		filled := sample at: 2.
+		1 to: filled do: [:j |
+			(weak at: j) ifNotNil: [:o | map at: o ifAbsentPut: [i]]]].
+	first := map.
+	^ first collect: [:idx | count - idx + 1]
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:01'
+}
+SWAYoungSpaceTally >> ageSummaryString [
+	| hist top |
+	hist := Dictionary new.
+	ages valuesDo: [:age | hist at: age put: (hist at: age ifAbsent: [0]) + 1].
+	top := hist keys inject: 0 into: [:a :b | a max: b].
+	^ String streamContents: [:s |
+		s nextPutAll: 'young space ages over '; print: series size;
+			nextPutAll: ' samples, no GC run   |   alive now '; print: ages size.
+		top to: 1 by: -1 do: [:age |
+			(hist at: age ifAbsent: [0]) > 0 ifTrue: [
+				s nextPutAll: '   |   age '; print: age; nextPutAll: ': '; print: (hist at: age)]].
+		s nextPutAll: '   |   age '; print: top;
+			nextPutAll: ' = copied by every scavenge in the series']
+]
+
+{
 	#category : #fate,
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:31'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:55'
 }
 SWAYoungSpaceTally >> applyFateTo: aWindow [
 	"Hand the fate table to the treemap morph inside aWindow and open in #fate mode."
@@ -280,6 +345,9 @@ SWAYoungSpaceTally >> applyFateTo: aWindow [
 		ifNone: [nil].
 	morph ifNil: [^ self].
 	morph fateByObject: self fateByObject.
+	"Ages, when a series was taken, are an ADDITIONAL colour mode over the normal tree --
+	the structure stays grouped by what captures each object."
+	ages ifNotNil: [morph ageByObject: ages].
 	morph fateSummary: (fate ifNil: [self summaryStringNoGC] ifNotNil: [self summaryString]).
 	(morph respondsTo: #colorMode:) ifTrue: [morph colorMode: #fate].
 	morph changed.
@@ -460,7 +528,7 @@ SWAYoungSpaceTally >> collectScavengeFate [
 
 {
 	#category : #fate,
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 10:56'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 13:04'
 }
 SWAYoungSpaceTally >> confinedTallyFor: objects [
 	"A containment walk rooted at objects and confined to them, so every node in the
@@ -475,12 +543,14 @@ SWAYoungSpaceTally >> confinedTallyFor: objects [
 
 	The price is that containment ACROSS fates is not shown: a survivor holding a promoted
 	object no longer shows it beneath itself."
-	| roots |
-	roots := OrderedCollection new: objects size + 1.
-	objects doWithIndex: [:obj :i |
+	| roots ours kept |
+	ours := self ownObjects.
+	kept := objects reject: [:each | ours includes: each].
+	roots := OrderedCollection new: kept size + 1.
+	kept doWithIndex: [:obj :i |
 		roots add: (obj class name , '[' , i printString , ']') -> obj].
 	^ SWAHeapDiffSpaceTally new
-		diffObjects: objects;
+		diffObjects: kept;
 		roots: roots;
 		walk;
 		yourself
@@ -823,6 +893,36 @@ SWAYoungSpaceTally >> openScavengeFate [
 ]
 
 {
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:55'
+}
+SWAYoungSpaceTally >> openScavengeFateWithAges: count waitScavenges: k [
+	"The normal scavenge-fate view -- survivors filed under what captures them -- with age
+	available as a second colour mode.
+
+	The series runs first and holds nothing, so it does not change what the fate pass then
+	measures. An object the series never saw is age 1: it was born after sampling started."
+	| tally win p7 |
+	p7 := Smalltalk vmParameterAt: 7.
+	'Young space: sampling ages...' displayProgressFrom: 0 to: 6 during: [:bar |
+		bar value: 1; value: 'Young space: sampling ', count printString, ' times...'.
+		self sampleAges: count waitScavenges: k.
+		bar value: 2; value: 'Young space: fate at next scavenge...'.
+		self collectScavengeFate.
+		bar value: 3; value: 'Young space: finding what holds the survivors...'.
+		self collectRetainers.
+		bar value: 4; value: 'Young space: finding who holds those...'.
+		self collectRetainerParents.
+		bar value: 5; value: 'Young space: building treemap...'.
+		tally := self buildFateTreeIncludingCollected: true.
+		win := (tally compact: 0) openTreemap.
+		bar value: 6].
+	self applyFateTo: win.
+	Transcript cr; show: 'fate+ages: fullGCs=', ((Smalltalk vmParameterAt: 7) - p7) printString.
+	^ win
+]
+
+{
 	#category : #'space tally',
 	#'squeak_changestamp' : 'MCPServer 8/20/2026 17:03'
 }
@@ -886,6 +986,43 @@ SWAYoungSpaceTally >> openYoungSpaceNow [
 
 {
 	#category : #fate,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 13:04'
+}
+SWAYoungSpaceTally >> ownObjects [
+	"Our own collections and their backing Arrays, as an IdentitySet.
+
+	These are young objects that point at EVERY survivor, so when the confined walk picks
+	one up as a root it nests all the others underneath it and the Survivors group shows a
+	single tile -- which is what 'the survivors group collapsed' was. Excluding the
+	collection is not enough: a collection is one object and its backing Array is another
+	holding the same references, the distinction 2026-08-21 spent a day on."
+	| set mirror add |
+	set := IdentitySet new.
+	mirror := thisContext.
+	add := [:each |
+		each ifNotNil: [
+			| cls |
+			set add: each.
+			cls := mirror objectClass: each.
+			1 to: cls instSize do: [:k |
+				(mirror object: each instVarAt: k) ifNotNil: [:v | set add: v]]]].
+	add value: survivors.
+	add value: ages.
+	add value: series.
+	add value: retainers.
+	add value: retainerParents.
+	fate ifNotNil: [
+		add value: fate.
+		#(#survivors #promoted #born #collectedByClass #collectedBytesByClass #stats)
+			do: [:key | add value: (fate at: key ifAbsent: [nil])]].
+	retainers ifNotNil: [
+		retainers do: [:pair | add value: pair. add value: (pair at: 2)]].
+	series ifNotNil: [series do: [:sample | add value: sample. add value: (sample at: 1)]].
+	^ set
+]
+
+{
+	#category : #fate,
 	#'squeak_changestamp' : 'MCPServer 9/22/2026 10:20'
 }
 SWAYoungSpaceTally >> ownerNodeFor: anOwner under: aBranch [
@@ -901,6 +1038,67 @@ SWAYoungSpaceTally >> ownerNodeFor: anOwner under: aBranch [
 	node setObject: anOwner className: anOwner class name selfSize: 0.
 	aBranch addChild: node.
 	^ node
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 11:55'
+}
+SWAYoungSpaceTally >> persistentFloor [
+	"The objects from the FIRST sample that are still alive now -- what survived every
+	scavenge the series spanned.
+
+	No intersection with the later samples is needed: an object of sample 1 that is alive
+	at the end was necessarily alive at every point between, because nothing resurrects.
+	That is also why the series can hold nothing -- the weak array of sample 1 is the
+	whole answer."
+	| first weak floor |
+	series isNil ifTrue: [^ OrderedCollection new].
+	series isEmpty ifTrue: [^ OrderedCollection new].
+	first := series first.
+	weak := first at: 1.
+	floor := OrderedCollection new.
+	1 to: weak size do: [:i | (weak at: i) ifNotNil: [:o | floor add: o]].
+	^ floor
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:55'
+}
+SWAYoungSpaceTally >> sampleAges: count waitScavenges: k [
+	"Take a series and answer self with `survivors` set to everything still alive and
+	`ages` to their age in samples. No GC of any kind is run: the samples hold nothing,
+	so objects die on the image's own schedule rather than ours."
+	"Sets `ages` only. The population to display is chosen afterwards by the caller --
+	ages are an extra dimension over the normal view, not a view of their own."
+	self sampleSeries: count waitScavenges: k.
+	ages := self ageByObject.
+	^ self
+]
+
+{
+	#category : #series,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:50'
+}
+SWAYoungSpaceTally >> sampleSeries: count waitScavenges: k [
+	"Take count snapshots of young space into reusable old-space buffers, each after k
+	more scavenges. Holds nothing, allocates nothing per sample, runs no GC.
+
+	Waiting on p9 ties the cadence to the collector: under the XR loop a scavenge is
+	roughly a frame. A sample costs ~60 ms, so the interval is the wait plus that."
+	| state n |
+	state := SWAYoungSpaceState default.
+	n := count min: state maxSamples.
+	series := OrderedCollection new.
+	1 to: n do: [:i |
+		| target filled |
+		i > 1 ifTrue: [
+			target := (Smalltalk vmParameterAt: 9) + k.
+			[(Smalltalk vmParameterAt: 9) < target] whileTrue: [(Delay forMilliseconds: 2) wait]].
+		filled := state fillSampleBuffer: i.
+		series add: { state bufferAt: i. filled }].
+	^ self
 ]
 
 {
