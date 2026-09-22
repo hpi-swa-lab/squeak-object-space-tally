@@ -40,7 +40,8 @@ Class {
 		'scanSeconds'
 	],
 	#classVars : [
-		'Cache'
+		'Cache',
+		'DefaultWorktree'
 	],
 	#category : #'SWA-OpenCode',
 	#'squeak_changestamp' : '<historical>'
@@ -56,9 +57,38 @@ SWAOpenCodeHistory class >> default [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:33'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:35'
 }
 SWAOpenCodeHistory class >> defaultWorktree [
+	"The opencode project the Apps-menu 'OpenCode Sessions' opens on, as the worktree
+	path the store records. Change it here, in the Preferences browser (category 'SWA'),
+	or just let #resolvedWorktree ask when this one is not in the store."
+	<preference: 'OpenCode: default worktree'
+		category: 'SWA'
+		description: 'Absolute path of the opencode project the SWA OpenCode views open on, e.g. ''/home/jens/lively4/squeak''. If it is not in the store you are asked to pick one, and your choice is stored here.'
+		type: #String>
+	^ DefaultWorktree ifNil: [self fallbackWorktree]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:35'
+}
+SWAOpenCodeHistory class >> defaultWorktree: aStringOrNil [
+	"Store the worktree the OpenCode views open on. nil or empty restores
+	#fallbackWorktree."
+	| s |
+	s := aStringOrNil ifNil: [''] ifNotNil: [aStringOrNil withBlanksTrimmed].
+	DefaultWorktree := s isEmpty ifTrue: [nil] ifFalse: [s].
+	^ self defaultWorktree
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:35'
+}
+SWAOpenCodeHistory class >> fallbackWorktree [
+	"Used until someone stores a preference or picks one from the store."
 	^ '/home/jens/lively4/squeak'
 ]
 
@@ -85,10 +115,10 @@ SWAOpenCodeHistory class >> forWorktree: aString [
 
 {
 	#category : #'instance creation',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:33'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:33'
 }
 SWAOpenCodeHistory class >> onWorktree: aString [
-	"An UNSCANNED history over the default (Dropbox copy) store. Send #scan."
+	"An UNSCANNED history over the default (live) store. Send #scan."
 	^ self onWorktree: aString db: SWAOpenCodeDb default
 ]
 
@@ -98,6 +128,41 @@ SWAOpenCodeHistory class >> onWorktree: aString [
 }
 SWAOpenCodeHistory class >> onWorktree: aString db: aDb [
 	^ self new setWorktree: aString db: aDb
+]
+
+{
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:35'
+}
+SWAOpenCodeHistory class >> openSessionTable [
+	"Apps-menu action: the agent-session table for the default worktree, asking which
+	one when the store does not have it."
+	| wt |
+	wt := self resolvedWorktree ifNil: [^ nil].
+	^ (self forWorktree: wt) openSessionTable
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:35'
+}
+SWAOpenCodeHistory class >> resolvedWorktree [
+	"#defaultWorktree if the store actually has it, otherwise ask -- and remember the
+	answer as the new default. The store is not ours: projects appear and disappear as
+	you work elsewhere, so a hardwired path is a failed scan waiting to happen.
+	Answers nil if the user cancels."
+	| worktrees choice |
+	worktrees := (SWAOpenCodeDb default projects collect: [:p | p at: 2])
+		asSet asSortedCollection asArray.
+	(worktrees includes: self defaultWorktree) ifTrue: [^ self defaultWorktree].
+	worktrees isEmpty ifTrue: [^ self error: 'The opencode store has no projects'].
+	choice := UIManager default
+		chooseFrom: worktrees
+		values: worktrees
+		title: 'No opencode project at ', self defaultWorktree, '.
+Pick one:'.
+	choice ifNil: [^ nil].
+	^ self defaultWorktree: choice
 ]
 
 {

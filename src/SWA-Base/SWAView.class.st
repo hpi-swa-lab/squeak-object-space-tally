@@ -1038,6 +1038,17 @@ SWAView >> keyStroke: evt [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:17'
+}
+SWAView >> layoutProgress: aBlockOrNil [
+	"SWAPane>>rebuildCodeMap sends this to whatever view it wraps, and the Tree button
+	can put any view there, so the default has to exist. Only the treemap lays out
+	tile by tile and has progress to report."
+	^ self
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
 }
@@ -1309,6 +1320,17 @@ SWAView >> rebuildSearchMatches [
 				searchMatchSet add: a.
 				a := a parent]]].
 	^ searchMatchSet
+]
+
+{
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:21'
+}
+SWAView >> revealPackageNode: aNode [
+	"A row in the pane's Packages list was clicked. What that should do is the view's
+	business -- the treemap drills in, a diagram or a graph may have nowhere to go --
+	so the default is to do nothing."
+	^ self
 ]
 
 {

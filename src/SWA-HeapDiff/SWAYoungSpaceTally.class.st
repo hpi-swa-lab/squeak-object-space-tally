@@ -125,6 +125,29 @@ SWAYoungSpaceTally class >> initialize [
 ]
 
 {
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:02'
+}
+SWAYoungSpaceTally class >> open [
+	"Apps-menu action: pick one of the five young-space views. They differ in what
+	collection they provoke, and that is not recoverable -- a full GC destroys the
+	very population #openYoungSpaceNow reports -- so the choice is put to the user
+	rather than defaulted."
+	| choice |
+	choice := UIManager default
+		chooseFrom: #(
+			'now -- no GC at all'
+			'retained -- survivors and promoted only'
+			'ages -- 5 samples, one scavenge apart'
+			'fate at next scavenge -- no full GC'
+			'fate -- runs a FULL GC')
+		values: #(openYoungSpaceNow openRetained openAges openScavengeFate openTreemap)
+		title: 'Young Space'.
+	choice ifNil: [^ nil].
+	^ self perform: choice
+]
+
+{
 	#category : #running,
 	#'squeak_changestamp' : 'MCPServer 9/22/2026 12:55'
 }

@@ -33,6 +33,16 @@ SWAClassDiagram class >> on: aCodeNode [
 ]
 
 {
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:05'
+}
+SWAClassDiagram class >> open [
+	"Apps-menu action: diagram the current working set, the same scope SWAPane>>open
+	uses, so the Code Map and the diagram always show the same packages."
+	^ self openOnPackageNamed: SWAPane codeMapWorkingSet
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
 }
@@ -475,6 +485,19 @@ SWAClassDiagram >> selectionPathString [
 	^ selectedNode
 		ifNil: ['']
 		ifNotNil: [:n | n pathString]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:15'
+}
+SWAClassDiagram >> setRoot: aNode [
+	"SWAPane>>rebuildCodeMap drives every code view through #setRoot:, so the diagram
+	has to answer it too -- Add / Remove / Reset package all went to
+	doesNotUnderstand: without it."
+	self flushMarksCache.
+	self rootNode: aNode.
+	^ self
 ]
 
 {

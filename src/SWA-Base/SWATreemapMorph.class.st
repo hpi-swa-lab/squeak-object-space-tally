@@ -604,6 +604,20 @@ SWATreemapMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 ]
 
 {
+	#category : #selection,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:21'
+}
+SWATreemapMorph >> revealPackageNode: aNode [
+	"Drill to the package's tile, as if it had been clicked. #zoomInto: refuses a node
+	at the leafKind cutoff, so select it there instead of leaving the click dead."
+	aNode ifNil: [^ self].
+	(self shouldLayoutChildrenOf: aNode)
+		ifTrue: [self zoomInto: aNode]
+		ifFalse: [self selectedNode: aNode].
+	^ self
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:53'
 }

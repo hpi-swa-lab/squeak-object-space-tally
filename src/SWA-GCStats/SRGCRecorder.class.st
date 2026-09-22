@@ -79,6 +79,32 @@ SRGCRecorder class >> initialize [
 ]
 
 {
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:03'
+}
+SRGCRecorder class >> openRecordUntilStop [
+	"Apps-menu action: record until STOP, then open the trace -- the same stop-panel
+	pattern as SWAPane>>openTraceUntilStop. Closing the panel instead of pressing STOP
+	abandons the run, so the stepper never lingers in the world.
+	STOP stops BEFORE closing: #delete fires the #onClose: block either way, and a
+	second #stop answers nil."
+	| panel |
+	self startMorphic.
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'SWA GC Record -- do the ONE thing, then Stop';
+		yourself.
+	panel status: 'Recording GC, memory and frame stats. Press STOP to open the trace.'.
+	panel
+		onStop: [
+			| recording |
+			recording := self stop.
+			panel closeWindow.
+			recording ifNotNil: [:r | r openInPane]];
+		onClose: [self stop].
+	^ panel
+]
+
+{
 	#category : #controlling,
 	#'squeak_changestamp' : 'MCPServer 8/18/2026 14:42'
 }

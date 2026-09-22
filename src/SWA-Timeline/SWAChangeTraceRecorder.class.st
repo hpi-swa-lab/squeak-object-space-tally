@@ -54,6 +54,30 @@ SWAChangeTraceRecorder class >> open [
 ]
 
 {
+	#category : #opening,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:05'
+}
+SWAChangeTraceRecorder class >> openRecordUntilStop [
+	"Apps-menu action: record change reactions until STOP, then open the trace -- the
+	same stop-panel pattern as SWAPane>>openTraceUntilStop and SRGCRecorder class>>
+	openRecordUntilStop. Closing the panel instead of pressing STOP uninstalls the
+	instrumentation, so it never lingers."
+	| panel |
+	self record.
+	panel := SWACoverageRunPanel new
+		openInWindowTitled: 'SWA Change Trace -- edit code, then Stop';
+		yourself.
+	panel status: 'Recording change reactions. Edit some code, then press STOP.'.
+	panel
+		onStop: [
+			self default stop.
+			panel closeWindow.
+			self default open];
+		onClose: [self default stop].
+	^ panel
+]
+
+{
 	#category : #recording,
 	#'squeak_changestamp' : 'MCPServer 8/19/2026 15:02'
 }

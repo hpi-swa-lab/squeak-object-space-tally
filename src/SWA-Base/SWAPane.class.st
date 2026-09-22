@@ -51,7 +51,11 @@ Class {
 		'sourceTab',
 		'sourceCollapseTab',
 		'marksDetailsMorph',
-		'structureHistory'
+		'structureHistory',
+		'packagesList',
+		'packagesIndex',
+		'packagesTitleMorph',
+		'packagesHeight'
 	],
 	#classVars : [
 		'CallTallyCounter',
@@ -2832,6 +2836,23 @@ SWAPane >> growMarksPanelBy: deltaPixels [
 ]
 
 {
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:26'
+}
+SWAPane >> growPackagesListBy: deltaPixels [
+	"Taller (positive = dragging the splitter DOWN) or shorter, from the SWASplitter
+	drag. The marks list below is spaceFill and absorbs the change, so the lower bound
+	is all that keeps a row visible and the upper bound all that keeps the marks list
+	from vanishing."
+	packagesList ifNil: [^ self].
+	packagesHeight := ((packagesHeight ifNil: [84]) + deltaPixels) max: 40.
+	packagesHeight := packagesHeight min: 600.
+	packagesList height: packagesHeight.
+	packagesList owner ifNotNil: [:r | r layoutChanged].
+	self layoutChanged
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
 }
@@ -3532,10 +3553,11 @@ SWAPane >> newMarksCollapseButton [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:26'
 }
 SWAPane >> newMarksPanel [
-	"Build the left-hand Marks panel. The content column (burger-menu row, then a
+	"Build the left-hand Marks panel. The content column (burger-menu row, then the
+	Packages section, then a
 	MULTI-SELECT list of the global mark keys, then a comment editor) fills the WHOLE
 	panel width; the vertical 'Marks' collapse tab (#newMarksCollapseButton) FLOATS
 	over the content's left edge, overlapping into the list rather than taking its own
@@ -3607,6 +3629,10 @@ SWAPane >> newMarksPanel [
 		yourself.
 	column
 		addMorphBack: burgerRow;
+		addMorphBack: self newPackagesSection;
+		addMorphBack: (SWASplitter horizontal
+			resizeAction: [:d | self growPackagesListBy: d];
+			yourself);
 		addMorphBack: marksList;
 		addMorphBack: detailsTitleMorph;
 		addMorphBack: marksDetailsMorph;
@@ -3637,6 +3663,86 @@ SWAPane >> newMarksTab [
 	the flap. Floating flags (#disableTableLayout: true, #rigid) are set by the generic
 	builder; it is positioned by #positionMarksTab over the treemap's left edge."
 	^ self newVerticalMarksTabOn: #openMarks balloon: 'Show Marks'
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:26'
+}
+SWAPane >> newPackagesSection [
+	"The Packages section at the top of the Marks panel: a title row carrying the count
+	and [+] / [-], then the list of packages the map is showing.
+
+	The package set used to be reachable only through the pane's burger menu, so the
+	scope of everything on screen was invisible. Height is rigid: this is a short list
+	that must not compete with the marks below it for the panel.
+
+	Every action is a button, not just a menu item: right-click menus are awkward in
+	the XR Morphic world, so the list has to be operable by pointing alone. The buttons
+	get their own row because title plus buttons needs 281pt against a 260pt panel."
+	| column titleRow buttonRow plus minus reset default |
+	packagesTitleMorph := StringMorph new
+		contents: 'Packages';
+		font: (TextStyle default fontOfPointSize: 10);
+		color: (Color gray: 0.7);
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself.
+	plus := self buttonLabelled: '+' action: #addPackageToCodeMap.
+	plus setBalloonText: 'Add a package to this map'.
+	minus := self buttonLabelled: '-' action: #removeSelectedPackage.
+	minus setBalloonText: 'Remove the selected package from this map'.
+	reset := self buttonLabelled: 'Reset' action: #resetCodeMapToWorkingSet.
+	reset setBalloonText: 'Back to the stored working set'.
+	default := self buttonLabelled: 'Default' action: #saveCodeMapWorkingSet.
+	default setBalloonText: 'Make this package list the default every new map opens on'.
+	titleRow := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		vResizing: #shrinkWrap; hResizing: #spaceFill;
+		cellInset: 3;
+		wrapCentering: #center; cellPositioning: #leftCenter;
+		yourself.
+	titleRow addMorphBack: packagesTitleMorph.
+	buttonRow := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		vResizing: #shrinkWrap; hResizing: #spaceFill;
+		cellInset: 3;
+		wrapCentering: #center; cellPositioning: #leftCenter;
+		yourself.
+	buttonRow
+		addMorphBack: plus;
+		addMorphBack: minus;
+		addMorphBack: reset;
+		addMorphBack: default.
+	packagesList := PluggableListMorph
+		on: self
+		list: #packagesListItems
+		selected: #packagesIndex
+		changeSelected: #packagesIndex:
+		menu: #packagesListMenu:
+		keystroke: nil.
+	packagesList
+		hResizing: #spaceFill; vResizing: #rigid;
+		height: (packagesHeight ifNil: [packagesHeight := 84]);
+		color: Color white;
+		textColor: Color black.
+	column := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		cellPositioning: #topLeft;
+		cellInset: 2;
+		hResizing: #spaceFill; vResizing: #shrinkWrap;
+		yourself.
+	column
+		addMorphBack: titleRow;
+		addMorphBack: buttonRow;
+		addMorphBack: packagesList.
+	self updatePackagesList.
+	^ column
 ]
 
 {
@@ -3923,6 +4029,61 @@ SWAPane >> openTallyStopWindow [
 ]
 
 {
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:21'
+}
+SWAPane >> packagesIndex [
+	^ packagesIndex ifNil: [0]
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+}
+SWAPane >> packagesIndex: anIndex [
+	"Row clicked. Selecting is the pane's business, navigating is the view's:
+	#revealPackageNode: is a no-op unless the view has somewhere to go."
+	| name node |
+	packagesIndex := anIndex.
+	self changed: #packagesIndex.
+	anIndex = 0 ifTrue: [^ self].
+	name := self packagesListItems at: anIndex ifAbsent: [^ self].
+	node := (view respondsTo: #keyIndex)
+		ifTrue: [view keyIndex at: name ifAbsent: [nil]]
+		ifFalse: [nil].
+	node ifNotNil: [view revealPackageNode: node]
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:21'
+}
+SWAPane >> packagesListItems [
+	"The packages this map is actually showing. Empty for a view with no code root,
+	which is what keeps the section collapsed for non-code views."
+	| root |
+	root := self codeRoot ifNil: [^ #()].
+	^ root packageNames asSortedCollection asArray
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+}
+SWAPane >> packagesListMenu: aMenu [
+	"Right-click menu for the Packages list. The working-set actions live here rather
+	than on buttons: they change what EVERY new map opens on, not just this one."
+	aMenu addTitle: 'Packages'.
+	aMenu add: 'Add...' target: self selector: #addPackageToCodeMap.
+	self selectedPackageName ifNotNil: [:n |
+		aMenu add: 'Remove ', n target: self selector: #removeSelectedPackage].
+	aMenu addLine.
+	aMenu add: 'Reset to working set' target: self selector: #resetCodeMapToWorkingSet.
+	aMenu add: 'Set as default working set' target: self selector: #saveCodeMapWorkingSet.
+	^ aMenu
+]
+
+{
 	#category : #'pane menu',
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:47'
 }
@@ -4203,7 +4364,7 @@ SWAPane >> provenanceList [
 
 {
 	#category : #'code map - working set',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:46'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
 }
 SWAPane >> rebuildCodeMap [
 	"Re-tile this code map after its root's package set changed. Node building + layout
@@ -4230,6 +4391,7 @@ SWAPane >> rebuildCodeMap [
 		tm layoutProgress: nil.
 		bar value: total].
 	self updateCodeMapWindowLabel.
+	self updatePackagesList.
 	self refresh.
 	tm changed
 ]
@@ -4303,6 +4465,25 @@ SWAPane >> removeSelectedMark [
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
 	commentEditKey := nil
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+}
+SWAPane >> removeSelectedPackage [
+	"[-] in the Packages list. Refuses to empty the map, same as
+	#removePackageFromCodeMap -- a treemap of nothing is a bug report waiting to happen."
+	| root name |
+	root := self codeRoot ifNil: [^ self].
+	name := self selectedPackageName ifNil: [
+		^ self treemapCoverageStatus: 'Packages: select a package first'].
+	root packageNames size <= 1 ifTrue: [
+		^ self treemapCoverageStatus: 'Packages: cannot remove the last package'].
+	root removePackages: name.
+	packagesIndex := 0.
+	self renameCodeRootToItsPackages.
+	self rebuildCodeMap
 ]
 
 {
@@ -4528,6 +4709,14 @@ SWAPane >> selectedMarkKeys [
 	all := SWAMarkSet default keys.
 	(marksSelectedKeys isNil or: [marksSelectedKeys isEmpty]) ifTrue: [^ all asArray].
 	^ all select: [:k | marksSelectedKeys includes: k]
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+}
+SWAPane >> selectedPackageName [
+	^ self packagesListItems at: self packagesIndex ifAbsent: [nil]
 ]
 
 {
@@ -5085,6 +5274,22 @@ SWAPane >> updateMarksList [
 		ifTrue: [commentEditKey := nil].
 	marksList ifNotNil: [marksList updateList].
 	self updateCommentField
+]
+
+{
+	#category : #'marks panel',
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:22'
+}
+SWAPane >> updatePackagesList [
+	"Refresh the Packages list and its count after the map's package set changed."
+	| items |
+	items := self packagesListItems.
+	self packagesIndex > items size ifTrue: [packagesIndex := 0].
+	packagesTitleMorph ifNotNil: [
+		packagesTitleMorph contents: (items isEmpty
+			ifTrue: ['Packages']
+			ifFalse: ['Packages (', items size printString, ')'])].
+	packagesList ifNotNil: [packagesList updateList]
 ]
 
 {

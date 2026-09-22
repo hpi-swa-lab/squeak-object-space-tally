@@ -58,24 +58,28 @@ SWAOpenCodeDb class >> default [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:27'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:32'
 }
 SWAOpenCodeDb class >> defaultPath [
-	"A COPY of the store, taken 2026-07-29. Deliberately the default: analysing the
-	live database of a tool that may be running is how you find out the hard way
-	that 'read-only' had a loophole."
-	^ '/home/jens/Dropbox/tmp/opencode_alto_2026-07-29/opencode/opencode.db'
+	"The live store, so the views show the sessions you actually just had.
+
+	Safe to read while opencode is running ONLY because the store is in WAL mode, where
+	readers and writers do not block each other. Under SQLite's default rollback journal
+	a full scan would hold a SHARED lock and opencode's commits would start failing with
+	SQLITE_BUSY. Note also that a read-only connection to a WAL database still WRITES
+	the -shm file: read-only is a property of our handle, not of the files.
+
+	Use #snapshotPath when a measurement has to be reproducible."
+	^ self liveStorePath
 ]
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:32'
 }
 SWAOpenCodeDb class >> liveStorePath [
-	"The real store, written by every running opencode. We only ever open it
-	read-only, and only when that is meant deliberately:
-
-		SWAOpenCodeDb onPath: SWAOpenCodeDb liveStorePath"
+	"The real store, written by every running opencode, and now #defaultPath.
+	We only ever open it read-only."
 	| home |
 	home := [OSProcess thisOSProcess environment at: 'HOME']
 		on: Error do: [:e | '~'].
@@ -88,6 +92,18 @@ SWAOpenCodeDb class >> liveStorePath [
 }
 SWAOpenCodeDb class >> onPath: aFileName [
 	^ self new setPath: aFileName
+]
+
+{
+	#category : #paths,
+	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:32'
+}
+SWAOpenCodeDb class >> snapshotPath [
+	"A frozen COPY of the store, taken 2026-07-29. Use it when a measurement has to be
+	reproducible -- the live store grows under you between two runs.
+
+		SWAOpenCodeDb onPath: SWAOpenCodeDb snapshotPath"
+	^ '/home/jens/Dropbox/tmp/opencode_alto_2026-07-29/opencode/opencode.db'
 ]
 
 {
