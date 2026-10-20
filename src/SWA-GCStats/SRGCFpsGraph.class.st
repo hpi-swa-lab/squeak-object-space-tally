@@ -37,6 +37,19 @@ Class {
 }
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer 10/12/2026 18:44'
+}
+SRGCFpsGraph class >> allocationEmaAlpha [
+	"Smoothing factor for KB/frame. Separate from #emaAlpha because the cadence is one
+	sample per paint, not per frame, and a single sample is a whole paint interval whose
+	bytes swing with whether a scavenge or a Morphic cycle happened to land in it.
+	~0.02 is about 50 paints, so 5 s at the default 100 ms period."
+
+	^ 0.02
+]
+
+{
 	#category : #constants,
 	#'squeak_changestamp' : 'MCPServer 9/21/2026 12:53'
 }
@@ -523,7 +536,7 @@ SRGCFpsGraph >> scavengesPerSecond [
 
 {
 	#category : #update,
-	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:42'
+	#'squeak_changestamp' : 'MCPServer 10/12/2026 18:44'
 }
 SRGCFpsGraph >> updateAllocationOver: frames [
 	"The discount is the PREVIOUS paint's cost: this runs inside the current paint,
@@ -534,7 +547,7 @@ SRGCFpsGraph >> updateAllocationOver: frames [
 	net := ((intervalBytes ifNil: [0]) - (discountBytes ifNil: [0])) max: 0.
 	discountBytes := 0.
 	sample := net / frames / 1024.0.
-	alpha := self class emaAlpha.
+	alpha := self class allocationEmaAlpha.
 	emaKBPerFrame := emaKBPerFrame
 		ifNil: [sample]
 		ifNotNil: [emaKBPerFrame * (1 - alpha) + (sample * alpha)].

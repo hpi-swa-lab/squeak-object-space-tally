@@ -190,6 +190,14 @@ SRGCStats >> initialize [
 ]
 
 {
+	#category : #testing,
+	#'squeak_changestamp' : 'MCPServer (SqueakXR) 10/20/2026 13:43'
+}
+SRGCStats >> isSolid [
+	^ false
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 8/13/2026 15:44'
 }

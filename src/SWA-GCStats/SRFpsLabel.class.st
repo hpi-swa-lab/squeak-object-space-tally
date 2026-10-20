@@ -130,6 +130,14 @@ SRFpsLabel >> initialize [
 ]
 
 {
+	#category : #testing,
+	#'squeak_changestamp' : 'MCPServer (SqueakXR) 10/20/2026 13:43'
+}
+SRFpsLabel >> isSolid [
+	^ false
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
 }
