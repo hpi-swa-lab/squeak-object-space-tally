@@ -31,11 +31,281 @@ Class {
 		'selectionColor',
 		'menuAction',
 		'markers',
-		'markerAction'
+		'markerAction',
+		'relaxesEdgeLabels'
 	],
 	#category : #'SWA-Graphviz',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:47'
+}
+GraphvizMorph class >> edgeLabelRelaxationScript [
+	"A gvpr pass that moves headlabel positions out of whatever they overlap:
+	node boxes, cluster labels, arrow tips, each other, and the edge splines
+	themselves. Writes only head_lp, so node and record-row geometry is untouched
+	and the diagram''s click maps stay valid.
+	ARGV[0] iterations (default 300), ARGV[1] spring constant (default 0.02)."
+	^ '// fixheadlabels.gvpr -- force-directed de-overlap of edge head/tail labels.
+//
+// dot positions headlabel/taillabel purely trigonometrically from
+// labeldistance + labelangle + the direction of the last spline segment, with
+// zero collision detection.  So labels land inside the head node''s box, and
+// sibling edges arriving at the same node stack their labels on top of each
+// other.
+//
+// This pass leaves dot''s layout alone and just relaxes the label positions:
+// each label is a particle held by a weak spring to where dot put it, and
+// pushed out of any box it overlaps (other labels, and all node boxes).
+//
+// Usage:
+//   dot -Tdot g.dot | gvpr -c -f fixheadlabels.gvpr | neato -n2 -Tpng -o g.png
+//
+// ARGV[0] iterations (default 300)   ARGV[1] spring constant (default 0.02)
+
+BEGIN {
+    double CHARW = 0.55;     // avg glyph width / font size
+    double LINEH = 1.25;     // line height / font size
+    double PAD   = 3.0;      // extra clearance around every box
+    // keep-out zone around each arrow tip; deliberately wide and flat so the
+    // least-penetration rule slides a label *along* its edge, not off it
+    double ARROWW = 22.0;
+    double ARROWH = 6.0;
+    // edge splines are obstacles too, else a label sits ON the line it belongs
+    // to and reads as struck through.  A segment always pushes PERPENDICULAR,
+    // so the label steps off the line instead of sliding along it.
+    double SEGT  = 2.0;      // half-thickness of an edge line
+    double SEGMIN = 5.0;     // ignore segments shorter than this
+    double DAMP  = 0.35;     // how much of the computed force to apply per step
+
+    int    ITER = 300;
+    double KSPRING = 0.02;
+
+    // label particles
+    int    N = 0;
+    edge_t EA[int];
+    double LX[int], LY[int], LW[int], LH[int], AX[int], AY[int];
+
+    // fixed obstacles.  OA = which axis a label may escape along:
+    //   0 = whichever penetration is smaller, 1 = x only, 2 = y only
+    int    M = 0;
+    double OX[int], OY[int], OW[int], OH[int];
+    int    OA[int];
+
+    // drawing bounds, used as walls
+    int    HASBB = 0;
+    double BBX0, BBY0, BBX1, BBY1;
+}
+
+BEG_G {
+    if (ARGC > 0) ITER    = (int)ARGV[0];
+    if (ARGC > 1) KSPRING = (double)ARGV[1];
+    if ($G.bb != "")
+        HASBB = (sscanf($G.bb, "%lf,%lf,%lf,%lf", &BBX0, &BBY0, &BBX1, &BBY1) == 4);
+}
+
+N {
+    if ($.pos != "") {
+        double nx, ny;
+        if (sscanf($.pos, "%lf,%lf", &nx, &ny) == 2) {
+            double nw = 54.0, nh = 36.0;
+            if ($.width  != "") nw = (double)$.width  * 72.0;
+            if ($.height != "") nh = (double)$.height * 72.0;
+            OX[M] = nx; OY[M] = ny; OW[M] = nw; OH[M] = nh; OA[M] = 0; M++;
+        }
+    }
+}
+
+E {
+    string lab = $.headlabel;
+    if (lab != "" && $.head_lp != "") {
+        double lx, ly;
+        if (sscanf($.head_lp, "%lf,%lf", &lx, &ly) == 2) {
+            double fs = 14.0;
+            if ($.labelfontsize != "")  fs = (double)$.labelfontsize;
+            else if ($.fontsize != "")  fs = (double)$.fontsize;
+
+            EA[N] = $;
+            LX[N] = lx;  LY[N] = ly;
+            AX[N] = lx;  AY[N] = ly;              // anchor: dot''s choice
+            LW[N] = length(lab) * fs * CHARW;
+            LH[N] = fs * LINEH;
+            N++;
+        }
+    }
+    // the arrowhead is an obstacle too -- a label must not sit on the tip.
+    // escape axis = the axis the edge arrives along, so the label slides
+    // *along* its own edge instead of being flung off it.
+    if ($.pos != "") {
+        double tx, ty, lastx, lasty;
+        if (sscanf($.pos, "e,%lf,%lf", &tx, &ty) == 2) {
+            int    sp = rindex($.pos, " ");
+            lastx = tx; lasty = ty;
+            if (sp >= 0) sscanf(substr($.pos, sp + 1), "%lf,%lf", &lastx, &lasty);
+            double adx = tx - lastx;  if (adx < 0) adx = -adx;
+            double ady = ty - lasty;  if (ady < 0) ady = -ady;
+            OX[M] = tx; OY[M] = ty; OW[M] = ARROWW; OH[M] = ARROWH;
+            OA[M] = (adx >= ady) ? 1 : 2;
+            M++;
+        }
+
+        // the spline itself.  Consecutive control points are collinear in runs
+        // for splines=ortho, so merge each run into one box: fewer obstacles,
+        // and a long straight leg pushes as one thing rather than in pieces.
+        string parts[int];
+        int np = tokens($.pos, parts);
+        double px[int], py[int];
+        int k, npts = 0;
+        for (k = 0; k < np; k++) {
+            double qx, qy;
+            string t = parts[k];
+            // the "e,"/"s," tokens are the arrow endpoints and come FIRST, out
+            // of path order; they are already covered by the arrowhead box
+            if (index(t, "e,") == 0 || index(t, "s,") == 0) continue;
+            if (sscanf(t, "%lf,%lf", &qx, &qy) == 2) {
+                if (npts == 0 || px[npts-1] != qx || py[npts-1] != qy) {
+                    px[npts] = qx; py[npts] = qy; npts++;
+                }
+            }
+        }
+        k = 0;
+        while (k + 1 < npts) {
+            int horiz = ((px[k+1] - px[k] < 0 ? px[k] - px[k+1] : px[k+1] - px[k])
+                      >= (py[k+1] - py[k] < 0 ? py[k] - py[k+1] : py[k+1] - py[k]));
+            int e2 = k + 1;
+            while (e2 + 1 < npts) {
+                int h2 = ((px[e2+1] - px[e2] < 0 ? px[e2] - px[e2+1] : px[e2+1] - px[e2])
+                       >= (py[e2+1] - py[e2] < 0 ? py[e2] - py[e2+1] : py[e2+1] - py[e2]));
+                if (h2 != horiz) break;
+                e2++;
+            }
+            double sw = px[e2] - px[k];  if (sw < 0) sw = -sw;
+            double sh = py[e2] - py[k];  if (sh < 0) sh = -sh;
+            if ((horiz ? sw : sh) >= SEGMIN) {
+                OX[M] = (px[k] + px[e2]) / 2.0;
+                OY[M] = (py[k] + py[e2]) / 2.0;
+                if (horiz) { OW[M] = sw; OH[M] = SEGT; OA[M] = 2; }
+                else       { OW[M] = SEGT; OH[M] = sh; OA[M] = 1; }
+                M++;
+            }
+            k = e2;
+        }
+    }
+}
+
+END_G {
+    int it, i, j;
+    double fx[int], fy[int];
+
+    // --- cluster *labels* are obstacles as well (the cluster box itself
+    //     is not: labels are allowed to live inside a cluster) ----------
+    graph_t sg;
+    for (sg = fstsubg($G); sg; sg = nxtsubg(sg)) {
+        if (sg.label != "" && sg.lp != "") {
+            double cx, cy;
+            if (sscanf(sg.lp, "%lf,%lf", &cx, &cy) == 2) {
+                double cfs = 14.0;
+                if (sg.fontsize != "") cfs = (double)sg.fontsize;
+                OX[M] = cx; OY[M] = cy;
+                OW[M] = length(sg.label) * cfs * CHARW;
+                OH[M] = cfs * LINEH;
+                OA[M] = 0;
+                M++;
+            }
+        }
+    }
+
+    // --- broad phase: a label is held near its anchor by the spring, so an
+    //     obstacle further than REACH from it can never be touched.  Adding
+    //     edge splines multiplied the obstacle count; without this cull the
+    //     inner loop below grows with the whole drawing instead of the
+    //     neighbourhood.  NB is flat: neighbours of label i are NB[i*M + c].
+    int NB[int], NC[int];
+    double REACH = 240.0;
+    for (i = 0; i < N; i++) {
+        NC[i] = 0;
+        for (j = 0; j < M; j++) {
+            double gx = AX[i] - OX[j];  if (gx < 0) gx = -gx;
+            double gy = AY[i] - OY[j];  if (gy < 0) gy = -gy;
+            if (gx <= REACH + (LW[i] + OW[j]) / 2.0
+             && gy <= REACH + (LH[i] + OH[j]) / 2.0) {
+                NB[i * M + NC[i]] = j;
+                NC[i] = NC[i] + 1;
+            }
+        }
+    }
+
+    for (it = 0; it < ITER; it++) {
+
+        for (i = 0; i < N; i++) { fx[i] = 0.0; fy[i] = 0.0; }
+
+        // --- weak spring back to where dot wanted the label -----------
+        for (i = 0; i < N; i++) {
+            fx[i] = fx[i] + KSPRING * (AX[i] - LX[i]);
+            fy[i] = fy[i] + KSPRING * (AY[i] - LY[i]);
+        }
+
+        // --- label <-> label repulsion (box overlap only) -------------
+        for (i = 0; i < N; i++) {
+            for (j = i + 1; j < N; j++) {
+                double dx = LX[i] - LX[j];
+                double dy = LY[i] - LY[j];
+                double ox = (LW[i] + LW[j]) / 2.0 + PAD - (dx < 0 ? -dx : dx);
+                double oy = (LH[i] + LH[j]) / 2.0 + PAD - (dy < 0 ? -dy : dy);
+                if (ox > 0.0 && oy > 0.0) {
+                    // separate along the axis of least penetration
+                    double sep;
+                    if (oy <= ox) {
+                        sep = (dy >= 0.0 ? 1.0 : -1.0) * oy / 2.0;
+                        fy[i] = fy[i] + sep;  fy[j] = fy[j] - sep;
+                    } else {
+                        sep = (dx >= 0.0 ? 1.0 : -1.0) * ox / 2.0;
+                        fx[i] = fx[i] + sep;  fx[j] = fx[j] - sep;
+                    }
+                }
+            }
+        }
+
+        // --- label <-> obstacle repulsion (obstacles are immovable) ---
+        for (i = 0; i < N; i++) {
+            int c;
+            for (c = 0; c < NC[i]; c++) {
+                j = NB[i * M + c];
+                double ndx = LX[i] - OX[j];
+                double ndy = LY[i] - OY[j];
+                double nox = (LW[i] + OW[j]) / 2.0 + PAD - (ndx < 0 ? -ndx : ndx);
+                double noy = (LH[i] + OH[j]) / 2.0 + PAD - (ndy < 0 ? -ndy : ndy);
+                if (nox > 0.0 && noy > 0.0) {
+                    int ax = OA[j];
+                    if (ax == 0) ax = (noy <= nox) ? 2 : 1;
+                    if (ax == 2) fy[i] = fy[i] + (ndy >= 0.0 ? noy : -noy);
+                    else         fx[i] = fx[i] + (ndx >= 0.0 ? nox : -nox);
+                }
+            }
+        }
+
+        for (i = 0; i < N; i++) {
+            LX[i] = LX[i] + DAMP * fx[i];
+            LY[i] = LY[i] + DAMP * fy[i];
+            // the renderer sizes the canvas from node positions and never from
+            // edge labels, so a label pushed past the bb is simply cut off
+            if (HASBB) {
+                double hw = LW[i] / 2.0, hh = LH[i] / 2.0;
+                if (LX[i] - hw < BBX0) LX[i] = BBX0 + hw;
+                if (LX[i] + hw > BBX1) LX[i] = BBX1 - hw;
+                if (LY[i] - hh < BBY0) LY[i] = BBY0 + hh;
+                if (LY[i] + hh > BBY1) LY[i] = BBY1 - hh;
+            }
+        }
+    }
+
+    for (i = 0; i < N; i++)
+        EA[i].head_lp = sprintf("%.2f,%.2f", LX[i], LY[i]);
+}
+'
+]
 
 {
 	#category : #'instance creation',
@@ -188,6 +458,23 @@ GraphvizMorph >> fieldAt: aWorldPoint [
 }
 GraphvizMorph >> handlesMouseDown: evt [
 	^ true
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:42'
+}
+GraphvizMorph >> layoutCommandFrom: dotFile to: pngFile and: jsonFile gvpr: gvprFile [
+	"The shell command producing both outputs. Still ONE invocation when the edge-label
+	pass is on: the layout runs as -Tdot, gvpr rewrites head_lp in the stream, and
+	neato -n2 only renders the positions it is handed, so nothing is laid out twice."
+	| eng |
+	eng := self engine.
+	self relaxesEdgeLabels ifFalse: [
+		^ eng, ' -Tpng -o ', pngFile, ' -Tjson -o ', jsonFile, ' ', dotFile].
+	^ eng, ' -Tdot ', dotFile,
+		' | gvpr -c -f ', gvprFile,
+		' | neato -n2 -Tpng -o ', pngFile, ' -Tjson -o ', jsonFile
 ]
 
 {
@@ -380,8 +667,29 @@ GraphvizMorph >> rectForNode: aDotId field: aFieldIndex [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:42'
+}
+GraphvizMorph >> relaxesEdgeLabels [
+	"Whether to run the gvpr de-overlap pass over edge head labels. Defaults to
+	whether the graph has any, since the pass costs a second process and can only
+	move what it finds."
+	^ relaxesEdgeLabels
+		ifNil: [dotSource notNil and: [dotSource includesSubstring: 'headlabel']]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:42'
+}
+GraphvizMorph >> relaxesEdgeLabels: aBooleanOrNil [
+	"Force the edge-label de-overlap pass on or off; nil restores the default."
+	relaxesEdgeLabels := aBooleanOrNil
+]
+
+{
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:03'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:42'
 }
 GraphvizMorph >> render [
 	"Run the external layout engine (self engine, e.g. 'dot') to produce a PNG plus
@@ -393,19 +701,27 @@ GraphvizMorph >> render [
 
 	Both outputs come from ONE invocation. The engine lays the graph out once either
 	way, and OSProcess blocks the whole image while it runs -- forking does not help --
-	so a second call would double a stall that is already seconds long on a large graph."
-	| dir dotFile pngFile jsonFile form jsonText eng parser |
+	so a second call would double a stall that is already seconds long on a large graph.
+	See #layoutCommandFrom:to:and:gvpr: for the edge-label variant, which stays one
+	invocation by piping -Tdot through gvpr into neato -n2."
+	| dir dotFile pngFile jsonFile gvprFile form jsonText eng parser |
 	eng := self engine.
 	dir := FileDirectory default fullNameFor: 'graphvizmorph'.
 	dotFile := dir, '.dot'.
 	pngFile := dir, '.png'.
 	jsonFile := dir, '.json'.
+	gvprFile := dir, '.gvpr'.
 	(FileStream forceNewFileNamed: dotFile) nextPutAll: dotSource withUnixLineEndings; close.
-	(OSProcess waitForCommand: eng,
-		' -Tpng -o ', pngFile,
-		' -Tjson -o ', jsonFile,
-		' ', dotFile) exitStatus = 0
+	self relaxesEdgeLabels ifTrue: [
+		(FileStream forceNewFileNamed: gvprFile)
+			nextPutAll: self class edgeLabelRelaxationScript withUnixLineEndings; close].
+	(OSProcess waitForCommand: (self
+		layoutCommandFrom: dotFile to: pngFile and: jsonFile gvpr: gvprFile)) exitStatus = 0
 			ifFalse: [^ self error: eng, ' failed'].
+	"A pipeline reports only its LAST stage, so a failing dot or gvpr leaves
+	neato exiting 0 on empty input."
+	(FileDirectory default fileExists: pngFile)
+		ifFalse: [^ self error: eng, ' produced no image'].
 	form := PNGReadWriter formFromFileNamed: pngFile.
 	self image: form.
 	jsonText := (FileStream fileNamed: jsonFile) contentsOfEntireFile.
