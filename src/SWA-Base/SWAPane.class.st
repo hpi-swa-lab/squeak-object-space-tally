@@ -1375,14 +1375,15 @@ SWAPane >> abandonInvocationTally [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
 }
 SWAPane >> acceptComment: aText [
 	"Save the edited comment onto the mark currently being edited. No-op if no row is
 	being edited. The mark set notifies all panes so every open Marks editor/list
 	refreshes; comments persist in the global SWAMarkSet (image-resident)."
 	commentEditKey ifNil: [^ self].
-	SWAMarkSet default commentAt: commentEditKey put: aText asString.
+	(self markSetForKey: commentEditKey) ifNil: [^ self].
+	(self markSetForKey: commentEditKey) commentAt: commentEditKey put: aText asString.
 	commentField ifNotNil: [commentField hasUnacceptedEdits: false]
 ]
 
@@ -2003,7 +2004,7 @@ SWAPane >> clearCoverage [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
 }
 SWAPane >> clearMarks [
 	"Clear button: remove the SELECTED marks if any rows are selected, otherwise ALL
@@ -2011,10 +2012,27 @@ SWAPane >> clearMarks [
 	(marksSelectedKeys notNil and: [marksSelectedKeys notEmpty])
 		ifTrue: [
 			SWAMarkSet default removeAll: marksSelectedKeys asArray.
+			SWAMarkSet reviewed removeAll: marksSelectedKeys asArray.
 			marksSelectedKeys := Set new.
 			marksPrimaryIndex := 0.
 			commentEditKey := nil]
 		ifFalse: [SWAMarkSet default clear]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+}
+SWAPane >> clearReviewed [
+	"Drop every review sign-off, after confirming -- there is no undo and the set is
+	the record of work already done."
+	SWAMarkSet reviewed isEmpty ifTrue: [^ self flashMarksMessage: 'No reviewed marks'].
+	(UIManager default confirm: 'Clear all ', SWAMarkSet reviewed size printString,
+		' reviewed mark(s)?') ifFalse: [^ self].
+	SWAMarkSet reviewed clear.
+	marksSelectedKeys := Set new.
+	marksPrimaryIndex := 0.
+	commentEditKey := nil.
 ]
 
 {
@@ -2203,13 +2221,15 @@ SWAPane >> collectInvocationTally [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
 }
 SWAPane >> commentFieldText [
 	"The comment for the mark currently being edited (primary/last-clicked row), as
 	Text for the PluggableTextMorph."
 	commentEditKey ifNil: [^ Text new].
-	^ (SWAMarkSet default commentAt: commentEditKey) asText
+	^ ((self markSetForKey: commentEditKey)
+		ifNil: [^ Text new]
+		ifNotNil: [:set | set commentAt: commentEditKey]) asText
 ]
 
 {
@@ -2223,6 +2243,16 @@ SWAPane >> copyMarks [
 	picked := self selectedMarkKeys.
 	SWAMarkSet default copyKeysToClipboard: picked.
 	self flashMarksMessage: 'Copied ', picked size printString, ' mark(s)'
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+}
+SWAPane >> copyReviewed [
+	"Copy the whole reviewed set to the clipboard, one 'key' or 'key  --  comment' per line."
+	SWAMarkSet reviewed copyToClipboard.
+	self flashMarksMessage: 'Copied ', SWAMarkSet reviewed size printString, ' reviewed mark(s)'
 ]
 
 {
@@ -2369,6 +2399,16 @@ SWAPane >> datasetNameFor: aPath [
 SWAPane >> defaultMarksFileName [
 	"The suggested file name for Save/Load, in the image directory."
 	^ FileDirectory default fullNameFor: 'swa-marks.json'
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+}
+SWAPane >> defaultReviewedFileName [
+	"The suggested file name for the reviewed set, in the image directory. A separate
+	sidecar from swa-marks.json: review sign-offs outlive any one working set."
+	^ FileDirectory default fullNameFor: 'swa-reviewed.json'
 ]
 
 {
@@ -3153,6 +3193,25 @@ SWAPane >> loadMarks [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+}
+SWAPane >> loadReviewed [
+	"Prompt for a JSON file and REPLACE the reviewed set + comments with it."
+	| name n |
+	name := UIManager default
+		chooseFileMatching: '*.json'
+		label: 'Load reviewed marks from file'.
+	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	n := SWAMarkSet reviewed loadFromFile: name.
+	marksSelectedKeys := Set new.
+	marksPrimaryIndex := 0.
+	commentEditKey := nil.
+	self flashMarksMessage: 'Loaded ', n printString,
+		' reviewed mark(s) from ', (FileDirectory localNameFor: name)
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:21'
 }
@@ -3192,13 +3251,26 @@ SWAPane >> loadTopicJson: json name: aName [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+}
+SWAPane >> markSetForKey: aKey [
+	"Which of the two sets a Marks-list row belongs to, or nil for the section header.
+	Comments and removal must act on the owning set, not always on #default."
+	aKey = self marksReviewedHeader ifTrue: [^ nil].
+	(SWAMarkSet reviewed includes: aKey) ifTrue: [^ SWAMarkSet reviewed].
+	^ SWAMarkSet default
+]
+
+{
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:14'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:27'
 }
 SWAPane >> marksBurgerMenu: aMenu [
 	"The 'burger' menu that replaces the Copy/Clear button row. Bundles the
 	clipboard/clear actions together with Save/Load to a JSON sidecar file and
-	'Class diagram of marks' (a live diagram of the marked classes)."
+	'Class diagram of marks' (a live diagram of the marked classes). The reviewed set
+	gets its own section: it is a separate set with its own sidecar file."
 	| n |
 	n := (marksSelectedKeys ifNil: [Set new]) size.
 	aMenu addTitle: 'Marks'.
@@ -3211,18 +3283,25 @@ SWAPane >> marksBurgerMenu: aMenu [
 	aMenu addLine.
 	aMenu add: 'Save to file...' target: self selector: #saveMarks.
 	aMenu add: 'Load from file...' target: self selector: #loadMarks.
+	aMenu addLine.
+	aMenu add: 'Copy reviewed (', SWAMarkSet reviewed size printString, ')'
+		target: self selector: #copyReviewed.
+	aMenu add: 'Clear reviewed' target: self selector: #clearReviewed.
+	aMenu add: 'Save reviewed to file...' target: self selector: #saveReviewed.
+	aMenu add: 'Load reviewed from file...' target: self selector: #loadReviewed.
 	^ aMenu
 ]
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
 }
 SWAPane >> marksChanged [
 	"The global SWAMarkSet changed: flush this view's marked-node cache, repaint the
 	view + its overlay (green borders), and refresh the Marks list panel if shown.
 	Called on every open pane by SWAMarkSet>>notifyPanes."
 	(view respondsTo: #flushMarksCache) ifTrue: [view flushMarksCache].
+	(view respondsTo: #updateReviewMarkers) ifTrue: [view updateReviewMarkers].
 	view ifNotNil: [view changed].
 	((view respondsTo: #overlayMorph) and: [view overlayMorph notNil])
 		ifTrue: [view overlayMorph changed].
@@ -3231,7 +3310,7 @@ SWAPane >> marksChanged [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:10'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
 }
 SWAPane >> marksDetailsText [
 	"Read-only details for the mark currently being edited (primary/last-clicked row):
@@ -3240,7 +3319,9 @@ SWAPane >> marksDetailsText [
 	pane above the comment editor."
 	| prov |
 	commentEditKey ifNil: [^ 'Select a mark to see where it was made.' asText].
-	prov := SWAMarkSet default provenanceAt: commentEditKey.
+	prov := (self markSetForKey: commentEditKey)
+		ifNil: [^ 'Select a mark to see where it was made.' asText]
+		ifNotNil: [:set | set provenanceAt: commentEditKey].
 	prov ifNil: [^ (commentEditKey, String cr, '(no provenance recorded)') asText].
 	^ (String streamContents: [:s |
 		s nextPutAll: commentEditKey; cr.
@@ -3259,12 +3340,18 @@ SWAPane >> marksDetailsText [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
 }
 SWAPane >> marksListItems [
 	"The list contents for the Marks panel: the global mark keys in mark order
 	(package name / class name / 'ClassName>>selector')."
-	^ SWAMarkSet default keys asArray
+	| items reviewed |
+	items := SWAMarkSet default keys asOrderedCollection.
+	reviewed := SWAMarkSet reviewed keys.
+	reviewed notEmpty ifTrue: [
+		items add: self marksReviewedHeader.
+		items addAll: reviewed].
+	^ items asArray
 ]
 
 {
@@ -3370,6 +3457,16 @@ SWAPane >> marksPrimaryIndex: anIndex shifted: shifted controlled: controlled [
 	self updateCommentField.
 	(shifted not and: [controlled not]) ifTrue: [self revealMarkInOpenView: key].
 	marksList ifNotNil: [marksList changed]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+}
+SWAPane >> marksReviewedHeader [
+	"The section divider between the working set and the reviewed set in the Marks
+	list. It occupies a row, so every key-by-index lookup must skip it."
+	^ '--- reviewed ---'
 ]
 
 {
@@ -4508,7 +4605,7 @@ SWAPane >> removePackageHere [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
 }
 SWAPane >> removeSelectedMark [
 	"Remove the currently multi-selected marks (globally). Falls back to the primary
@@ -4523,6 +4620,7 @@ SWAPane >> removeSelectedMark [
 			(idx between: 1 and: items size) ifTrue: [{ items at: idx }] ifFalse: [#()]].
 	picked isEmpty ifTrue: [^ self].
 	SWAMarkSet default removeAll: picked.
+	SWAMarkSet reviewed removeAll: picked.
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
 	commentEditKey := nil
@@ -4804,6 +4902,22 @@ SWAPane >> savePackagesHere [
 	self packagesShowWorkingSet ifFalse: [^ self saveCodeMapWorkingSet].
 	^ self treemapCoverageStatus:
 		'This IS the working set: ', SWAPane codeMapWorkingSet
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+}
+SWAPane >> saveReviewed [
+	"Prompt for a file name and write the whole reviewed set + comments as JSON."
+	| name |
+	name := UIManager default
+		saveFilenameRequest: 'Save reviewed marks to file'
+		initialAnswer: self defaultReviewedFileName.
+	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	SWAMarkSet reviewed saveToFile: name.
+	self flashMarksMessage: 'Saved ', SWAMarkSet reviewed size printString,
+		' reviewed mark(s) to ', (FileDirectory localNameFor: name)
 ]
 
 {
@@ -5369,13 +5483,13 @@ SWAPane >> updateDetails [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:38'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
 }
 SWAPane >> updateMarksList [
 	"Refresh the Marks list contents (if shown), pruning selection/comment keys that
 	no longer exist and reloading the comment editor."
 	| live |
-	live := SWAMarkSet default keys asSet.
+	live := SWAMarkSet default keys asSet addAll: SWAMarkSet reviewed keys; yourself.
 	marksSelectedKeys ifNotNil: [
 		marksSelectedKeys := marksSelectedKeys select: [:k | live includes: k]].
 	(commentEditKey notNil and: [(live includes: commentEditKey) not])

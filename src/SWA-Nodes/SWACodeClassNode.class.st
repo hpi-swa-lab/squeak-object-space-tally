@@ -7,7 +7,9 @@ Class {
 	#instVars : [
 		'methodFilter',
 		'ivarFilter',
-		'hiddenIvarNames'
+		'hiddenIvarNames',
+		'removedMembers',
+		'memberKinds'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
@@ -291,6 +293,34 @@ SWACodeClassNode >> kind [
 ]
 
 {
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
+}
+SWACodeClassNode >> kindColorFor: aCrossRefKey [
+	"Green added, orange modified, nil for anything we were told nothing about. Removed
+	members are red, but they are drawn by #recordDeadRowsOn:ivars: -- they have no node
+	here to key on."
+
+	| kind |
+	memberKinds isNil ifTrue: [^ nil].
+	kind := memberKinds at: aCrossRefKey ifAbsent: [nil].
+	kind == #added ifTrue: [^ '#d8f0d8'].
+	kind == #modified ifTrue: [^ '#ffe8cc'].
+	^ nil
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
+}
+SWACodeClassNode >> memberKinds: aDictionary [
+	"crossRefKey -> #added or #modified, used to tint the member's row. Set alongside
+	#removedMembers:, which covers the third case."
+
+	memberKinds := aDictionary
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:37'
 }
@@ -322,6 +352,30 @@ SWACodeClassNode >> methodNodes [
 }
 SWACodeClassNode >> name [
 	^ subject name asString
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:38'
+}
+SWACodeClassNode >> recordDeadRowsOn: ws ivars: wantIvars [
+	"Emit the struck-through rows for removed members, ivars or methods per wantIvars.
+	No port is written: the field-click map is built from the nodes that actually exist,
+	so a port here would shift every later row's index out of step with it.
+	Answers whether anything was emitted."
+
+	| any |
+	removedMembers isNil ifTrue: [^ false].
+	any := false.
+	removedMembers do: [:each |
+		(each third) = wantIvars ifTrue: [
+			any := true.
+			ws nextPutAll: '<tr><td align="text" bgcolor="#f8d7da"><font color="#9a4a52">'.
+			(each second) ifTrue: [ws nextPutAll: '<u>'].
+			ws nextPutAll: '<s>'; nextPutAll: (SWACodeNode htmlEscape: each first); nextPutAll: '</s>'.
+			(each second) ifTrue: [ws nextPutAll: '</u>'].
+			ws nextPutAll: '</font><br align="left"/></td></tr>']].
+	^ any
 ]
 
 {
@@ -357,7 +411,7 @@ SWACodeClassNode >> recordFieldNodesShowMethods: showMethods [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:52'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:36'
 }
 SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethods [
 	"The SWACodeNode for each record field, by field index, matching the ROW order emitted
@@ -370,19 +424,23 @@ SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethod
 	this stays index-aligned with the emitted rows (each blank spacer produces one text
 	baseline, hence one field slot). Used to resolve a clicked field index back to its
 	node."
-	| out ivars methods |
+	| out ivars methods deadIvars deadMethods |
 	out := OrderedCollection new.
 	out add: self.                        "0: name row"
 	showState ifTrue: [
 		ivars := self recordIvarNodes.
-		ivars isEmpty
-			ifTrue: [out add: self]        "blank spacer row -> the class"
-			ifFalse: [out addAll: ivars]].
+		deadIvars := self removedMemberCount: true.
+		out addAll: ivars.
+		deadIvars timesRepeat: [out add: self].   "struck-through row -> the class"
+		(ivars isEmpty and: [deadIvars = 0])
+			ifTrue: [out add: self]].     "blank spacer row -> the class"
 	showMethods ifTrue: [
 		methods := self recordMethodNodes.
-		methods isEmpty
-			ifTrue: [out add: self]        "blank spacer row -> the class"
-			ifFalse: [out addAll: methods]].
+		deadMethods := self removedMemberCount: false.
+		out addAll: methods.
+		deadMethods timesRepeat: [out add: self].
+		(methods isEmpty and: [deadMethods = 0])
+			ifTrue: [out add: self]].
 	^ out asArray
 ]
 
@@ -479,27 +537,31 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: 
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:47'
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:37'
 }
 SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMode: aColorMode maxLoc: aMaxLoc [
-	"Emit the METHODS compartment rows (one per method, static methods prefixed '$') into
-	ws. Ports continue from startIndex. In #loc mode each cell is tinted by its LOC on a
-	green->red ramp scaled to aMaxLoc. Answer the next free port index. When there are no
-	(visible) methods a single blank spacer row is emitted so the enabled-but-empty section
-	still renders below its separator (drawn by the caller). Honors #methodFilter (via
-	#recordMethodNodes)."
-	| idx locMode methods |
+	"Emit the METHODS compartment rows (one per method, class-side ones underlined) into
+	ws, then any removed methods struck through. Ports continue from startIndex. In #loc
+	mode each cell is tinted by its LOC on a green->red ramp scaled to aMaxLoc. Answer
+	the next free port index. When there is nothing at all to show, a single blank spacer
+	row keeps the enabled-but-empty section rendering below its separator (drawn by the
+	caller). Honors #methodFilter (via #recordMethodNodes)."
+
+	| idx locMode methods hadRemovals |
 	idx := startIndex.
 	locMode := aColorMode = #loc.
 	methods := self recordMethodNodes.
-	methods isEmpty ifTrue: [self recordEmptyRowOn: ws. ^ idx].
 	methods do: [:m | | cellBg |
 		idx := idx + 1.
-		cellBg := locMode ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc] ifFalse: [nil].
+		cellBg := locMode
+			ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc]
+			ifFalse: [self kindColorFor: m crossRefKey].
 		self
 			recordRowOn: ws port: idx bgColor: cellBg text: m pattern
 			underline: m isStatic].
+	hadRemovals := self recordDeadRowsOn: ws ivars: false.
+	(methods isEmpty and: [hadRemovals not]) ifTrue: [self recordEmptyRowOn: ws].
 	^ idx
 ]
 
@@ -564,20 +626,21 @@ SWACodeClassNode >> recordRowOn: ws port: portIndex bgColor: bgColorOrNil text: 
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:51'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:37'
 }
 SWACodeClassNode >> recordStateCompartmentOn: ws startingAt: startIndex [
 	"Emit the STATE compartment rows (one per instance variable) into ws. Ports continue
 	from startIndex. Answer the next free port index. When there are no (visible) ivars a
 	single blank spacer row is emitted so the enabled-but-empty section still renders below
 	its separator (drawn by the caller). Honors #ivarFilter (via #recordIvarNodes)."
-	| idx ivarNodes |
+	| idx ivarNodes hadRemovals |
 	idx := startIndex.
 	ivarNodes := self recordIvarNodes.
-	ivarNodes isEmpty ifTrue: [self recordEmptyRowOn: ws. ^ idx].
 	ivarNodes do: [:n |
 		idx := idx + 1.
-		self recordRowOn: ws port: idx bgColor: nil text: n ivarName].
+		self recordRowOn: ws port: idx bgColor: (self kindColorFor: n crossRefKey) text: n ivarName].
+	hadRemovals := self recordDeadRowsOn: ws ivars: true.
+	(ivarNodes isEmpty and: [hadRemovals not]) ifTrue: [self recordEmptyRowOn: ws].
 	^ idx
 ]
 
@@ -591,6 +654,30 @@ SWACodeClassNode >> recordTableBgColorMode: aColorMode [
 	^ aColorMode = #loc
 		ifTrue: ['#f4f4f4']
 		ifFalse: [self dotFillColor]
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:36'
+}
+SWACodeClassNode >> removedMemberCount: wantIvars [
+	"How many struck-through rows the given compartment emits. Clicking resolves a row
+	INDEX, so every emitted row must be counted here whether or not it is clickable."
+
+	removedMembers isNil ifTrue: [^ 0].
+	^ (removedMembers select: [:each | each third = wantIvars]) size
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:22'
+}
+SWACodeClassNode >> removedMembers: aCollection [
+	"{ displayText. isStatic. isIvar } triples for members this class no longer has, to
+	be drawn struck through. They exist only in the history, so there is no node behind
+	them -- which is why they are rendered without a port and cannot be clicked."
+
+	removedMembers := aCollection
 ]
 
 {

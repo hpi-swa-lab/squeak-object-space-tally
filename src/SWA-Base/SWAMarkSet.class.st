@@ -12,7 +12,8 @@ Class {
 		'provenance'
 	],
 	#classVars : [
-		'Default'
+		'Default',
+		'Reviewed'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -25,6 +26,17 @@ Class {
 SWAMarkSet class >> default [
 	"The process-wide singleton mark set shared by all SWAPane views."
 	^ Default ifNil: [Default := self new]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+}
+SWAMarkSet class >> reviewed [
+	"The second process-wide set: methods signed off in a code review. Separate from
+	#default because a review mark answers a different question than a working-set
+	mark, and the two must survive each other being cleared."
+	^ Reviewed ifNil: [Reviewed := self new].
 ]
 
 {

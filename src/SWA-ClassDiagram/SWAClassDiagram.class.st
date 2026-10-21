@@ -18,11 +18,51 @@ Class {
 		'syncedMarkSet',
 		'suppressedSuperclassNames',
 		'clustered',
-		'showsComposition'
+		'showsComposition',
+		'priorSources',
+		'reviewScope'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:13'
+}
+SWAClassDiagram class >> addIvarMarksFor: anOperation definition: aClassDefinition into: aMarkSet [
+	"Mark the instance variables this class definition ADDED. Only MCModification carries
+	an #obsoletion -- the definition as it was -- so for a newly added class there is
+	nothing to compare against and every ivar counts as new.
+
+	An ivar that no longer exists in the image is skipped, the same as a removed method:
+	there would be no node to mark."
+
+	| clsName behavior oldNames newNames |
+	clsName := [aClassDefinition className asString] on: Error do: [:e | nil].
+	clsName ifNil: [^ self].
+	behavior := self behaviorNamed: clsName.
+	behavior ifNil: [^ self].
+	newNames := [aClassDefinition instVarNames] on: Error do: [:e | #()].
+	oldNames := (anOperation respondsTo: #obsoletion)
+		ifTrue: [[anOperation obsoletion instVarNames] on: Error do: [:e | #()]]
+		ifFalse: [#()].
+	newNames do: [:each |
+		((oldNames includes: each) not
+			and: [behavior allInstVarNames includes: each])
+				ifTrue: [aMarkSet add: clsName, '>>#', each]]
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:21'
+}
+SWAClassDiagram class >> addRemoval: aString static: isStatic isIvar: isIvar forClassNamed: aClassName into: aRemovalDictionary [
+	| list entry |
+	list := aRemovalDictionary at: aClassName ifAbsentPut: [OrderedCollection new].
+	entry := Array with: aString with: isStatic with: isIvar.
+	(list anySatisfy: [:each | each = entry]) ifFalse: [list add: entry]
+]
 
 {
 	#category : #git,
@@ -38,6 +78,46 @@ SWAClassDiagram class >> behaviorNamed: aString [
 		^ (Smalltalk at: (name copyFrom: 1 to: name size - 6) asSymbol ifAbsent: [nil])
 			ifNotNil: [:cls | cls class]].
 	^ Smalltalk at: name asSymbol ifAbsent: [nil]
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:32'
+}
+SWAClassDiagram class >> changesForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
+	"Everything the diagram needs about a commit range, from ONE diff -- the diff costs a
+	tree materialisation and must not be run more than once. Answers a Dictionary:
+
+		#marks         a SWAMarkSet, for the #selected granularity
+		#kinds         crossRefKey -> #added / #modified, to colour the rows
+		#removals      class name -> { displayText. isStatic. isIvar }, drawn struck through
+		#priorSources  crossRefKey -> the source as it was, for the diff in the source pane
+
+	Prior source comes off the obsoletion definition, which already carries it, so this
+	costs nothing beyond the diff itself."
+
+	| history base head changes result |
+	history := SWAGitHistory onWorkingCopyNamed: aRepositoryName.
+	base := history commitWithHexPrefix: aHexPrefix.
+	base ifNil: [^ self error: 'no commit starting ', aHexPrefix, ' on this branch'].
+	head := aHexPrefixOrNil
+		ifNil: [history workingCopy headCommit]
+		ifNotNil: [:prefix |
+			(history commitWithHexPrefix: prefix)
+				ifNil: [^ self error: 'no commit starting ', prefix, ' on this branch']].
+	changes := #().
+	UIManager default
+		informUser: 'Diffing ', aHexPrefix, ' .. ', (aHexPrefixOrNil ifNil: ['HEAD'])
+		during: [
+			changes := [history workingCopy changesFromCommit: base toCommit: head]
+				on: Error do: [:e | #()]].
+	result := Dictionary new.
+	result at: #marks put: SWAMarkSet new.
+	result at: #kinds put: Dictionary new.
+	result at: #removals put: Dictionary new.
+	result at: #priorSources put: Dictionary new.
+	changes do: [:change | self record: change into: result].
+	^ result
 ]
 
 {
@@ -64,7 +144,7 @@ SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix 
 
 {
 	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:58'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:13'
 }
 SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
 	"A SWAMarkSet of what changed between two commits, keyed the way every SWA view keys
@@ -106,8 +186,12 @@ SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix 
 					clsName := [defn fullClassName asString] on: Error do: [:e | nil].
 					sel := [defn selector] on: Error do: [:e | nil]]
 				ifFalse: [
-					(defn isKindOf: MCClassDefinition)
-						ifTrue: [clsName := [defn className asString] on: Error do: [:e | nil]]].
+					(defn isKindOf: MCClassDefinition) ifTrue: [
+						clsName := [defn className asString] on: Error do: [:e | nil].
+						self
+							addIvarMarksFor: change operation
+							definition: defn
+							into: marks]].
 			clsName ifNotNil: [
 				behavior := self behaviorNamed: clsName.
 				behavior ifNotNil: [
@@ -175,7 +259,7 @@ SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix [
 
 {
 	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
 }
 SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
 	"A class diagram of what changed between two commits -- the range under review, with
@@ -189,10 +273,21 @@ SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix t
 
 	Opens at the #selected granularity, so each class shows only its touched members."
 
-	| marks root view |
-	marks := self markSetForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil.
+	| result marks removals root view |
+	result := self changesForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil.
+	marks := result at: #marks.
+	removals := result at: #removals.
 	root := SWACodeMarkSetRootNode new markSet: marks; yourself.
+	root withAllChildrenDo: [:node |
+		(node isKindOf: SWACodeClassNode) ifTrue: [
+			node memberKinds: (result at: #kinds).
+			(removals at: node name ifAbsent: [nil])
+				ifNotNil: [:list | node removedMembers: list]]].
 	view := self on: root.
+	view priorSources: (result at: #priorSources).
+	view reviewScope: aRepositoryName, ' ',
+		(aHexPrefix first: (aHexPrefix size min: 7)), '..',
+		(aHexPrefixOrNil ifNil: ['HEAD'] ifNotNil: [:p | p first: (p size min: 7)]).
 	view leafKind: #selected.
 	^ (SWAPane on: view) openInWindow
 		setLabel: aRepositoryName, ': ', aHexPrefix, ' .. ', (aHexPrefixOrNil ifNil: ['HEAD'])
@@ -251,6 +346,81 @@ SWAClassDiagram class >> openOnPackageNamed: aPackageGlob [
 	^ self
 		openOn: root
 		label: 'Class Diagram: ', aPackageGlob
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
+}
+SWAClassDiagram class >> record: aCodeChange into: aResult [
+	"One change: mark it and note its kind if the member still exists, record it as a
+	removal if it does not. An MCModification carries the definition as it was, which is
+	both how a modification is told from an addition and where the diff text comes from."
+
+	| op defn prior clsName sel behavior key |
+	op := [aCodeChange operation] on: Error do: [:e | nil].
+	op ifNil: [^ self].
+	defn := [op definition] on: Error do: [:e | nil].
+	defn ifNil: [^ self].
+	prior := (op respondsTo: #obsoletion) ifTrue: [[op obsoletion] on: Error do: [:e | nil]] ifFalse: [nil].
+	(defn isKindOf: MCMethodDefinition) ifTrue: [
+		clsName := [defn fullClassName asString] on: Error do: [:e | nil].
+		sel := [defn selector] on: Error do: [:e | nil].
+		(clsName isNil or: [sel isNil]) ifTrue: [^ self].
+		behavior := self behaviorNamed: clsName.
+		behavior ifNil: [^ self].
+		(([op isRemoval] on: Error do: [:e | false])
+			or: [(behavior includesSelector: sel asSymbol) not])
+				ifTrue: [^ self
+					addRemoval: sel asString
+					static: behavior isMeta
+					isIvar: false
+					forClassNamed: behavior theNonMetaClass name asString
+					into: (aResult at: #removals)].
+		key := clsName, '>>', sel asString.
+		(aResult at: #marks) add: key.
+		(aResult at: #kinds) at: key put: (prior isNil ifTrue: [#added] ifFalse: [#modified]).
+		prior ifNotNil: [
+			([prior source] on: Error do: [:e | nil])
+				ifNotNil: [:src | (aResult at: #priorSources) at: key put: src asString]].
+		^ self].
+	(defn isKindOf: MCClassDefinition) ifTrue: [
+		clsName := [defn className asString] on: Error do: [:e | nil].
+		clsName ifNil: [^ self].
+		behavior := self behaviorNamed: clsName.
+		behavior ifNil: [^ self].
+		(aResult at: #marks) add: behavior theNonMetaClass name asString.
+		self recordIvarsOf: op definition: defn into: aResult]
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
+}
+SWAClassDiagram class >> recordIvarsOf: anOperation definition: aClassDefinition into: aResult [
+	"Added instance variables get marked as #added, dropped ones recorded as removals.
+	Only an MCModification carries an #obsoletion, so a newly added class has nothing to
+	compare against and every ivar of it is new."
+
+	| clsName behavior oldNames newNames |
+	clsName := [aClassDefinition className asString] on: Error do: [:e | nil].
+	clsName ifNil: [^ self].
+	behavior := self behaviorNamed: clsName.
+	behavior ifNil: [^ self].
+	newNames := [aClassDefinition instVarNames] on: Error do: [:e | #()].
+	oldNames := (anOperation respondsTo: #obsoletion)
+		ifTrue: [[anOperation obsoletion instVarNames] on: Error do: [:e | #()]]
+		ifFalse: [#()].
+	newNames do: [:each |
+		((oldNames includes: each) not and: [behavior allInstVarNames includes: each]) ifTrue: [
+			(aResult at: #marks) add: clsName, '>>#', each.
+			(aResult at: #kinds) at: clsName, '>>#', each put: #added]].
+	oldNames do: [:each |
+		(newNames includes: each) ifFalse: [
+			self
+				addRemoval: each static: false isIvar: true
+				forClassNamed: behavior theNonMetaClass name asString
+				into: (aResult at: #removals)]]
 ]
 
 {
@@ -371,6 +541,16 @@ SWAClassDiagram >> graphFieldClicked: anAssoc [
 
 {
 	#category : #events,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> graphMarkerClicked: aNode [
+	"Select the row the badge belongs to, then toggle its review sign-off."
+	self selectedNode: aNode.
+	self toggleReviewed: aNode.
+]
+
+{
+	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:39'
 }
 SWAClassDiagram >> graphMenuRequest: evt [
@@ -415,6 +595,17 @@ SWAClassDiagram >> initialize [
 	graphPane onNodeClick: [:dotId | self graphNodeClicked: dotId].
 	graphPane hResizing: #spaceFill; vResizing: #spaceFill.
 	self addMorphBack: graphPane
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> isNodeReviewed: aNode [
+	| key |
+	key := self reviewKeyFor: aNode.
+	key ifNil: [^ false].
+	^ SWAMarkSet reviewed includes: key
 ]
 
 {
@@ -523,6 +714,31 @@ SWAClassDiagram >> overlayMorph [
 ]
 
 {
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
+}
+SWAClassDiagram >> priorSourceForSelection [
+	"The selected member's source as it was before the range being shown, or nil."
+
+	| key |
+	(priorSources isNil or: [selectedNode isNil]) ifTrue: [^ nil].
+	key := [selectedNode crossRefKey] on: Error do: [:e | nil].
+	key ifNil: [^ nil].
+	^ priorSources at: key ifAbsent: [nil]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:37'
+}
+SWAClassDiagram >> priorSources: aDictionary [
+	"crossRefKey -> the source as it was before the range being shown. Makes the Show
+	pane display a diff rather than just the current source."
+
+	priorSources := aDictionary
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:56'
 }
@@ -534,7 +750,7 @@ SWAClassDiagram >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:14'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
 }
 SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the class diagram and hand it to the embedded
@@ -588,6 +804,8 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	graphPane onNodeClick: [:dotId | self graphNodeClicked: dotId].
 	graphPane onFieldClick: [:assoc | self graphFieldClicked: assoc].
 	graphPane onMenuRequest: [:evt | self graphMenuRequest: evt].
+	graphPane onMarkerClick: [:node | self graphMarkerClicked: node].
+	self updateReviewMarkers.
 	self updateSelectionHighlight.
 	self refreshChrome
 ]
@@ -599,6 +817,53 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 SWAClassDiagram >> refreshChrome [
 	"Refresh all chrome labels + source pane via the nav panel, if attached."
 	navPanel ifNotNil: [:p | p refresh]
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+}
+SWAClassDiagram >> reviewBadgeRectFor: aFieldRect [
+	"A circle at the trailing edge of a method row. Rows are left-aligned and dot sizes
+	the box to the widest one, so this is free space on every row but that one."
+	| d |
+	d := ((aFieldRect height - 4) min: 11) max: 7.
+	^ ((aFieldRect right - d - 3) @ (aFieldRect center y - (d // 2))) rounded
+		extent: d @ d
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> reviewKeyFor: aNode [
+	"The key under which aNode is signed off in SWAMarkSet reviewed, or nil when there
+	is nothing to sign off: no commit range, or a node with no mark key."
+	| key |
+	reviewScope ifNil: [^ nil].
+	aNode ifNil: [^ nil].
+	key := aNode markKey.
+	key ifNil: [^ nil].
+	^ reviewScope, ' ', key
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> reviewScope [
+	^ reviewScope
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> reviewScope: aStringOrNil [
+	"Names the commit range this diagram shows, e.g. 'SqueakXRNative 2269a69..399beef'.
+	A review mark is only meaningful together with the version reviewed, so the scope
+	becomes part of the reviewed key. nil switches the review badges off."
+	reviewScope := aStringOrNil.
 ]
 
 {
@@ -635,13 +900,20 @@ SWAClassDiagram >> selectedNode: aNodeOrNil [
 
 {
 	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
 }
 SWAClassDiagram >> selectedSourceString [
 	"Source text for the Show pane: the selected node's source, or empty."
-	(selectedNode notNil and: [selectedNode respondsTo: #sourceString])
-		ifTrue: [^ selectedNode sourceString].
-	^ ''
+	| prior |
+	(selectedNode notNil and: [selectedNode respondsTo: #sourceString]) ifFalse: [^ ''].
+	prior := self priorSourceForSelection.
+	prior ifNil: [^ selectedNode sourceString].
+	^ [TextDiffBuilder
+		buildDisplayPatchFrom: prior
+		to: selectedNode sourceString asString
+		inClass: ([selectedNode parent theClass] on: Error do: [:e | nil])
+		prettyDiffs: false]
+			on: Error do: [:e | selectedNode sourceString]
 ]
 
 {
@@ -722,6 +994,19 @@ SWAClassDiagram >> showsState [
 ]
 
 {
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
+}
+SWAClassDiagram >> styleClassForSelection [
+	"No styling class while a diff is on show: Shout restyles the whole pane from the
+	source text and would overwrite the insert/remove attributes TextDiffBuilder put
+	there, leaving the diff looking exactly like ordinary source."
+
+	self priorSourceForSelection ifNotNil: [^ nil].
+	^ super styleClassForSelection
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:05'
 }
@@ -754,6 +1039,22 @@ SWAClassDiagram >> syncToMarkSet: aMarkSet [
 ]
 
 {
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> toggleReviewed: aNode [
+	"Sign aNode off, or take the sign-off back."
+	| key prov |
+	key := self reviewKeyFor: aNode.
+	key ifNil: [^ self].
+	prov := self markProvenance.
+	prov at: 'nodeKind' put: aNode nodeKind asString.
+	prov at: 'reviewScope' put: reviewScope.
+	SWAMarkSet reviewed toggle: key from: prov.
+	self updateReviewMarkers.
+]
+
+{
 	#category : #'marks-sync',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:13'
 }
@@ -767,6 +1068,28 @@ SWAClassDiagram >> update: anAspect [
 	rootNode invalidate.
 	self rebuildKeyIndex.
 	self rebuildGraphKeepView: true
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+SWAClassDiagram >> updateReviewMarkers [
+	"Hand the GraphvizMorph one badge per method row, keyed by the node so a click
+	resolves back without a second hit test."
+	| list |
+	graphMorph ifNil: [^ self].
+	(reviewScope isNil or: [rectKeyByNode isNil])
+		ifTrue: [^ graphMorph markers: nil].
+	list := OrderedCollection new.
+	rectKeyByNode keysAndValuesDo: [:node :key |
+		(key value notNil and: [node isKindOf: SWACodeMethodNode]) ifTrue: [
+			(graphMorph rectForNode: key key field: key value) ifNotNil: [:fieldRect |
+				list add: node -> {
+					self reviewBadgeRectFor: fieldRect.
+					self isNodeReviewed: node.
+					Color green darker }]]].
+	graphMorph markers: list
 ]
 
 {

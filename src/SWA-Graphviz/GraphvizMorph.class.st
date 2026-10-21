@@ -29,7 +29,9 @@ Class {
 		'fieldAction',
 		'selectionRect',
 		'selectionColor',
-		'menuAction'
+		'menuAction',
+		'markers',
+		'markerAction'
 	],
 	#category : #'SWA-Graphviz',
 	#'squeak_changestamp' : '<historical>'
@@ -95,7 +97,28 @@ GraphvizMorph >> dotSource [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+}
+GraphvizMorph >> drawMarkersOn: aCanvas [
+	"Draw each marker as a ring: hollow when not set, filled with its colour when set."
+	| origin |
+	markers ifNil: [^ self].
+	origin := self bounds origin.
+	markers do: [:assoc |
+		| r filled color |
+		r := (assoc value first) translateBy: origin.
+		filled := assoc value second.
+		color := assoc value third.
+		aCanvas
+			fillOval: r
+			color: (filled ifTrue: [color] ifFalse: [Color transparent])
+			borderWidth: 1
+			borderColor: (filled ifTrue: [color muchDarker] ifFalse: [Color gray: 0.55])].
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
 }
 GraphvizMorph >> drawOn: aCanvas [
 	"Draw the layout image (super), then, if an element is selected, frame it with a
@@ -103,6 +126,7 @@ GraphvizMorph >> drawOn: aCanvas [
 	treemap uses). The enclosing scroll/zoom pane transforms this canvas, so the
 	frame tracks the graph as it pans and zooms."
 	super drawOn: aCanvas.
+	self drawMarkersOn: aCanvas.
 	selectionRect ifNotNil: [:r |
 		SWASelectionPainter
 			selectionFrameOn: aCanvas
@@ -168,17 +192,47 @@ GraphvizMorph >> handlesMouseDown: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+}
+GraphvizMorph >> markerAt: aWorldPoint [
+	"Answer the key of the marker badge hit by aWorldPoint, or nil."
+	| local |
+	markers isNil ifTrue: [^ nil].
+	local := aWorldPoint - self bounds origin.
+	markers do: [:assoc |
+		((assoc value first) containsPoint: local) ifTrue: [^ assoc key]].
+	^ nil
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+}
+GraphvizMorph >> markers: aCollectionOrNil [
+	"Clickable circular badges drawn over the layout image, as a collection of
+	Associations anyKey -> Array { rect. isFilled. aColor }. Rects are in the same
+	morph-local pixel space as nodeRects / fieldRects, so the owner can position a
+	badge off a record sub-field rect."
+	markers := aCollectionOrNil.
+	self changed.
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:20'
 }
 GraphvizMorph >> mouseDown: evt [
 	"Right-click (yellow button) with a menuAction set -> fire the context menu.
-	Otherwise hit-test the click: if a fieldAction is set and the click lands in a
+	Otherwise hit-test the click: marker badges first, since they sit inside the field
+	rect that would otherwise swallow them; then, if a fieldAction is set and the click lands in a
 	record sub-field, fire it with nodeName -> fieldIndex; else if a node is hit and
 	a nodeAction is set, fire that with the node name; else pan (if a panHandler is
 	set) or fall back to default behavior (e.g. dragging via halo)."
 	| field node |
 	(evt yellowButtonPressed and: [menuAction notNil])
 		ifTrue: [^ menuAction value: evt].
+	markerAction ifNotNil: [
+		(self markerAt: evt cursorPoint) ifNotNil: [:key | ^ markerAction value: key]].
 	fieldAction ifNotNil: [
 		field := self fieldAt: evt cursorPoint.
 		field ifNotNil: [^ fieldAction value: field]].
@@ -242,6 +296,17 @@ GraphvizMorph >> onFieldClick: aBlock [
 	Association nodeName -> fieldIndex (0-based). Takes precedence over the plain
 	node action when the click lands inside a record field."
 	fieldAction := aBlock
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+}
+GraphvizMorph >> onMarkerClick: aBlock [
+	"Set a one-argument block evaluated with the key of the clicked marker badge.
+	Takes precedence over the field and node actions, since a badge sits inside the
+	field rect that would otherwise swallow the click."
+	markerAction := aBlock.
 ]
 
 {

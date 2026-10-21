@@ -337,6 +337,15 @@ GraphvizPane >> onFieldClick: aBlock [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+}
+GraphvizPane >> onMarkerClick: aBlock [
+	"Forward marker-badge click handling to the wrapped GraphvizMorph."
+	graph onMarkerClick: aBlock.
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:42'
 }
 GraphvizPane >> onMenuRequest: aBlock [
