@@ -15,11 +15,109 @@ Class {
 		'rectKeyByNode',
 		'colorMode',
 		'leafKind',
-		'syncedMarkSet'
+		'syncedMarkSet',
+		'suppressedSuperclassNames',
+		'clustered',
+		'showsComposition'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:34'
+}
+SWAClassDiagram class >> behaviorNamed: aString [
+	"The class or metaclass aString names, or nil. Monticello spells the class side
+	'SRAvatar class', which is also how a crossRefKey does."
+
+	| name |
+	name := aString asString.
+	(name endsWith: ' class') ifTrue: [
+		^ (Smalltalk at: (name copyFrom: 1 to: name size - 6) asSymbol ifAbsent: [nil])
+			ifNotNil: [:cls | cls class]].
+	^ Smalltalk at: name asSymbol ifAbsent: [nil]
+]
+
+{
+	#category : #defaults,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:04'
+}
+SWAClassDiagram class >> defaultSuppressedSuperclassNames [
+	"Superclasses whose inheritance edge carries no information, so it is not drawn and
+	the class gets no placeholder box. Every class inherits from Object; a name ending
+	in Test inheriting from TestCase is not news; and a framework base class is already
+	announced by the prefix its subclasses share. Edit this, or set the list per
+	diagram with #suppressedSuperclassNames:."
+
+	^ #('Object' 'TestCase' 'SRObject')
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
+}
+SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix [
+	^ self markSetForRepository: aRepositoryName from: aHexPrefix to: nil
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:58'
+}
+SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
+	"A SWAMarkSet of what changed between two commits, keyed the way every SWA view keys
+	members, so it can drive the #selected granularity. A nil second argument means the
+	head commit.
+
+	ONE diff, not a walk over the commits between the two. Each changesFromCommit:toCommit:
+	materialises both trees through the code mapper, so doing it per commit costs that many
+	times over -- and answers a different question: the accumulated churn, in which a
+	method changed and then reverted still counts. A range wants its net effect.
+
+	Deletions are left out: a removed method is in the history but not in the image, so
+	there is no node to mark. A class-definition change marks the class itself."
+
+	| history base head changes marks |
+	history := SWAGitHistory onWorkingCopyNamed: aRepositoryName.
+	base := history commitWithHexPrefix: aHexPrefix.
+	base ifNil: [^ self error: 'no commit starting ', aHexPrefix, ' on this branch'].
+	head := aHexPrefixOrNil
+		ifNil: [history workingCopy headCommit]
+		ifNotNil: [:prefix |
+			(history commitWithHexPrefix: prefix)
+				ifNil: [^ self error: 'no commit starting ', prefix, ' on this branch']].
+	changes := #().
+	UIManager default
+		informUser: 'Diffing ', aHexPrefix, ' .. ', (aHexPrefixOrNil ifNil: ['HEAD'])
+		during: [
+			changes := [history workingCopy changesFromCommit: base toCommit: head]
+				on: Error do: [:e | #()]].
+	marks := SWAMarkSet new.
+	changes do: [:change |
+		| defn clsName sel behavior |
+		defn := [change operation definition] on: Error do: [:e | nil].
+		defn ifNotNil: [
+			clsName := nil.
+			sel := nil.
+			(defn isKindOf: MCMethodDefinition)
+				ifTrue: [
+					clsName := [defn fullClassName asString] on: Error do: [:e | nil].
+					sel := [defn selector] on: Error do: [:e | nil]]
+				ifFalse: [
+					(defn isKindOf: MCClassDefinition)
+						ifTrue: [clsName := [defn className asString] on: Error do: [:e | nil]]].
+			clsName ifNotNil: [
+				behavior := self behaviorNamed: clsName.
+				behavior ifNotNil: [
+					sel isNil
+						ifTrue: [marks add: behavior theNonMetaClass name asString]
+						ifFalse: [
+							(behavior includesSelector: sel asSymbol)
+								ifTrue: [marks add: clsName, '>>', sel asString]]]]]].
+	^ marks
+]
 
 {
 	#category : #'as yet unclassified',
@@ -58,6 +156,46 @@ SWAClassDiagram class >> openOn: aCodeNode label: aLabel [
 	window bounds: bounds.
 	panel enforceMinimumWindowWidth.
 	^ window
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
+}
+SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix [
+	"A class diagram of what the commits after aHexPrefix changed -- the branch under
+	review, with nothing else in the way.
+
+	SWAClassDiagram openOnGitRepository: 'SqueakXRNative' from: '94b68b4'
+
+	Opens at the #selected granularity, so each class shows only its touched members."
+
+	^ self openOnGitRepository: aRepositoryName from: aHexPrefix to: nil
+]
+
+{
+	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
+}
+SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
+	"A class diagram of what changed between two commits -- the range under review, with
+	nothing else in the way. A nil second argument means the head commit.
+
+	SWAClassDiagram openOnGitRepository: 'SqueakXRNative' from: '94b68b4' to: nil.
+	SWAClassDiagram openOnGitRepository: 'SqueakXRNative' from: '94b68b4' to: 'a82eb22'.
+
+	Both ends are named because head is not always the end you mean: a later commit that
+	reformats or strips comments will otherwise swamp the feature work it follows.
+
+	Opens at the #selected granularity, so each class shows only its touched members."
+
+	| marks root view |
+	marks := self markSetForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil.
+	root := SWACodeMarkSetRootNode new markSet: marks; yourself.
+	view := self on: root.
+	view leafKind: #selected.
+	^ (SWAPane on: view) openInWindow
+		setLabel: aRepositoryName, ': ', aHexPrefix, ' .. ', (aHexPrefixOrNil ifNil: ['HEAD'])
 ]
 
 {
@@ -134,6 +272,25 @@ SWAClassDiagram >> browseSelected [
 	selectedNode
 		ifNil: [Beeper beep]
 		ifNotNil: [:n | n browse]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:14'
+}
+SWAClassDiagram >> clustered [
+	"Draw each system subcategory as a labelled subgraph."
+
+	^ clustered ifNil: [true]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:14'
+}
+SWAClassDiagram >> clustered: aBoolean [
+	clustered := aBoolean.
+	self rebuildGraph
 ]
 
 {
@@ -262,7 +419,7 @@ SWAClassDiagram >> initialize [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:45'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
 }
 SWAClassDiagram >> ivarFilterForBuild [
 	"The ivar-filter block to install on class nodes for the current granularity, or nil to
@@ -271,7 +428,7 @@ SWAClassDiagram >> ivarFilterForBuild [
 	global singleton."
 	| ms |
 	leafKind = #selected ifFalse: [^ nil].
-	ms := syncedMarkSet ifNil: [SWAMarkSet default].
+	ms := self markSetForBuild.
 	^ [:ivarNode | ms includes: ivarNode crossRefKey]
 ]
 
@@ -324,7 +481,23 @@ SWAClassDiagram >> leafKindOrder [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:45'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
+}
+SWAClassDiagram >> markSetForBuild [
+	"The mark set the #selected granularity filters against. A root node built on its own
+	private SWAMarkSet -- SWACodeMarkSetRootNode -- must be filtered by THAT set, or the
+	diagram silently shows nothing: it would be matching against the global working set,
+	which knows nothing about the keys the root was built from."
+
+	syncedMarkSet ifNotNil: [^ syncedMarkSet].
+	(rootNode notNil and: [rootNode respondsTo: #markSet])
+		ifTrue: [rootNode markSet ifNotNil: [:ms | ^ ms]].
+	^ SWAMarkSet default
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
 }
 SWAClassDiagram >> methodFilterForBuild [
 	"The method-filter block to install on class nodes for the current granularity, or nil
@@ -332,7 +505,7 @@ SWAClassDiagram >> methodFilterForBuild [
 	the mark set are shown. Uses the synced mark set if any, else the global singleton."
 	| ms |
 	leafKind = #selected ifFalse: [^ nil].
-	ms := syncedMarkSet ifNil: [SWAMarkSet default].
+	ms := self markSetForBuild.
 	^ [:methodNode | ms includes: methodNode crossRefKey]
 ]
 
@@ -361,7 +534,7 @@ SWAClassDiagram >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:45'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:14'
 }
 SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the class diagram and hand it to the embedded
@@ -387,7 +560,13 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 		(node isKindOf: SWACodeClassNode) ifTrue: [
 			node methodFilter: methodFilter.
 			node ivarFilter: ivarFilter]].
-	tuple := rootNode classDiagramGraphColorMode: self colorMode showState: showState showMethods: showMethods.
+	tuple := rootNode
+		classDiagramGraphColorMode: self colorMode
+		showState: showState
+		showMethods: showMethods
+		suppressingSuperclasses: self suppressedSuperclassNames
+		clustered: self clustered
+		composition: (self showsComposition and: [showState]).
 	nodesByDotId := Dictionary new.
 	fieldNodesByDotId := Dictionary new.
 	rectKeyByNode := IdentityDictionary new.
@@ -501,6 +680,26 @@ SWAClassDiagram >> setRoot: aNode [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:14'
+}
+SWAClassDiagram >> showsComposition [
+	"Draw association edges for ivars holding other domain objects. Only meaningful at a
+	granularity that shows state, since an ivar drawn as an edge leaves the compartment."
+
+	^ showsComposition ifNil: [true]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:14'
+}
+SWAClassDiagram >> showsComposition: aBoolean [
+	showsComposition := aBoolean.
+	self rebuildGraph
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
 }
@@ -520,6 +719,23 @@ SWAClassDiagram >> showsState [
 	inside class boxes. Off only at the coarsest #class granularity. For #selected the
 	compartment is rendered but FILTERED to marked ivars (see #ivarFilterForBuild)."
 	^ leafKind ~= #class
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:05'
+}
+SWAClassDiagram >> suppressedSuperclassNames [
+	^ suppressedSuperclassNames ifNil: [self class defaultSuppressedSuperclassNames]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:05'
+}
+SWAClassDiagram >> suppressedSuperclassNames: aCollectionOfStrings [
+	suppressedSuperclassNames := aCollectionOfStrings.
+	self rebuildGraph
 ]
 
 {

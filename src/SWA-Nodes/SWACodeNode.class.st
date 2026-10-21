@@ -277,8 +277,8 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode showMethods: showMethods [
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:23'
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:48'
 }
 SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showMethods: showMethods [
 	"Build a Graphviz DOT UML class diagram of every SWACodeClassNode in this
@@ -297,13 +297,32 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showM
 	by method LOC). For #loc the ramp is scaled to the MAX method LOC across all
 	classes here, so colors are comparable across the whole diagram. Answer
 	{ dotString. ids. false } matching GraphvizPane's tuple shape."
-	| dot ids classNodes byName externalIds maxLoc |
+
+	^ self
+		classDiagramGraphColorMode: aColorMode
+		showState: showState
+		showMethods: showMethods
+		suppressingSuperclasses: #('Object')
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:47'
+}
+SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showMethods: showMethods suppressingSuperclasses: aNameCollection [
+	"As #classDiagramGraphColorMode:showState:showMethods:, but drawing no inheritance
+	edge to any superclass named in aNameCollection, and no placeholder box for it.
+	An edge every class has says nothing and costs a hairball: in a 135-class package
+	the edges to Object alone were 60 of 135, all converging on one box. Name the
+	package's own base class too when a prefix already makes membership obvious."
+
+	| dot ids classNodes byName externalIds maxLoc suppressed |
+	suppressed := aNameCollection asSet.
 	classNodes := OrderedCollection new.
 	self withAllChildrenDo: [:node |
 		(node isKindOf: SWACodeClassNode) ifTrue: [classNodes add: node]].
 	byName := Dictionary new.
 	classNodes do: [:cn | byName at: cn name put: cn].
-	"Max method LOC across the whole diagram (heat-ramp reference)."
 	maxLoc := 0.
 	classNodes do: [:cn | cn recordMethodNodes do: [:m | maxLoc := maxLoc max: m loc]].
 	dot := WriteStream on: String new.
@@ -314,35 +333,133 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showM
 	dot nextPutAll: '  splines=ortho;'; nextPut: Character lf.
 	dot nextPutAll: '  node [shape=plaintext, fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
 	dot nextPutAll: '  edge [arrowhead=empty];'; nextPut: Character lf.
-	"In-package class nodes (HTML table, per-row fill from the color mode)."
 	classNodes do: [:cn |
 		ids at: cn put: cn dotId.
 		dot
 			nextPutAll: '  '; nextPutAll: cn dotId;
 			nextPutAll: ' [label=<'; nextPutAll: (cn recordLabelColorMode: aColorMode maxLoc: maxLoc showState: showState showMethods: showMethods);
 			nextPutAll: '>];'; nextPut: Character lf].
-	"Placeholder boxes for external superclasses (de-duplicated by name)."
 	classNodes do: [:cn |
-		(cn superclassName notNil and: [(byName includesKey: cn superclassName) not]) ifTrue: [
-			(externalIds includesKey: cn superclassName) ifFalse: [ | pid |
-				pid := 'ext_', (externalIds size + 1) printString.
-				externalIds at: cn superclassName put: pid.
-				dot
-					nextPutAll: '  '; nextPutAll: pid;
-					nextPutAll: ' [shape=box, style="filled", fillcolor="lightgray", label="';
-					nextPutAll: (SWACodeNode dotEscape: cn superclassName);
-					nextPutAll: '"];'; nextPut: Character lf]]].
-	"Inheritance edges: to an in-package class, or to a placeholder."
+		(cn superclassName notNil
+			and: [(suppressed includes: cn superclassName) not
+			and: [(byName includesKey: cn superclassName) not]]) ifTrue: [
+				(externalIds includesKey: cn superclassName) ifFalse: [ | pid |
+					pid := 'ext_', (externalIds size + 1) printString.
+					externalIds at: cn superclassName put: pid.
+					dot
+						nextPutAll: '  '; nextPutAll: pid;
+						nextPutAll: ' [shape=box, style="filled", fillcolor="lightgray", label="';
+						nextPutAll: (SWACodeNode dotEscape: cn superclassName);
+						nextPutAll: '"];'; nextPut: Character lf]]].
 	classNodes do: [:cn |
 		cn superclassName ifNotNil: [:scn | | targetId |
-			targetId := (byName includesKey: scn)
-				ifTrue: [(byName at: scn) dotId]
-				ifFalse: [externalIds at: scn ifAbsent: [nil]].
+			targetId := (suppressed includes: scn)
+				ifTrue: [nil]
+				ifFalse: [(byName includesKey: scn)
+					ifTrue: [(byName at: scn) dotId]
+					ifFalse: [externalIds at: scn ifAbsent: [nil]]].
 			targetId ifNotNil: [
 				dot
 					nextPutAll: '  '; nextPutAll: cn dotId;
 					nextPutAll: ' -> '; nextPutAll: targetId;
 					nextPutAll: ';'; nextPut: Character lf]]].
+	dot nextPutAll: '}'; nextPut: Character lf.
+	^ { dot contents. ids. false }
+]
+
+{
+	#category : #graphviz,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:06'
+}
+SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showMethods: showMethods suppressingSuperclasses: aNameCollection clustered: clustered composition: composition [
+	"As the #suppressingSuperclasses: version, with two additions.
+
+	clustered draws each system subcategory as a Graphviz subgraph cluster, so
+	'SqueakXR-Core' and 'SqueakXR-Objects' become labelled boxes. A package with
+	subpackages has that structure already; the diagram may as well show it.
+
+	composition adds UML association edges from SWACodeClassNode>>compositionAssociations
+	-- an ivar holding another domain object -- labelled with the ivar name and, when it
+	is a collection, a multiplicity. An ivar drawn as an edge is taken OUT of the
+	attribute compartment, because saying it twice is noise."
+
+	| dot ids classNodes byName externalIds maxLoc suppressed byCategory assocs |
+	suppressed := aNameCollection asSet.
+	classNodes := OrderedCollection new.
+	self withAllChildrenDo: [:node |
+		(node isKindOf: SWACodeClassNode) ifTrue: [classNodes add: node]].
+	byName := Dictionary new.
+	classNodes do: [:cn | byName at: cn name put: cn].
+	maxLoc := 0.
+	classNodes do: [:cn | cn recordMethodNodes do: [:m | maxLoc := maxLoc max: m loc]].
+	assocs := Dictionary new.
+	composition ifTrue: [
+		classNodes do: [:cn |
+			| kept |
+			kept := Dictionary new.
+			cn compositionAssociations keysAndValuesDo: [:ivar :pair |
+				(byName includesKey: (pair first) name) ifTrue: [kept at: ivar put: pair]].
+			assocs at: cn put: kept.
+			cn hiddenIvarNames: kept keys]].
+	dot := WriteStream on: String new.
+	ids := IdentityDictionary new.
+	externalIds := Dictionary new.
+	dot nextPutAll: 'digraph classes {'; nextPut: Character lf.
+	dot nextPutAll: '  rankdir=BT;'; nextPut: Character lf.
+	dot nextPutAll: '  splines=ortho;'; nextPut: Character lf.
+	dot nextPutAll: '  compound=true;'; nextPut: Character lf.
+	dot nextPutAll: '  node [shape=plaintext, fontname="Helvetica", fontsize=10];'; nextPut: Character lf.
+	dot nextPutAll: '  edge [arrowhead=empty];'; nextPut: Character lf.
+	byCategory := Dictionary new.
+	classNodes do: [:cn |
+		(byCategory at: (cn theClass ifNil: [nil] ifNotNil: [:c | c category ifNil: ['(none)'] ifNotNil: [:x | x asString]])
+			ifAbsentPut: [OrderedCollection new]) add: cn].
+	(clustered ifTrue: [byCategory keys asSortedCollection] ifFalse: [#('')]) doWithIndex: [:cat :i |
+		clustered ifTrue: [
+			dot nextPutAll: '  subgraph cluster_', i printString, ' {'; nextPut: Character lf.
+			dot nextPutAll: '    label="', (SWACodeNode dotEscape: cat), '";'; nextPut: Character lf.
+			dot nextPutAll: '    style=dashed; color="#bbbbbb"; fontname="Helvetica"; fontsize=12;'; nextPut: Character lf].
+		((clustered ifTrue: [byCategory at: cat] ifFalse: [classNodes]) asSortedCollection: [:a :b | a name <= b name]) do: [:cn |
+			ids at: cn put: cn dotId.
+			dot
+				nextPutAll: '    '; nextPutAll: cn dotId;
+				nextPutAll: ' [label=<'; nextPutAll: (cn recordLabelColorMode: aColorMode maxLoc: maxLoc showState: showState showMethods: showMethods);
+				nextPutAll: '>];'; nextPut: Character lf].
+		clustered ifTrue: [dot nextPutAll: '  }'; nextPut: Character lf]].
+	classNodes do: [:cn |
+		(cn superclassName notNil
+			and: [(suppressed includes: cn superclassName) not
+			and: [(byName includesKey: cn superclassName) not]]) ifTrue: [
+				(externalIds includesKey: cn superclassName) ifFalse: [ | pid |
+					pid := 'ext_', (externalIds size + 1) printString.
+					externalIds at: cn superclassName put: pid.
+					dot
+						nextPutAll: '  '; nextPutAll: pid;
+						nextPutAll: ' [shape=box, style="filled", fillcolor="lightgray", label="';
+						nextPutAll: (SWACodeNode dotEscape: cn superclassName);
+						nextPutAll: '"];'; nextPut: Character lf]]].
+	classNodes do: [:cn |
+		cn superclassName ifNotNil: [:scn | | targetId |
+			targetId := (suppressed includes: scn)
+				ifTrue: [nil]
+				ifFalse: [(byName includesKey: scn)
+					ifTrue: [(byName at: scn) dotId]
+					ifFalse: [externalIds at: scn ifAbsent: [nil]]].
+			targetId ifNotNil: [
+				dot
+					nextPutAll: '  '; nextPutAll: cn dotId;
+					nextPutAll: ' -> '; nextPutAll: targetId;
+					nextPutAll: ';'; nextPut: Character lf]]].
+	composition ifTrue: [
+		classNodes do: [:cn |
+			(assocs at: cn ifAbsent: [Dictionary new]) keysAndValuesDo: [:ivar :pair |
+				dot
+					nextPutAll: '  '; nextPutAll: cn dotId;
+					nextPutAll: ' -> '; nextPutAll: (byName at: pair first name) dotId;
+					nextPutAll: ' [arrowhead=vee, color="#8d6e63", labelfontcolor="#8d6e63", labelfontsize=9, labeldistance=2.0, labelangle=0, headlabel="';
+					nextPutAll: (SWACodeNode dotEscape: (pair second = '*'
+						ifTrue: [ivar, '  *'] ifFalse: [ivar]));
+					nextPutAll: '"];'; nextPut: Character lf]]].
 	dot nextPutAll: '}'; nextPut: Character lf.
 	^ { dot contents. ids. false }
 ]

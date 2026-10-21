@@ -335,7 +335,7 @@ SWAGitHistory >> childNamed: aKey kind: aKind label: aLabel under: aParentNode i
 
 {
 	#category : #scanning,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:27'
 }
 SWAGitHistory >> codeChangesForCommit: aCommit [
 	"The GSCodeChanges this commit introduced relative to its FIRST parent --
@@ -345,17 +345,11 @@ SWAGitHistory >> codeChangesForCommit: aCommit [
 
 	The root commit (no parents) is diffed against nothing, so its whole tree
 	arrives as additions -- correct, but big."
-	| parent changeSets |
-	changeSets := [
+	| parent |
+	^ [
 		parent := aCommit parents isEmpty ifTrue: [nil] ifFalse: [aCommit firstParent].
-		workingCopy changeSetsFromCommit: parent toCommit: aCommit]
-			on: Error do: [:e | ^ #()].
-	^ changeSets
-		inject: OrderedCollection new
-		into: [:acc :cs |
-			(cs isKindOf: GSCodeChangeSet)
-				ifTrue: [acc addAll: ([cs changes] on: Error do: [:e | #()])].
-			acc]
+		workingCopy changesFromCommit: parent toCommit: aCommit]
+			on: Error do: [:e | #()]
 ]
 
 {
@@ -367,6 +361,51 @@ SWAGitHistory >> commitLabelFor: aCommit [
 	| hash |
 	hash := [aCommit hexHash copyFrom: 1 to: 7] on: Error do: [:e | '???????'].
 	^ hash, '  ', ((self summaryOf: aCommit) truncateWithElipsisTo: 56)
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:58'
+}
+SWAGitHistory >> commitWithHexPrefix: aHexPrefix [
+	"The commit anywhere in the ancestry whose hash starts with aHexPrefix, or nil. Only
+	hashes are compared, so this is cheap -- unlike anything that diffs trees.
+
+	The WHOLE ancestry, not just the first-parent chain: a branch point is usually the
+	second parent of a merge, so following first parents alone cannot find it."
+
+	| seen queue |
+	seen := Set new.
+	queue := OrderedCollection with: workingCopy headCommit.
+	[queue isEmpty] whileFalse: [
+		| current hash |
+		current := queue removeFirst.
+		hash := current ifNil: [nil] ifNotNil: [[current hexHash] on: Error do: [:e | nil]].
+		(hash notNil and: [(seen includes: hash) not]) ifTrue: [
+			(hash beginsWith: aHexPrefix) ifTrue: [^ current].
+			seen add: hash.
+			([current parents] on: Error do: [:e | #()]) do: [:each | queue addLast: each]]].
+	^ nil
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:34'
+}
+SWAGitHistory >> commitsBackTo: aHexPrefix [
+	"The first-parent chain from the head commit down to, but NOT including, the commit
+	whose hash starts with aHexPrefix -- what `git log --first-parent BASE..HEAD` lists.
+	Answers everything it walked if the prefix is never found, so a wrong hash reads as
+	'the whole history' rather than as an error."
+
+	| result current |
+	result := OrderedCollection new.
+	current := workingCopy headCommit.
+	[current isNil] whileFalse: [
+		(([current hexHash] on: Error do: [:e | '']) beginsWith: aHexPrefix) ifTrue: [^ result].
+		result add: current.
+		current := current parents isEmpty ifTrue: [nil] ifFalse: [current firstParent]].
+	^ result
 ]
 
 {

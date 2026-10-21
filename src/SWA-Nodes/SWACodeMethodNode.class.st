@@ -347,6 +347,27 @@ SWACodeMethodNode >> name [
 ]
 
 {
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:47'
+}
+SWACodeMethodNode >> pattern [
+	"The message pattern as written, so a reader sees 'at: x put: aValue' rather than
+	'at:put:'. Falls back to the bare selector for anything that cannot be parsed."
+
+	| args keywords out |
+	args := [subject compiledMethod methodNode arguments collect: [:each | each name]]
+		on: Error do: [:e | nil].
+	(args isNil or: [args isEmpty]) ifTrue: [^ self name].
+	keywords := subject selector keywords.
+	out := WriteStream on: String new.
+	keywords doWithIndex: [:keyword :i |
+		i > 1 ifTrue: [out nextPut: $ ].
+		out nextPutAll: keyword.
+		i <= args size ifTrue: [out nextPut: $ ; nextPutAll: (args at: i)]].
+	^ out contents
+]
+
+{
 	#category : #metrics,
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 11:44'
 }

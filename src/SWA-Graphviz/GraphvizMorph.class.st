@@ -316,7 +316,7 @@ GraphvizMorph >> rectForNode: aDotId field: aFieldIndex [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:42'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:03'
 }
 GraphvizMorph >> render [
 	"Run the external layout engine (self engine, e.g. 'dot') to produce a PNG plus
@@ -324,7 +324,11 @@ GraphvizMorph >> render [
 	rectangles AND per-field (record compartment) rectangles via GraphvizJsonParser.
 	JSON is used instead of -Tplain: it is properly structured (no whitespace-token
 	fragility) and carries record sub-field geometry, enabling sub-node clicks.
-	The .dot file is written with LF line endings since the engine rejects bare CRs."
+	The .dot file is written with LF line endings since the engine rejects bare CRs.
+
+	Both outputs come from ONE invocation. The engine lays the graph out once either
+	way, and OSProcess blocks the whole image while it runs -- forking does not help --
+	so a second call would double a stall that is already seconds long on a large graph."
 	| dir dotFile pngFile jsonFile form jsonText eng parser |
 	eng := self engine.
 	dir := FileDirectory default fullNameFor: 'graphvizmorph'.
@@ -332,10 +336,11 @@ GraphvizMorph >> render [
 	pngFile := dir, '.png'.
 	jsonFile := dir, '.json'.
 	(FileStream forceNewFileNamed: dotFile) nextPutAll: dotSource withUnixLineEndings; close.
-	(OSProcess waitForCommand: eng, ' -Tpng ', dotFile, ' -o ', pngFile) exitStatus = 0
-		ifFalse: [^ self error: eng, ' -Tpng failed'].
-	(OSProcess waitForCommand: eng, ' -Tjson ', dotFile, ' -o ', jsonFile) exitStatus = 0
-		ifFalse: [^ self error: eng, ' -Tjson failed'].
+	(OSProcess waitForCommand: eng,
+		' -Tpng -o ', pngFile,
+		' -Tjson -o ', jsonFile,
+		' ', dotFile) exitStatus = 0
+			ifFalse: [^ self error: eng, ' failed'].
 	form := PNGReadWriter formFromFileNamed: pngFile.
 	self image: form.
 	jsonText := (FileStream fileNamed: jsonFile) contentsOfEntireFile.

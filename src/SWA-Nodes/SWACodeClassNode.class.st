@@ -6,11 +6,55 @@ Class {
 	#superclass : #SWACodeNode,
 	#instVars : [
 		'methodFilter',
-		'ivarFilter'
+		'ivarFilter',
+		'hiddenIvarNames'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:06'
+}
+SWACodeClassNode class >> compositionContainerNames [
+	"Holding an OrderedCollection is not a relationship with OrderedCollection. When an
+	ivar is assigned one of these, the association wanted is to the ELEMENT type, found
+	from what gets added to it."
+
+	^ #(Array OrderedCollection Set IdentitySet Dictionary IdentityDictionary Bag
+		SortedCollection WeakArray WeakSet) asSet
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:04'
+}
+SWACodeClassNode class >> compositionValueTypeNames [
+	"Classes that stay rows in the attribute compartment instead of becoming an
+	association edge. Without this almost every edge in the diagram would point at
+	Vector3 or Color and say nothing."
+
+	^ #(Vector3 Vector2 Quaternion Matrix4x4 Color Point Rectangle Form Symbol String
+		ByteString Number Integer Float Fraction Boolean Character Date Time Interval
+		Association WriteStream ReadStream Semaphore Process) asSet
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
+}
+SWACodeClassNode class >> isCompositionValueType: aClass [
+	"Value-like classes stay rows in the attribute compartment. Besides the named list,
+	anything from the FFI bindings counts: an RlMatrix ivar is a buffer, not a
+	relationship with raylib."
+
+	(self compositionValueTypeNames includes: aClass name asSymbol) ifTrue: [^ true].
+	(aClass name beginsWith: 'Rl') ifTrue: [^ true].
+	^ aClass category notNil
+		and: [(aClass category includesSubstring: 'Raylib')
+			or: [aClass category includesSubstring: 'OpenXR']]
+]
 
 {
 	#category : #jump,
@@ -58,12 +102,161 @@ SWACodeClassNode >> classNode [
 ]
 
 {
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:07'
+}
+SWACodeClassNode >> composition: aNode into: aDictionary ivars: ivarNames [
+	"One parse node, two shapes worth reading: an assignment to an ivar, and an #add:
+	sent TO an ivar -- the latter being the only way to learn a collection's element
+	type, since the assignment itself only ever says OrderedCollection."
+
+	| name |
+	(aNode isKindOf: AssignmentNode) ifTrue: [
+		name := [aNode variable key asString] on: Error do: [:e | nil].
+		(name notNil and: [ivarNames includes: name])
+			ifTrue: [self compositionRecordAssignment: aNode value for: name into: aDictionary].
+		^ self].
+	(aNode isKindOf: MessageNode) ifFalse: [^ self].
+	(#(add: addAll: addFirst: addLast: at:put:) includes: aNode selector key) ifFalse: [^ self].
+	name := [aNode receiver key asString] on: Error do: [:e | nil].
+	(name notNil and: [ivarNames includes: name]) ifFalse: [^ self].
+	aNode arguments do: [:arg |
+		(self compositionDomainClassesIn: arg) do: [:each |
+			aDictionary at: name put: (Array with: each with: '*')]]
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
+}
+SWACodeClassNode >> compositionAssociations [
+	"ivarName -> { targetClass. multiplicity }, inferred from what this class's own
+	methods store into its instance variables. In an untyped language that is the only
+	static evidence there is: 'camera := SRAvatarCamera new' names a type, whereas
+	'avatar: anAvatar' names nothing a tool can trust."
+
+	| cls result ivars |
+	cls := self theClass.
+	cls isNil ifTrue: [^ Dictionary new].
+	ivars := cls allInstVarNames.
+	result := Dictionary new.
+	(Array with: cls with: cls class) do: [:behavior |
+		behavior selectors do: [:sel |
+			[(behavior >> sel) methodNode nodesDo: [:node |
+				self composition: node into: result ivars: ivars]]
+					on: Error do: [:e | nil]]].
+	^ result
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:06'
+}
+SWACodeClassNode >> compositionClassOfNode: aNode [
+	"The class a parse node names, or nil. A global reference carries an Association as
+	its key -- #SRHand=>SRHand -- where an ivar or temp carries a String, which is what
+	tells the two apart."
+
+	| key |
+	aNode isNil ifTrue: [^ nil].
+	key := [aNode key] on: Error do: [:e | nil].
+	(key isVariableBinding and: [key value isBehavior]) ifTrue: [^ key value].
+	^ nil
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
+}
+SWACodeClassNode >> compositionDomainClassesIn: aNode [
+	"Every class named anywhere under aNode that is neither a value type nor a
+	container. Used when the outermost send says nothing, as in
+	'(1 to: n) collect: [:i | SRFastCube new]'."
+
+	| found |
+	found := Set new.
+	aNode nodesDo: [:each |
+		(self compositionClassOfNode: each) ifNotNil: [:cls |
+			((SWACodeClassNode isCompositionValueType: cls)
+				or: [SWACodeClassNode compositionContainerNames includes: cls name asSymbol])
+					ifFalse: [found add: cls]]].
+	^ found
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:07'
+}
+SWACodeClassNode >> compositionIsManyIn: aNode [
+	"Whether what aNode builds is a collection of things rather than one thing."
+
+	aNode nodesDo: [:each |
+		(each isKindOf: MessageNode) ifTrue: [
+			(#(collect: select: reject: with:collect: copyWith:) includes: each selector key)
+				ifTrue: [^ true]].
+		(self compositionClassOfNode: each) ifNotNil: [:cls |
+			(SWACodeClassNode compositionContainerNames includes: cls name asSymbol)
+				ifTrue: [^ true]]].
+	^ false
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
+}
+SWACodeClassNode >> compositionRecordAssignment: valueNode for: anIvarName into: aDictionary [
+	"Read one 'ivar := expression' for the type it stores."
+
+	| root target inner |
+	root := self compositionRootReceiverOf: valueNode.
+	target := self compositionClassOfNode: root.
+	target ifNotNil: [
+		(SWACodeClassNode isCompositionValueType: target) ifTrue: [^ self].
+		(SWACodeClassNode compositionContainerNames includes: target name asSymbol)
+			ifFalse: [^ aDictionary at: anIvarName put: (Array with: target with: '1')]].
+	inner := self compositionDomainClassesIn: valueNode.
+	inner size = 1 ifTrue: [
+		aDictionary
+			at: anIvarName
+			put: (Array
+				with: inner anyOne
+				with: ((self compositionIsManyIn: valueNode) ifTrue: ['*'] ifFalse: ['1']))]
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:06'
+}
+SWACodeClassNode >> compositionRootReceiverOf: aNode [
+	"Walk down the receiver chain, so 'SRHand left avatar: self' answers the node for
+	SRHand rather than the outermost send."
+
+	| cur |
+	cur := aNode.
+	[(cur isKindOf: MessageNode) or: [cur isKindOf: CascadeNode]]
+		whileTrue: [cur := cur receiver].
+	^ cur
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/23/2026 15:33'
 }
 SWACodeClassNode >> crossRefKey [
 	"Classes are identified across views by their (unique) class name."
 	^ subject name asString
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:09'
+}
+SWACodeClassNode >> hiddenIvarNames: aCollection [
+	"Ivars to leave out of the state compartment because they are drawn as association
+	edges instead. Separate from #ivarFilter:, which belongs to the mark-set
+	granularity and must keep working alongside this."
+
+	hiddenIvarNames := aCollection asSet
 ]
 
 {
@@ -195,7 +388,7 @@ SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethod
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:09'
 }
 SWACodeClassNode >> recordIvarNodes [
 	"The instance variables as SWACodeInstVarNodes, in definition order -- the state-row
@@ -203,8 +396,11 @@ SWACodeClassNode >> recordIvarNodes [
 	#instVarNames strings. When an #ivarFilter is set (the '+Selected' granularity), only
 	ivars satisfying it are returned, so the DOT label, the click field map, and the state
 	compartment all agree (they all funnel through here)."
-	| nodes |
-	nodes := self instVarNames collect: [:v |
+	| nodes shown |
+	shown := hiddenIvarNames isNil
+		ifTrue: [self instVarNames]
+		ifFalse: [self instVarNames reject: [:v | hiddenIvarNames includes: v]].
+	nodes := shown collect: [:v |
 		(SWACodeInstVarNode on: subject parent: self) ivarName: v; yourself].
 	ivarFilter isNil ifTrue: [^ nodes asArray].
 	^ (nodes select: [:n | ivarFilter value: n]) asArray
@@ -284,7 +480,7 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: 
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:51'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:47'
 }
 SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMode: aColorMode maxLoc: aMaxLoc [
 	"Emit the METHODS compartment rows (one per method, static methods prefixed '$') into
@@ -298,11 +494,12 @@ SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMo
 	locMode := aColorMode = #loc.
 	methods := self recordMethodNodes.
 	methods isEmpty ifTrue: [self recordEmptyRowOn: ws. ^ idx].
-	methods do: [:m | | text cellBg |
+	methods do: [:m | | cellBg |
 		idx := idx + 1.
-		text := m isStatic ifTrue: ['$', m name] ifFalse: [m name].
 		cellBg := locMode ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc] ifFalse: [nil].
-		self recordRowOn: ws port: idx bgColor: cellBg text: text].
+		self
+			recordRowOn: ws port: idx bgColor: cellBg text: m pattern
+			underline: m isStatic].
 	^ idx
 ]
 
@@ -339,16 +536,29 @@ SWACodeClassNode >> recordNameRowOn: ws [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:28'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:47'
 }
 SWACodeClassNode >> recordRowOn: ws port: portIndex bgColor: bgColorOrNil text: aString [
 	"Emit one borderless, left-aligned table row into ws: a named port (for click
 	geometry), an optional cell background (LOC tint), and the escaped text."
+	self recordRowOn: ws port: portIndex bgColor: bgColorOrNil text: aString underline: false
+]
+
+{
+	#category : #record,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 15:47'
+}
+SWACodeClassNode >> recordRowOn: ws port: portIndex bgColor: bgColorOrNil text: aString underline: aBoolean [
+	"As #recordRowOn:port:bgColor:text:, with the UML underline for a static member.
+	The <u> has to be added here because the text itself is HTML-escaped."
+
 	ws nextPutAll: '<tr><td align="text" port="m', portIndex printString, '"'.
 	bgColorOrNil ifNotNil: [:c |
 		ws nextPutAll: ' bgcolor="'; nextPutAll: c; nextPutAll: '"'].
 	ws nextPutAll: '>'.
+	aBoolean ifTrue: [ws nextPutAll: '<u>'].
 	ws nextPutAll: (SWACodeNode htmlEscape: aString).
+	aBoolean ifTrue: [ws nextPutAll: '</u>'].
 	ws nextPutAll: '<br align="left"/></td></tr>'
 ]
 
