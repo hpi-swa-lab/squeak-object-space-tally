@@ -51,6 +51,24 @@ SWATreemapMorph class >> on: aNode [
 ]
 
 {
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:30'
+}
+SWATreemapMorph >> addTileFor: aNode in: aRectangle [
+	"Append aNode's tile, inset by its gap, and recurse into it. Tiles below 5x5 are
+	skipped entirely, and the gap is dropped rather than pushing a tile under that floor."
+
+	| rect inner |
+	(aRectangle width < 5 or: [aRectangle height < 5]) ifTrue: [^ self].
+	rect := aRectangle insetBy: (self tileGapFor: aNode).
+	(rect width < 5 or: [rect height < 5]) ifTrue: [rect := aRectangle].
+	tiles add: aNode -> rect.
+	inner := self innerRectFor: rect.
+	(inner notNil and: [self shouldLayoutChildrenOf: aNode])
+		ifTrue: [self layoutChildrenOf: aNode in: inner].
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:10'
 }
@@ -226,7 +244,7 @@ SWATreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:30'
 }
 SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectangle nodes: nodeArray [
 	"Commit a row of tiles into aRectangle, sliced along its short side.
@@ -234,7 +252,7 @@ SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectang
 	 All tile rectangles are truncated to integer pixels to avoid fractional
 	 coordinate artifacts (sub-pixel skew in text and borders)."
 
-	| w h horizontal thickness x y r tileRect node area remaining inner |
+	| w h horizontal thickness x y r tileRect node area remaining |
 	w := aRectangle width.
 	h := aRectangle height.
 	(w <= 0 or: [h <= 0 or: [rowSum <= 0]]) ifTrue: [^ aRectangle].
@@ -252,11 +270,7 @@ SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectang
 					origin: (x @ r) truncated
 					corner: ((x + thickness) @ (r + (area / thickness))) truncated.
 				r := r + (area / thickness).
-				(tileRect width >= 5 and: [tileRect height >= 5]) ifTrue: [
-					tiles add: node -> tileRect.
-					inner := self innerRectFor: tileRect.
-					(inner notNil and: [self shouldLayoutChildrenOf: node])
-						ifTrue: [self layoutChildrenOf: node in: inner]]].
+				self addTileFor: node in: tileRect].
 			remaining := Rectangle
 				origin: ((x + thickness) truncated) @ y
 				corner: aRectangle bottomRight]
@@ -269,11 +283,7 @@ SWATreemapMorph >> emitRow: indexRow areas: areaArray sum: rowSum into: aRectang
 					origin: (r @ y) truncated
 					corner: ((r + (area / thickness)) @ (y + thickness)) truncated.
 				r := r + (area / thickness).
-				(tileRect width >= 5 and: [tileRect height >= 5]) ifTrue: [
-					tiles add: node -> tileRect.
-					inner := self innerRectFor: tileRect.
-					(inner notNil and: [self shouldLayoutChildrenOf: node])
-						ifTrue: [self layoutChildrenOf: node in: inner]]].
+				self addTileFor: node in: tileRect].
 			remaining := Rectangle
 				origin: x @ ((y + thickness) truncated)
 				corner: aRectangle bottomRight].
@@ -789,6 +799,20 @@ SWATreemapMorph >> tileAtLocal: aLocalPoint [
 	hit := nil.
 	tiles do: [:assoc | (assoc value containsPoint: aLocalPoint) ifTrue: [hit := assoc]].
 	^ hit
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:30'
+}
+SWATreemapMorph >> tileGapFor: aNode [
+	"Container tiles (packages, classes) lose a pixel on each side so adjacent ones
+	read as separate blocks instead of one field. Leaves keep their full rectangle;
+	at method size a margin costs more than it shows."
+
+	^ (aNode children notNil and: [aNode children notEmpty])
+		ifTrue: [1]
+		ifFalse: [0]
 ]
 
 {
