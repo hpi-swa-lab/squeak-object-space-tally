@@ -55,7 +55,11 @@ Class {
 		'packagesList',
 		'packagesIndex',
 		'packagesTitleMorph',
-		'packagesHeight'
+		'packagesHeight',
+		'dataRow',
+		'dataSplitter',
+		'dataTab',
+		'dataCollapseTab'
 	],
 	#classVars : [
 		'CallTallyCounter',
@@ -1745,14 +1749,16 @@ SWAPane >> browseSelected [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:25'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
 }
 SWAPane >> buildBodyRow [
 	"Build the body row into bodyRow: laid out left-to-right so the Marks flap can dock
-	on the LEFT while the view fills the rest on the right. By default BOTH flaps are
-	COLLAPSED, shown as floating tabs over the view edges: a vertical 'Marks' tab on
-	the LEFT (#showMarksTab -> #openMarks) and a horizontal 'Source' tab on the BOTTOM
-	(#showSourceTab -> #openSource). Answers bodyRow."
+	on the LEFT while the view fills the rest on the right. By default EVERY flap is
+	COLLAPSED, shown as a floating tab over a view edge: a vertical 'Marks' tab on the
+	LEFT (#showMarksTab -> #openMarks), a horizontal 'Source' tab on the BOTTOM
+	(#showSourceTab -> #openSource) and a horizontal 'Data' tab on the TOP
+	(#showDataTab -> #openData, only where the view answers #dataPanelFor:).
+	Answers bodyRow."
 	bodyRow := self newChromeRow
 		cellPositioning: #topLeft;
 		vResizing: #spaceFill;
@@ -1761,6 +1767,7 @@ SWAPane >> buildBodyRow [
 	bodyRow addMorphBack: view.
 	self showMarksTab.
 	self showSourceTab.
+	self showDataTab.
 	^ bodyRow
 ]
 
@@ -2122,6 +2129,21 @@ SWAPane >> codeRoot [
 	(tm notNil and: [tm rootNode isKindOf: SWACodeRootNode])
 		ifTrue: [^ tm rootNode].
 	^ nil
+]
+
+{
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> collapseData [
+	"Collapse the Data flap: remove the row + splitter (and its floating collapse tab)
+	and restore the top 'Data' tab. No-op if not open."
+	(dataRow isNil or: [dataRow owner isNil]) ifTrue: [^ self].
+	dataSplitter ifNotNil: [dataSplitter delete. dataSplitter := nil].
+	dataRow delete. dataRow := nil.
+	dataCollapseTab ifNotNil: [dataCollapseTab delete. dataCollapseTab := nil].
+	self showDataTab.
+	self layoutChanged
 ]
 
 {
@@ -2534,11 +2556,11 @@ SWAPane >> extendMarksSelectionTo: anIndex [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 10:00'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:32'
 }
 SWAPane >> flashMarksMessage: aString [
 	"Briefly show feedback (e.g. after Copy) in the run-info line."
-	runInfoMorph ifNotNil: [runInfoMorph contents: aString]
+	self showMessage: aString
 ]
 
 {
@@ -2897,6 +2919,23 @@ SWAPane >> growCoveringTestsPaneBy: deltaPixels [
 ]
 
 {
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> growDataRowBy: deltaPixels [
+	"Grow or shrink the data row, driven by the splitter below it. The row shrink-wraps
+	its contents until dragged, so the first drag also pins it rigid."
+	| newH maxH |
+	dataRow ifNil: [^ self].
+	dataRow owner ifNil: [^ self].
+	maxH := (self height - 140) max: 40.
+	newH := (dataRow height + deltaPixels max: 40) min: maxH.
+	newH = dataRow height ifTrue: [^ self].
+	dataRow vResizing: #rigid; height: newH.
+	self layoutChanged
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:21'
 }
@@ -2949,6 +2988,16 @@ SWAPane >> growSourceRowBy: deltaPixels [
 ]
 
 {
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:24'
+}
+SWAPane >> hasDataPanel [
+	"Whether the view offers Data flap contents. Like every other optional control,
+	the flap is gated on the view actually supporting it."
+	^ view notNil and: [view respondsTo: #dataPanelFor:]
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 17:45'
 }
@@ -2963,6 +3012,15 @@ SWAPane >> headerNaturalWidth [
 	inset := 6.
 	margin := 24.
 	^ margin + (headerRow submorphs inject: 0 into: [:sum :m | sum + m width + inset])
+]
+
+{
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> hideDataTab [
+	"Remove the collapsed 'Data' flap tab (called when the data row opens)."
+	dataTab ifNotNil: [dataTab delete. dataTab := nil]
 ]
 
 {
@@ -3076,18 +3134,21 @@ SWAPane >> labelForStructureKey: aKey [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:25'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
 }
 SWAPane >> layoutChanged [
 	"After the pane relays out, re-pin every floating flap tab -- none is a layout
 	participant, so each must be repositioned explicitly:
 	  Marks (left):   collapsed tab over the view, open collapse tab over the panel;
-	  Source (bottom): collapsed tab over the view, open collapse tab over the row."
+	  Source (bottom): collapsed tab over the view, open collapse tab over the row;
+	Data (top):      collapsed tab over the view, open collapse tab over the row."
 	super layoutChanged.
 	self positionMarksTab.
 	self positionMarksCollapseTab.
 	self positionSourceTab.
-	self positionSourceCollapseTab
+	self positionSourceCollapseTab.
+	self positionDataTab.
+	self positionDataCollapseTab
 ]
 
 {
@@ -3585,6 +3646,36 @@ SWAPane >> newCoveringTestsPane [
 ]
 
 {
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:42'
+}
+SWAPane >> newDataRow [
+	"The data row: the view's own controls, plus an empty strip beneath them for the
+	floating collapse tab. Centred on the bottom edge of a ONE-LINE row that tab would
+	sit on top of the fields; over the Source pane it covers nothing, so only this
+	flap needs the strip."
+	| row handleStrip |
+	row := Morph new
+		color: (Color gray: 0.15);
+		layoutPolicy: TableLayout new;
+		listDirection: #topToBottom;
+		cellPositioning: #topLeft;
+		cellInset: 0;
+		hResizing: #spaceFill;
+		vResizing: #shrinkWrap;
+		yourself.
+	handleStrip := Morph new
+		color: Color transparent;
+		hResizing: #spaceFill;
+		vResizing: #rigid;
+		height: 24;
+		yourself.
+	row addMorphBack: (view dataPanelFor: self).
+	row addMorphBack: handleStrip.
+	^ row
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:59'
 }
@@ -4012,6 +4103,29 @@ SWAPane >> nextCallTraceName [
 ]
 
 {
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> openData [
+	"Open the Data flap: hide the top tab and dock the data row ABOVE the body row,
+	with a draggable horizontal SWASplitter below it. A 'Data' collapse tab floats
+	over the row's BOTTOM edge -- the edge facing the view, mirroring Source."
+	self hasDataPanel ifFalse: [^ self].
+	(dataRow notNil and: [dataRow owner notNil]) ifTrue: [^ self].
+	self hideDataTab.
+	dataRow := self newDataRow.
+	dataSplitter := SWASplitter horizontal
+		resizeAction: [:delta | self growDataRowBy: delta];
+		yourself.
+	"Inserted before bodyRow, so the pane reads header / data / view top to bottom."
+	self addMorph: dataSplitter inFrontOf: bodyRow.
+	self addMorph: dataRow inFrontOf: dataSplitter.
+	dataCollapseTab := self newFlapTabLabelled: 'Data' on: #collapseData balloon: 'Hide data source' edge: #top.
+	self addMorphFront: dataCollapseTab.
+	self layoutChanged
+]
+
+{
 	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 8/3/2026 18:58'
 }
@@ -4384,6 +4498,26 @@ SWAPane >> popUpTreeMenu [
 ]
 
 {
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> positionDataCollapseTab [
+	"Pin the OPEN row's 'Data' collapse tab, centred on the BOTTOM edge of the data
+	row, so it overlaps the row content."
+	dataRow ifNil: [^ self].
+	self positionFlapTab: dataCollapseTab onEdge: #bottom of: dataRow
+]
+
+{
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> positionDataTab [
+	"Pin the collapsed 'Data' flap tab, centred on the TOP edge of the view."
+	self positionFlapTab: dataTab onEdge: #top of: view
+]
+
+{
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:18'
 }
@@ -4560,6 +4694,18 @@ SWAPane >> refresh [
 	self updateSource.
 	self updateDetails.
 	self updateCoveringTests
+]
+
+{
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> refreshDataPanel [
+	"Reload every combo in the open data row from the view, for when the view changed
+	the values itself."
+	(dataRow isNil or: [dataRow owner isNil]) ifTrue: [^ self].
+	dataRow allMorphsDo: [:m |
+		(m isKindOf: SWAComboFieldMorph) ifTrue: [m refresh]]
 ]
 
 {
@@ -5052,6 +5198,22 @@ SWAPane >> setView: aViewMorph [
 ]
 
 {
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> showDataTab [
+	"Show the collapsed-state horizontal 'Data' flap tab, floating over the TOP edge
+	of the view, centred. No-op if the row is open, the tab is already up, or the
+	view has no data panel."
+	self hasDataPanel ifFalse: [^ self].
+	(dataRow notNil and: [dataRow owner notNil]) ifTrue: [^ self].
+	(dataTab notNil and: [dataTab owner notNil]) ifTrue: [^ self].
+	dataTab := self newFlapTabLabelled: 'Data' on: #openData balloon: 'Show data source' edge: #top.
+	self addMorphFront: dataTab.
+	self positionDataTab
+]
+
+{
 	#category : #'marks - flap',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 11:21'
 }
@@ -5066,6 +5228,16 @@ SWAPane >> showMarksTab [
 	marksTab := self newMarksTab.
 	self addMorphFront: marksTab.
 	self positionMarksTab
+]
+
+{
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:32'
+}
+SWAPane >> showMessage: aString [
+	"Transient feedback in the run-info line. Not a dialog: a modal window would block
+	the pane that triggered it."
+	runInfoMorph ifNotNil: [runInfoMorph contents: aString]
 ]
 
 {
@@ -5287,6 +5459,17 @@ SWAPane >> structureViews [
 	Keeping the morphs alive is what lets Tree switch back and forth WITHOUT losing
 	the Code Map's loaded datasets or the tally's layout."
 	^ structureViews ifNil: [structureViews := Dictionary new]
+]
+
+{
+	#category : #'data flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
+}
+SWAPane >> toggleData [
+	"Toggle the Data flap open/collapsed."
+	(dataRow notNil and: [dataRow owner notNil])
+		ifTrue: [self collapseData]
+		ifFalse: [self openData]
 ]
 
 {

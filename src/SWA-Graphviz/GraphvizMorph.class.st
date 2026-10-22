@@ -367,7 +367,7 @@ GraphvizMorph >> dotSource [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:35'
 }
 GraphvizMorph >> drawMarkersOn: aCanvas [
 	"Draw each marker as a ring: hollow when not set, filled with its colour when set."
@@ -375,15 +375,15 @@ GraphvizMorph >> drawMarkersOn: aCanvas [
 	markers ifNil: [^ self].
 	origin := self bounds origin.
 	markers do: [:assoc |
-		| r filled color |
-		r := (assoc value first) translateBy: origin.
+		| rect filled markerColor |
+		rect := (assoc value first) translateBy: origin.
 		filled := assoc value second.
-		color := assoc value third.
+		markerColor := assoc value third.
 		aCanvas
-			fillOval: r
-			color: (filled ifTrue: [color] ifFalse: [Color transparent])
+			fillOval: rect
+			color: (filled ifTrue: [markerColor] ifFalse: [Color transparent])
 			borderWidth: 1
-			borderColor: (filled ifTrue: [color muchDarker] ifFalse: [Color gray: 0.55])].
+			borderColor: (filled ifTrue: [markerColor muchDarker] ifFalse: [Color gray: 0.55])].
 ]
 
 {
