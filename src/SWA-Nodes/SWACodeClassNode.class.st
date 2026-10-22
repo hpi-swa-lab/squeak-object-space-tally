@@ -322,6 +322,22 @@ SWACodeClassNode >> memberKinds: aDictionary [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:29'
+}
+SWACodeClassNode >> methodCategoryFor: aMethodNode [
+	"The browser protocol aMethodNode lives in. Class-side methods are organised by the
+	METACLASS, which keeps categories of its own."
+	| behavior category |
+	behavior := aMethodNode isStatic
+		ifTrue: [self theClass class]
+		ifFalse: [self theClass].
+	category := [behavior organization categoryOfElement: aMethodNode name asSymbol]
+		on: Error do: [:e | nil].
+	^ (category ifNil: [ClassOrganizer default]) asString
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:37'
 }
 SWACodeClassNode >> methodFilter: aBlockOrNil [
@@ -352,6 +368,23 @@ SWACodeClassNode >> methodNodes [
 }
 SWACodeClassNode >> name [
 	^ subject name asString
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:29'
+}
+SWACodeClassNode >> recordCategoryRowOn: ws text: aString [
+	"A protocol heading inside the methods compartment: italic grey, and no port --
+	it labels the rows under it rather than being a member itself, so its field maps
+	back to the class.
+
+	Same point size as the method rows on purpose: GraphvizJsonParser derives the row
+	boundaries from a UNIFORM baseline pitch, so a smaller heading would skew every
+	boundary beneath it."
+	ws nextPutAll: '<tr><td align="text"><i><font color="#888888">'.
+	ws nextPutAll: (SWACodeNode htmlEscape: aString).
+	ws nextPutAll: '</font></i><br align="left"/></td></tr>'
 ]
 
 {
@@ -410,21 +443,21 @@ SWACodeClassNode >> recordFieldNodesShowMethods: showMethods [
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:36'
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:30'
 }
 SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethods [
 	"The SWACodeNode for each record field, by field index, matching the ROW order emitted
 	by #recordLabelColorMode:maxLoc:showState:showMethods: EXACTLY -- including the blank
-	spacer row an enabled-but-empty compartment emits (mapped to the class itself, since
-	clicking blank space should select the whole class). Index 0 = the class name row; then
-	the state rows (one SWACodeInstVarNode per visible ivar, or ONE placeholder = self when
-	empty); then the method rows (one per visible method, or ONE placeholder = self when
-	empty). Honors the ivar/method filters via #recordIvarNodes / #recordMethodNodes so
-	this stays index-aligned with the emitted rows (each blank spacer produces one text
-	baseline, hence one field slot). Used to resolve a clicked field index back to its
-	node."
-	| out ivars methods deadIvars deadMethods |
+	spacer row an enabled-but-empty compartment emits, and the protocol HEADING rows the
+	methods compartment emits (both mapped to the class itself, since clicking a label or
+	blank space should select the whole class). Index 0 = the class name row; then the
+	state rows (one SWACodeInstVarNode per visible ivar, or ONE placeholder = self when
+	empty); then, per protocol, one placeholder for the heading plus one node per method.
+
+	Every emitted row is one text baseline and so one field rect: a row that is not
+	counted here shifts every row below it, and clicks land on the wrong member."
+	| out ivars deadIvars groups deadMethods |
 	out := OrderedCollection new.
 	out add: self.                        "0: name row"
 	showState ifTrue: [
@@ -435,11 +468,13 @@ SWACodeClassNode >> recordFieldNodesShowState: showState showMethods: showMethod
 		(ivars isEmpty and: [deadIvars = 0])
 			ifTrue: [out add: self]].     "blank spacer row -> the class"
 	showMethods ifTrue: [
-		methods := self recordMethodNodes.
+		groups := self recordMethodGroups.
 		deadMethods := self removedMemberCount: false.
-		out addAll: methods.
+		groups do: [:group |
+			out add: self.                "protocol heading row -> the class"
+			out addAll: group value].
 		deadMethods timesRepeat: [out add: self].
-		(methods isEmpty and: [deadMethods = 0])
+		(groups isEmpty and: [deadMethods = 0])
 			ifTrue: [out add: self]].
 	^ out asArray
 ]
@@ -537,52 +572,72 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: 
 ]
 
 {
-	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:37'
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:30'
 }
 SWACodeClassNode >> recordMethodCompartmentOn: ws startingAt: startIndex colorMode: aColorMode maxLoc: aMaxLoc [
-	"Emit the METHODS compartment rows (one per method, class-side ones underlined) into
-	ws, then any removed methods struck through. Ports continue from startIndex. In #loc
-	mode each cell is tinted by its LOC on a green->red ramp scaled to aMaxLoc. Answer
-	the next free port index. When there is nothing at all to show, a single blank spacer
-	row keeps the enabled-but-empty section rendering below its separator (drawn by the
-	caller). Honors #methodFilter (via #recordMethodNodes)."
+	"Emit the METHODS compartment into ws: each browser protocol as an italic grey
+	heading row (#recordCategoryRowOn:text:) followed by its methods, class-side ones
+	underlined, then any removed methods struck through. Ports continue from startIndex.
+	In #loc mode each cell is tinted by its LOC on a green->red ramp scaled to aMaxLoc.
+	Answer the next free port index. When there is nothing at all to show, a single blank
+	spacer row keeps the enabled-but-empty section rendering below its separator (drawn
+	by the caller). Walks #recordMethodGroups, as the field-node list does."
 
-	| idx locMode methods hadRemovals |
+	| idx locMode groups hadRemovals |
 	idx := startIndex.
 	locMode := aColorMode = #loc.
-	methods := self recordMethodNodes.
-	methods do: [:m | | cellBg |
-		idx := idx + 1.
-		cellBg := locMode
-			ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc]
-			ifFalse: [self kindColorFor: m crossRefKey].
-		self
-			recordRowOn: ws port: idx bgColor: cellBg text: m pattern
-			underline: m isStatic].
+	groups := self recordMethodGroups.
+	groups do: [:group |
+		self recordCategoryRowOn: ws text: group key.
+		group value do: [:m | | cellBg |
+			idx := idx + 1.
+			cellBg := locMode
+				ifTrue: [SWACodeNode locHeatColor: m loc max: aMaxLoc]
+				ifFalse: [self kindColorFor: m crossRefKey].
+			self
+				recordRowOn: ws port: idx bgColor: cellBg text: m pattern
+				underline: m isStatic]].
 	hadRemovals := self recordDeadRowsOn: ws ivars: false.
-	(methods isEmpty and: [hadRemovals not]) ifTrue: [self recordEmptyRowOn: ws].
+	(groups isEmpty and: [hadRemovals not]) ifTrue: [self recordEmptyRowOn: ws].
 	^ idx
 ]
 
 {
-	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:37'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:29'
+}
+SWACodeClassNode >> recordMethodGroups [
+	"The visible methods grouped into their browser protocols, as category -> nodes:
+	categories alphabetical, instance methods before class-side ones within each.
+
+	THE one definition of method row order. #recordMethodNodes flattens it, the
+	compartment emits a heading row per group, and #recordFieldNodesShowState:showMethods:
+	counts those headings -- all three read this, so they cannot drift apart."
+	| groups |
+	groups := Dictionary new.
+	self recordVisibleMethodNodes do: [:m |
+		(groups at: (self methodCategoryFor: m) ifAbsentPut: [OrderedCollection new])
+			add: m].
+	^ (groups keys asSortedCollection: [:a :b | a <= b]) asArray collect: [:category |
+		| members |
+		members := groups at: category.
+		category -> ((members reject: [:m | m isStatic]) , (members select: [:m | m isStatic])) asArray]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:29'
 }
 SWACodeClassNode >> recordMethodNodes [
-	"The method nodes as laid out in #recordLabel: instance methods first, then
-	static (class-side) methods. This ordering defines the record's method field
-	order (record field index = this index + 1; field 0 is the class name). When a
-	#methodFilter is set (e.g. the 'marked methods only' diagram granularity), only
-	methods satisfying it are shown -- consistently across the DOT label, the click
-	field map, and the compartment, since all three funnel through here."
-	| inst stat all |
-	all := methodFilter isNil
-		ifTrue: [self methodNodes]
-		ifFalse: [self methodNodes select: [:m | methodFilter value: m]].
-	inst := all reject: [:m | m isStatic].
-	stat := all select: [:m | m isStatic].
-	^ inst asArray, stat asArray
+	"The method nodes in rendered order, flattened out of #recordMethodGroups -- which
+	is where the ordering is decided. Record field index = this index + 1 + the number
+	of heading rows above it; #recordFieldNodesShowState:showMethods: is what resolves
+	that, and both walk the same groups."
+	| out |
+	out := OrderedCollection new.
+	self recordMethodGroups do: [:group | out addAll: group value].
+	^ out asArray
 ]
 
 {
@@ -654,6 +709,18 @@ SWACodeClassNode >> recordTableBgColorMode: aColorMode [
 	^ aColorMode = #loc
 		ifTrue: ['#f4f4f4']
 		ifFalse: [self dotFillColor]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:29'
+}
+SWACodeClassNode >> recordVisibleMethodNodes [
+	"The method nodes this diagram shows, before grouping: everything passing
+	#methodFilter (e.g. the 'marked methods only' granularity)."
+	^ methodFilter isNil
+		ifTrue: [self methodNodes]
+		ifFalse: [self methodNodes select: [:m | methodFilter value: m]]
 ]
 
 {

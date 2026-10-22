@@ -138,6 +138,28 @@ SWAClassDiagram class >> defaultSuppressedSuperclassNames [
 ]
 
 {
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:45'
+}
+SWAClassDiagram class >> initialize [
+	"Register the Apps-menu entries, alongside the other SWA tools. The 'SWA Code: '
+	label prefix groups them in the (alphabetically sorted) Apps menu. Idempotent:
+	removes any prior entry for this receiver first.
+
+	  SWAClassDiagram initialize"
+	(TheWorldMenu respondsTo: #registerOpenCommand:) ifFalse: [^ self].
+	TheWorldMenu unregisterOpenCommandWithReceiver: self.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Code: Class Diagram'.
+		{self. #open}.
+		'Open a UML class diagram of your working-set packages' }.
+	TheWorldMenu registerOpenCommand: {
+		'SWA Code: Class Diagram (commit range)'.
+		{self. #openOnGitRange}.
+		'Open a class diagram of what a range of commits changed, for review' }
+]
+
+{
 	#category : #git,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
 }
@@ -247,6 +269,28 @@ SWAClassDiagram class >> openOn: aCodeNode label: aLabel [
 
 {
 	#category : #git,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:45'
+}
+SWAClassDiagram class >> openOnGitRange [
+	"Apps-menu action: a diagram of what a commit changed, ready to browse. Opens on
+	the chosen repository at PARENT..HEAD -- the newest commit alone -- with the Data
+	flap already out, since choosing the range IS the point of this entry and the
+	fields should not have to be found first.
+
+	  SWAClassDiagram openOnGitRange"
+	| workingCopy repoName window |
+	workingCopy := SWAGitHistory chooseWorkingCopy.
+	workingCopy ifNil: [^ nil].
+	repoName := [workingCopy name] on: Error do: [:e | nil].
+	repoName ifNil: [^ nil].
+	window := self openOnGitRepository: repoName from: 'PARENT' to: nil.
+	(window submorphs detect: [:each | each isKindOf: SWAPane] ifNone: [nil])
+		ifNotNil: [:pane | pane openData].
+	^ window
+]
+
+{
+	#category : #git,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
 }
 SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix [
@@ -262,7 +306,7 @@ SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix [
 
 {
 	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:31'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:46'
 }
 SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
 	"A class diagram of what changed between two commits -- the range under review, with
@@ -273,6 +317,9 @@ SWAClassDiagram class >> openOnGitRepository: aRepositoryName from: aHexPrefix t
 
 	Both ends are named because head is not always the end you mean: a later commit that
 	reformats or strips comments will otherwise swamp the feature work it follows.
+
+	Either end takes a hash prefix; From also takes 'PARENT' and To 'HEAD', the two
+	positions that make the range follow the branch rather than pin it.
 
 	Opens at the #selected granularity, so each class shows only its touched members.
 	The range stays editable afterwards, in the pane's Data flap."
@@ -414,6 +461,16 @@ SWAClassDiagram class >> recordIvarsOf: anOperation definition: aClassDefinition
 				addRemoval: each static: false isIvar: true
 				forClassNamed: behavior theNonMetaClass name asString
 				into: (aResult at: #removals)]]
+]
+
+{
+	#category : #'class initialization',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:45'
+}
+SWAClassDiagram class >> unload [
+	"Remove the Apps-menu entries."
+	(TheWorldMenu respondsTo: #unregisterOpenCommandWithReceiver:)
+		ifTrue: [TheWorldMenu unregisterOpenCommandWithReceiver: self]
 ]
 
 {
