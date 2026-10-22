@@ -39,7 +39,8 @@ Class {
 		'maxCommits',
 		'sinceDate',
 		'packagePattern',
-		'rootLabel'
+		'rootLabel',
+		'newestCommitsCache'
 	],
 	#category : #'SWA-GitMap',
 	#'squeak_changestamp' : '<historical>'
@@ -410,7 +411,7 @@ SWAGitHistory >> commitsBackTo: aHexPrefix [
 
 {
 	#category : #scanning,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:17'
 }
 SWAGitHistory >> commitsToScan [
 	"The commits to diff, OLDEST FIRST. GitCommit>>ancestors answers the
@@ -420,9 +421,10 @@ SWAGitHistory >> commitsToScan [
 	| anc |
 	commits ifNotNil: [^ commits].
 	workingCopy ifNil: [^ commits := #()].
-	anc := [workingCopy headCommit ancestors] on: Error do: [:e | ^ commits := #()].
+	anc := [maxCommits
+		ifNil: [workingCopy headCommit ancestors]
+		ifNotNil: [self newestCommits: maxCommits]] on: Error do: [:e | ^ commits := #()].
 	anc ifNil: [^ commits := #()].
-	maxCommits ifNotNil: [anc := anc first: (maxCommits min: anc size)].
 	sinceDate ifNotNil: [
 		anc := anc select: [:c |
 			[c author timeStamp asDate >= sinceDate] on: Error do: [:e | true]]].
@@ -542,6 +544,32 @@ SWAGitHistory >> maxCommits: anIntegerOrNil [
 	Invalidates the cached commit window."
 	maxCommits := anIntegerOrNil.
 	commits := nil
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:19'
+}
+SWAGitHistory >> newestCommits: aCount [
+	"The newest commits, HEAD first -- git log -n. Held on the instance: every commit
+	object comes off disk at about 100 ms and the From/To menus ask for this list each
+	time they pop up, while a cache on the class would keep every repository ever
+	browsed alive in the image."
+
+	| head hash |
+	workingCopy ifNil: [^ #()].
+	head := [workingCopy headCommit] on: Error do: [:e | nil].
+	head ifNil: [^ #()].
+	hash := [head hexHash] on: Error do: [:e | nil].
+	"Reuse the earlier walk while HEAD has not moved and it went at least as deep."
+	(newestCommitsCache notNil
+		and: [(newestCommitsCache at: 1) = hash
+		and: [(newestCommitsCache at: 2) >= aCount]])
+		ifFalse: [newestCommitsCache := Array
+			with: hash
+			with: aCount
+			with: (self walkNewestCommits: aCount from: head)].
+	^ (newestCommitsCache at: 3) first: (aCount min: (newestCommitsCache at: 3) size)
 ]
 
 {
@@ -684,6 +712,23 @@ SWAGitHistory >> treeForLastCommits: n [
 	self maxCommits: n.
 	commits := nil.
 	^ self buildTree
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:17'
+}
+SWAGitHistory >> walkNewestCommits: aCount from: aCommit [
+	"GitCommit>>ancestors walks the WHOLE history before it answers -- 34 s for 485
+	commits here -- so stop the walker once we have the window we asked for."
+
+	| walker collected |
+	collected := OrderedCollection new.
+	walker := GitHistoryWalker new.
+	walker startingFrom: aCommit do: [:commit |
+		collected add: commit.
+		collected size >= aCount ifTrue: [walker stop]].
+	^ collected asArray
 ]
 
 {

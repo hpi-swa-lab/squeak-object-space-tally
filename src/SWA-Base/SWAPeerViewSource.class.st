@@ -24,14 +24,14 @@ Class {
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
 }
 SWAPeerViewSource >> maxWeight [
 	"Largest peer weight, for log-normalizing the color scale. 1 if empty."
 	| m |
 	m := 0.
-	peerView keyIndex valuesDo: [:node |
-		node totalSize ifNotNil: [:w | m := m max: w]].
+	peerView peerWeightKeys do: [:key |
+		(peerView peerWeightForKey: key) ifNotNil: [:w | m := m max: w]].
 	^ m max: 1
 ]
 
@@ -53,13 +53,13 @@ SWAPeerViewSource >> peerView: aSWAView [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
 }
 SWAPeerViewSource >> weightForKey: aCrossRefKey [
 	"The peer's weight (totalSize: samples/bytes/loc) for aCrossRefKey, or nil if the
-	peer has no node under that key. Read live from the peer's keyIndex."
-	| node |
-	aCrossRefKey ifNil: [^ nil].
-	node := peerView keyIndex at: aCrossRefKey ifAbsent: [nil].
-	^ node ifNotNil: [node totalSize]
+	peer says nothing about that key. Read live, and through the peer's own
+	#peerWeightForKey:: a view may hold nodes it does not DRAW, and those are context
+	rather than data (see SWAClassDiagram)."
+
+	^ peerView peerWeightForKey: aCrossRefKey
 ]

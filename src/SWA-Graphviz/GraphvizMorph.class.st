@@ -32,7 +32,8 @@ Class {
 		'menuAction',
 		'markers',
 		'markerAction',
-		'relaxesEdgeLabels'
+		'relaxesEdgeLabels',
+		'foreignSelectionRect'
 	],
 	#category : #'SWA-Graphviz',
 	#'squeak_changestamp' : '<historical>'
@@ -388,7 +389,7 @@ GraphvizMorph >> drawMarkersOn: aCanvas [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:39'
 }
 GraphvizMorph >> drawOn: aCanvas [
 	"Draw the layout image (super), then, if an element is selected, frame it with a
@@ -397,6 +398,12 @@ GraphvizMorph >> drawOn: aCanvas [
 	frame tracks the graph as it pans and zooms."
 	super drawOn: aCanvas.
 	self drawMarkersOn: aCanvas.
+	foreignSelectionRect ifNotNil: [:r |
+		SWASelectionPainter
+			frame: (r translateBy: self bounds origin)
+			on: aCanvas
+			width: 2
+			color: Color red].
 	selectionRect ifNotNil: [:r |
 		SWASelectionPainter
 			selectionFrameOn: aCanvas
@@ -450,6 +457,19 @@ GraphvizMorph >> fieldAt: aWorldPoint [
 		((assoc value second) containsPoint: local)
 			ifTrue: [^ assoc key -> (assoc value first)]].
 	^ nil
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:39'
+}
+GraphvizMorph >> foreignSelectionRect: aRectangleOrNil [
+	"Frame a SECOND element, in the same local pixel space as #selectionRect:, to show
+	what another tool has selected."
+
+	foreignSelectionRect = aRectangleOrNil ifTrue: [^ self].
+	foreignSelectionRect := aRectangleOrNil.
+	self changed.
 ]
 
 {

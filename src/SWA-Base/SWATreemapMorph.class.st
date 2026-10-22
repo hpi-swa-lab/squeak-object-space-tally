@@ -102,7 +102,7 @@ SWATreemapMorph class >> targetAspect: aNumber [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:30'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:53'
 }
 SWATreemapMorph >> addTileFor: aNode in: aRectangle [
 	"Append aNode's tile, inset by its gap, and recurse into it. Tiles below 5x5 are
@@ -113,7 +113,7 @@ SWATreemapMorph >> addTileFor: aNode in: aRectangle [
 	rect := aRectangle insetBy: (self tileGapFor: aNode).
 	(rect width < 5 or: [rect height < 5]) ifTrue: [rect := aRectangle].
 	tiles add: aNode -> rect.
-	inner := self innerRectFor: rect.
+	inner := self innerRectFor: rect node: aNode.
 	(inner notNil and: [self shouldLayoutChildrenOf: aNode])
 		ifTrue: [self layoutChildrenOf: aNode in: inner].
 ]
@@ -220,19 +220,25 @@ SWATreemapMorph >> commitDeferredResize [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 9/17/2026 11:26'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:43'
 }
 SWATreemapMorph >> computeLayout [
 	"Build a nested-treemap tile list rooted at currentNode.
-	 Full extent is available for tiles (header is a separate morph)."
+	 Full extent is available for tiles (header is a separate morph).
 
-	| tileBounds |
+	 The zoomed node gets a tile of its own, filling the view, with its children laid
+	 out inside it: zooming in otherwise drops the very node you zoomed into, leaving
+	 no frame and no label to say where you are."
+
+	| tileBounds inner |
 	tiles := OrderedCollection new.
 	renderedParents := IdentitySet new.
 	currentNode ifNil: [^ self].
 	tileBounds := 0 @ 0 extent: self extent.
 	(tileBounds width <= 0 or: [tileBounds height <= 0]) ifTrue: [^ self].
-	self layoutChildrenOf: currentNode in: tileBounds.
+	tiles add: currentNode -> tileBounds.
+	inner := (self innerRectFor: tileBounds node: currentNode) ifNil: [tileBounds].
+	self layoutChildrenOf: currentNode in: inner.
 	"Record which nodes actually got CHILD TILES drawn inside them. Not the same as
 	'has children': recursion stops at #leafKind and at #minRecurseExtent, so a class
 	whose methods were too small to tile is visually a leaf and must be coloured like
@@ -521,29 +527,26 @@ SWATreemapMorph >> initialize [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:53'
 }
-SWATreemapMorph >> innerRectFor: aRectangle [
-	"Return the sub-rectangle in which to lay out aRectangle's child tiles, or nil
-	 if the tile is too small to bother. Leaves a 1-px gutter on all sides so the
-	 parent's border remains visible around its children. Reserves an extra strip
-	 at the top for a label if there is room."
+SWATreemapMorph >> innerRectFor: aRectangle node: aNode [
+	"Return the sub-rectangle in which to lay out aNode's child tiles, or nil if the
+	 tile is too small to bother. Leaves a 1-px gutter on all sides so the parent's
+	 border stays visible around its children, and reserves a top strip for aNode's
+	 own label -- sized from the font THAT node is drawn with, which varies by depth."
 
-	| inset labelStrip available |
+	| inset labelStrip |
 	(aRectangle width < minRecurseExtent or: [aRectangle height < minRecurseExtent])
 		ifTrue: [^ nil].
 	inset := aRectangle insetBy: 1.
 	(inset width < minRecurseExtent or: [inset height < minRecurseExtent])
 		ifTrue: [^ nil].
-	"If the tile is tall enough, reserve a small top strip for the parent label."
-	labelStrip := Preferences standardSystemFont height + 2.
-	(inset height > (labelStrip + minRecurseExtent))
-		ifTrue: [
-			available := Rectangle
-				origin: inset left @ (inset top + labelStrip)
-				corner: inset right @ inset bottom.
-			^ available]
-		ifFalse: [^ inset]
+	labelStrip := (self fontForNode: aNode) height + 2.
+	^ inset height > (labelStrip + minRecurseExtent)
+		ifTrue: [Rectangle
+			origin: inset left @ (inset top + labelStrip)
+			corner: inset right @ inset bottom]
+		ifFalse: [inset]
 ]
 
 {
@@ -738,7 +741,7 @@ SWATreemapMorph >> selectTileNode: aNodeOrNil [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:23'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
 }
 SWATreemapMorph >> selectedNode: aNodeOrNil [
 	"Set the selected node and refresh the chrome (selection line, meta, source).
@@ -747,7 +750,8 @@ SWATreemapMorph >> selectedNode: aNodeOrNil [
 	anything else clears the filter."
 	selectedNode := aNodeOrNil.
 	self updateTestFilterForSelection.
-	self refreshChrome
+	self refreshChrome.
+	self notifyCrossReferenceSelection
 ]
 
 {
@@ -979,7 +983,7 @@ SWATreemapMorph >> worstAspectRatio: indexRow areas: areaArray sum: rowSum side:
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 18:04'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:43'
 }
 SWATreemapMorph >> zoomInto: aNode [
 	"Make aNode the new focus, if it has children we are willing to show. Respects
@@ -987,6 +991,7 @@ SWATreemapMorph >> zoomInto: aNode [
 	onto history."
 
 	(self shouldLayoutChildrenOf: aNode) ifFalse: [^ self].
+	aNode == currentNode ifTrue: [^ self].   "the frame tile is already the focus"
 	history addLast: currentNode.
 	currentNode := aNode.
 	selectedNode := nil.

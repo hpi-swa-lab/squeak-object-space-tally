@@ -23,7 +23,9 @@ Class {
 		'reviewScope',
 		'repositoryName',
 		'fromCommit',
-		'toCommit'
+		'toCommit',
+		'cachedGitHistory',
+		'displayedKeys'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
@@ -632,6 +634,31 @@ SWAClassDiagram >> deselect [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
+}
+SWAClassDiagram >> displayedCrossRefKeys [
+	"The keys the diagram actually DRAWS: the class boxes plus the member rows the
+	current granularity leaves visible. Under #selected that is the marked members
+	only, while the node tree still carries every member of a touched class as
+	context -- 83 keys drawn out of 865 held, on the range open as I write this."
+
+	| keys |
+	displayedKeys ifNotNil: [^ displayedKeys].
+	keys := Set new.
+	nodesByDotId ifNotNil: [
+		nodesByDotId valuesDo: [:node |
+			(node respondsTo: #crossRefKey) ifTrue: [
+				node crossRefKey ifNotNil: [:k | keys add: k]]]].
+	fieldNodesByDotId ifNotNil: [
+		fieldNodesByDotId valuesDo: [:fields |
+			fields do: [:fieldNode |
+				(fieldNode respondsTo: #crossRefKey) ifTrue: [
+					fieldNode crossRefKey ifNotNil: [:k | keys add: k]]]]].
+	^ displayedKeys := keys
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
 }
@@ -673,12 +700,18 @@ SWAClassDiagram >> fromCommitLabel [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:20'
 }
 SWAClassDiagram >> gitHistory [
-	"A history on the named repository, or nil when there is no such working copy."
+	"A history on the named repository, or nil when there is no such working copy.
+	Kept across calls: it holds the walked commit list, which a fresh history per
+	call would throw away."
 	repositoryName isNil ifTrue: [^ nil].
-	^ [SWAGitHistory onWorkingCopyNamed: repositoryName] on: Error do: [:e | nil]
+	(cachedGitHistory notNil
+		and: [([cachedGitHistory workingCopy name] on: Error do: [:e | nil]) = repositoryName])
+		ifTrue: [^ cachedGitHistory].
+	^ cachedGitHistory := [SWAGitHistory onWorkingCopyNamed: repositoryName]
+		on: Error do: [:e | nil]
 ]
 
 {
@@ -749,6 +782,22 @@ SWAClassDiagram >> graphMenuRequest: evt [
 SWAClassDiagram >> graphNodeClicked: aDotId [
 	"A node in the embedded graph was clicked: select the matching SWACodeNode."
 	self selectOrDeselectNode: (nodesByDotId at: aDotId ifAbsent: [nil])
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:41'
+}
+SWAClassDiagram >> graphRectForNode: aNode [
+	"The graph-local rect framing aNode: a member uses its record row, anything else
+	its whole box. nil when the current granularity does not draw it."
+
+	| key |
+	(aNode isNil or: [rectKeyByNode isNil or: [graphMorph isNil]]) ifTrue: [^ nil].
+	key := rectKeyByNode at: aNode ifAbsent: [^ nil].
+	^ key value isNil
+		ifTrue: [graphMorph rectForNode: key key]
+		ifFalse: [graphMorph rectForNode: key key field: key value]
 ]
 
 {
@@ -960,6 +1009,26 @@ SWAClassDiagram >> overlayMorph [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
+}
+SWAClassDiagram >> peerWeightForKey: aCrossRefKey [
+	"Only what the diagram draws is data a peer may colour by. Reading the whole key
+	index lights up every method of a class the range merely touched."
+
+	(self displayedCrossRefKeys includes: aCrossRefKey) ifFalse: [^ nil].
+	^ super peerWeightForKey: aCrossRefKey
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
+}
+SWAClassDiagram >> peerWeightKeys [
+	^ self displayedCrossRefKeys
+]
+
+{
 	#category : #chrome,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
 }
@@ -996,7 +1065,7 @@ SWAClassDiagram >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
 }
 SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the class diagram and hand it to the embedded
@@ -1032,6 +1101,7 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	nodesByDotId := Dictionary new.
 	fieldNodesByDotId := Dictionary new.
 	rectKeyByNode := IdentityDictionary new.
+	displayedKeys := nil.
 	ids := tuple second.
 	ids keysAndValuesDo: [:node :dotId |
 		nodesByDotId at: dotId put: node.
@@ -1053,12 +1123,14 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	graphPane onMarkerClick: [:node | self graphMarkerClicked: node].
 	self updateReviewMarkers.
 	self updateSelectionHighlight.
-	self refreshChrome
+	self refreshChrome.
+	"Granularity decides which keys are data, so a peer colouring by me is now stale."
+	self notifyCrossReferenceDependents.
 ]
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:35'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:18'
 }
 SWAClassDiagram >> recentCommits [
 	"The newest commits of the current repository as value -> menu label: short hash
@@ -1066,9 +1138,9 @@ SWAClassDiagram >> recentCommits [
 	| repoHistory ancestry |
 	repoHistory := self gitHistory.
 	repoHistory ifNil: [^ #()].
-	ancestry := [repoHistory workingCopy headCommit ancestors] on: Error do: [:e | #()].
+	ancestry := [repoHistory newestCommits: SWAGitHistory defaultMaxCommits] on: Error do: [:e | #()].
 	ancestry ifNil: [^ #()].
-	ancestry := ancestry first: (SWAGitHistory defaultMaxCommits min: ancestry size).
+
 	^ ancestry collect: [:commit |
 		([commit hexHash first: 7] on: Error do: [:e | '???????'])
 			-> (repoHistory commitLabelFor: commit)]
@@ -1256,6 +1328,19 @@ SWAClassDiagram >> rootNode: aCodeNode [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:41'
+}
+SWAClassDiagram >> secondarySelection: aNodeOrNil [
+	"The graph draws its own frames, so a foreign selection is a rect to set rather
+	than a repaint to trigger."
+
+	super secondarySelection: aNodeOrNil.
+	graphMorph ifNil: [^ self].
+	graphMorph foreignSelectionRect: (self graphRectForNode: aNodeOrNil)
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
 }
@@ -1278,14 +1363,15 @@ SWAClassDiagram >> selectTileNode: aNodeOrNil [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
 }
 SWAClassDiagram >> selectedNode: aNodeOrNil [
 	"Record the selection, move the blue highlight frame to it, and refresh the
 	nav-panel chrome (breadcrumb, selection path, Show source pane)."
 	selectedNode := aNodeOrNil.
 	self updateSelectionHighlight.
-	self refreshChrome
+	self refreshChrome.
+	self notifyCrossReferenceSelection
 ]
 
 {
@@ -1556,23 +1642,14 @@ SWAClassDiagram >> updateReviewMarkers [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:01'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:41'
 }
 SWAClassDiagram >> updateSelectionHighlight [
 	"Set the embedded GraphvizMorph's selection rectangle to frame the currently
 	selected node: a method uses its record field rect, a class/other node uses its
 	whole-node rect. Clears the frame when nothing is selected or not laid out."
-	| key rect |
 	graphMorph ifNil: [^ self].
-	(selectedNode isNil or: [rectKeyByNode isNil])
-		ifTrue: [^ graphMorph selectionRect: nil].
-	key := rectKeyByNode at: selectedNode ifAbsent: [nil].
-	rect := key isNil
-		ifTrue: [nil]
-		ifFalse: [key value isNil
-			ifTrue: [graphMorph rectForNode: key key]
-			ifFalse: [graphMorph rectForNode: key key field: key value]].
-	graphMorph selectionRect: rect
+	graphMorph selectionRect: (self graphRectForNode: selectedNode)
 ]
 
 {

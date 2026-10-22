@@ -761,6 +761,20 @@ SWADataset >> providesStructure [
 ]
 
 {
+	#category : #scale,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:27'
+}
+SWADataset >> refreshScales [
+	"Re-derive the colour ramps from the source's current range. Only #peer needs it:
+	its source is another live view rather than a loaded file. The metrics themselves
+	have to survive -- the view registered THEIR mode symbols in #addDataset:."
+
+	kind == #peer ifFalse: [^ self].
+	self metrics do: [:metric |
+		metric scale: (self spaceTallyScaleForMax: source maxWeight)].
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:05'
 }

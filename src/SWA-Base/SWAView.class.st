@@ -46,14 +46,36 @@ Class {
 		'zoomBar',
 		'scrollY',
 		'contentHeight',
-		'scrollThumbDragOffset'
+		'scrollThumbDragOffset',
+		'linkedViews',
+		'linkedViewsGeneration'
 	],
 	#classVars : [
+		'CrossRefGeneration',
 		'DatasetContainerTint'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
+}
+SWAView class >> crossReferenceGeneration [
+	"Bumped whenever a dataset is added or dropped anywhere, so cached peer-link
+	lists know they are stale."
+
+	^ CrossRefGeneration ifNil: [CrossRefGeneration := 0]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
+}
+SWAView class >> crossReferenceLinksChanged [
+	CrossRefGeneration := self crossReferenceGeneration + 1.
+]
 
 {
 	#category : #preferences,
@@ -200,7 +222,7 @@ SWAView >> activeDataset [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:53'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:43'
 }
 SWAView >> addDataset: aSWADataset [
 	"Retain a named dataset and register ITS METRICS. Each metric gets a UNIQUE minted
@@ -213,6 +235,7 @@ SWAView >> addDataset: aSWADataset [
 	aSWADataset modeSymbol: (aSWADataset kind, '_', n printString) asSymbol.
 	base := aSWADataset kind, '_', n printString.
 	self datasets addLast: aSWADataset.
+	SWAView crossReferenceLinksChanged.
 	aSWADataset metrics do: [:metric | | sym |
 		sym := (base, '_', metric id) asSymbol.
 		metric modeSymbol: sym.
@@ -387,13 +410,18 @@ SWAView >> colorModeOptions [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:40'
 }
 SWAView >> containerColorFor: aNode metric: aMetric [
 	"Tint for a tile that has child tiles drawn inside it, under the class-wide
 	#datasetContainerTint setting. Answers nil to mean 'the metric says nothing',
 	which the caller turns into the neutral base."
 	| mode |
+	"A container with its OWN value in the dataset is DATA, not context: the tint
+	modes exist to keep a ROLLUP from burying the children, and a class the dataset
+	names directly would otherwise be the one tile that never lights up."
+	(aMetric rawValueForKey: aNode crossRefKey)
+		ifNotNil: [^ aMetric colorForNode: aNode].
 	mode := self class datasetContainerTint.
 	mode == #full ifTrue: [^ aMetric colorForNode: aNode].
 	mode == #none ifTrue: [
@@ -528,17 +556,46 @@ SWAView >> coveringTestFilter [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
 }
 SWAView >> crossReferenceFrom: aPeerView [
 	"Highlight our tiles that also appear in aPeerView, weighting each by the peer
-	node's totalSize (samples / bytes / loc). Pass nil to clear."
+	node's totalSize (samples / bytes / loc). Pass nil to clear. Asks the peer what it
+	shows rather than reading its key index: a view may hold context nodes it does not
+	draw (see SWAClassDiagram>>peerWeightForKey:)."
 	| weights |
 	aPeerView ifNil: [^ self highlightWeights: nil].
 	weights := Dictionary new.
-	aPeerView keyIndex keysAndValuesDo: [:k :node |
-		weights at: k put: node totalSize].
+	aPeerView peerWeightKeys do: [:key |
+		(aPeerView peerWeightForKey: key) ifNotNil: [:w | weights at: key put: w]].
 	self highlightWeights: weights
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
+}
+SWAView >> crossReferenceLinkedViews [
+	"Open views joined to me by a #peer dataset, in EITHER direction: the link is
+	about two tools showing the same code, so it carries a selection both ways even
+	though the data only flows one."
+
+	| linked generation |
+	"Finding them means SWAPane allInstances, a 25 ms heap scan, and this runs on
+	every selection. The generation changes with any dataset add or drop; a pane
+	that merely CLOSED is filtered out on the way through."
+	generation := SWAView crossReferenceGeneration.
+	(linkedViews notNil and: [linkedViewsGeneration = generation])
+		ifTrue: [^ linkedViews select: [:view | view world notNil]].
+	linkedViewsGeneration := generation.
+	linked := OrderedCollection new.
+	SWAPane openPanels do: [:panel |
+		panel treemap ifNotNil: [:view |
+			(view ~~ self
+				and: [(view peerDatasetsOn: self) notEmpty
+					or: [(self peerDatasetsOn: view) notEmpty]])
+				ifTrue: [linked add: view]]].
+	^ linkedViews := linked
 ]
 
 {
@@ -699,6 +756,17 @@ SWAView >> filterToTestKey: aTestOrClassKey [
 	self rebuildEffectiveWeights.
 	self flushCacheKeepingSelection.
 	self changed
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:27'
+}
+SWAView >> flushCache [
+	"Drop only the rendered pixels -- whatever layout the view keeps survives."
+
+	cachedForm := nil.
+	self changed.
 ]
 
 {
@@ -1203,6 +1271,77 @@ SWAView >> navPanel: aSWAPane [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:28'
+}
+SWAView >> notifyCrossReferenceDependents [
+	"A #peer dataset reads its weights live out of MY keyIndex, so every other open
+	view that cross-references me is showing stale colours the moment my tree changes.
+	Nothing else connects the two panes: the peer holds me, I hold nothing."
+
+	| label |
+	label := self navPanel ifNotNil: [:panel | panel crossRefMenuLabel].
+	SWAPane openPanels do: [:panel |
+		panel treemap ifNotNil: [:view |
+			| peers |
+			peers := view == self
+				ifTrue: [#()]
+				ifFalse: [view peerDatasetsOn: self].
+			peers isEmpty ifFalse: [
+				peers do: [:ds |
+					ds refreshScales.
+					label ifNotNil: [:text | ds name: text]].
+				view flushCache]]].
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:39'
+}
+SWAView >> notifyCrossReferenceSelection [
+	"Mirror my selection into the views cross-referenced with me, as THEIR secondary
+	selection, so the same method is findable in both tools."
+
+	| key |
+	key := selectedNode ifNotNil: [:node | node crossRefKey].
+	self crossReferenceLinkedViews do: [:view | view showForeignSelectionKey: key]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:27'
+}
+SWAView >> peerDatasetsOn: aView [
+	"My datasets that cross-reference aView."
+
+	^ self datasets select: [:ds | ds kind == #peer and: [ds source peerView == aView]]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
+}
+SWAView >> peerWeightForKey: aCrossRefKey [
+	"What a view cross-referencing me reads for aCrossRefKey: my node's weight, or nil
+	when I say nothing about it. Everything in my key index counts, because a view
+	normally shows its whole tree; one that holds nodes it does NOT draw narrows this."
+
+	aCrossRefKey ifNil: [^ nil].
+	^ (self keyIndex at: aCrossRefKey ifAbsent: [nil])
+		ifNotNil: [:node | node totalSize]
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
+}
+SWAView >> peerWeightKeys [
+	"The keys a peer may read from me -- see #peerWeightForKey:."
+
+	^ self keyIndex keys
+]
+
+{
 	#category : #coloring,
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
@@ -1302,20 +1441,29 @@ SWAView >> rebuildEffectiveWeights [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer 6/23/2026 17:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:27'
 }
 SWAView >> rebuildKeyIndex [
 	"(Re)build the crossRefKey -> node index by walking the whole tree. On key
 	collisions keep the largest-totalSize node so lookups land on the most
-	significant tile/frame."
+	significant tile/frame.
+
+	Only a REbuild notifies the views cross-referencing me: #keyIndex builds the
+	index lazily, and notifying from there would flush a peer's pixels in the middle
+	of the very draw that asked for the weights."
+	| wasBuilt |
+	wasBuilt := keyIndex notNil.
 	keyIndex := Dictionary new.
-	rootNode ifNil: [^ keyIndex].
+	rootNode ifNil: [
+		wasBuilt ifTrue: [self notifyCrossReferenceDependents].
+		^ keyIndex].
 	rootNode withAllChildrenDo: [:n | | k existing |
 		k := n crossRefKey.
 		k ifNotNil: [
 			existing := keyIndex at: k ifAbsent: [nil].
 			(existing isNil or: [n totalSize > existing totalSize])
 				ifTrue: [keyIndex at: k put: n]]].
+	wasBuilt ifTrue: [self notifyCrossReferenceDependents].
 	^ keyIndex
 ]
 
@@ -1552,7 +1700,7 @@ SWAView >> selectedNode [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:35'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
 }
 SWAView >> selectedNode: aNodeOrNil [
 	"Set the selected node and refresh the chrome.
@@ -1566,7 +1714,8 @@ SWAView >> selectedNode: aNodeOrNil [
 	top."
 	selectedNode := aNodeOrNil.
 	self flushCache.
-	self refreshChrome
+	self refreshChrome.
+	self notifyCrossReferenceSelection
 ]
 
 {
@@ -1639,6 +1788,22 @@ SWAView >> showCoverageData: aCoverageData weightMode: aWeightMode [
 	self highlightWeights: (useInvocations
 		ifTrue: [aCoverageData invocationMap]
 		ifFalse: [aCoverageData resultMap])
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:39'
+}
+SWAView >> showForeignSelectionKey: aCrossRefKeyOrNil [
+	"Show what a cross-referenced view has selected, using this view's secondary
+	(red) selection. A key I have no node for CLEARS the mark rather than leaving a
+	stale one pointing at the previous selection."
+
+	| node |
+	node := aCrossRefKeyOrNil ifNotNil: [:key | self keyIndex at: key ifAbsent: [nil]].
+	node == self secondarySelection ifTrue: [^ self].
+	self secondarySelection: node.
+	self changed.
 ]
 
 {
