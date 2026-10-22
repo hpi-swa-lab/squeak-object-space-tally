@@ -17,7 +17,9 @@ Class {
 	#instVars : [
 		'treemapMorph',
 		'hoveredTile',
-		'hoverPoint'
+		'hoverPoint',
+		'lastClickNode',
+		'lastClickTime'
 	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
@@ -114,6 +116,17 @@ SWATreemapOverlay >> colorModeOptions [
 	"Hook: { colorModeSymbol. menuLabel } pairs for the Color submenu.
 	Default: empty (no Color submenu). Subclasses override."
 	^ #()
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:50'
+}
+SWATreemapOverlay >> doubleClickMillis [
+	"Two clicks on the same tile closer together than this zoom in; further apart, the
+	second one deselects. The hand's own double-click window is private to MouseClickState."
+
+	^ 400
 ]
 
 {
@@ -276,11 +289,22 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:50'
+}
+SWATreemapOverlay >> isDoubleClickOn: aNode [
+	^ lastClickNode == aNode
+		and: [lastClickTime notNil
+		and: [(Time millisecondsSince: lastClickTime) < self doubleClickMillis]]
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:51'
 }
 SWATreemapOverlay >> mouseDown: evt [
-	"Left-click a tile: select it. Click the ALREADY-SELECTED tile again: DESELECT it
-	 (zoom in moved to the context menu, which is also the only other way to reach it).
+	"Left-click a tile: select it. Click the selected tile again within
+	 #doubleClickMillis: ZOOM IN. Click it again after that: DESELECT it, so one button
+	 both selects and clears (zoom in is also on the context menu).
 	 Right-click: context menu.  Shift+click: toggle the tile in/out of the global
 	 mark set (bookmark). (Object-explore of the tally node moved to the context
 	 menu.)"
@@ -299,15 +323,17 @@ SWATreemapOverlay >> mouseDown: evt [
 		treemapMorph toggleMark: hit key.
 		^ self changed].
 
-	"Click on the already-selected tile -> deselect it, so one button both selects
-	and clears. Zooming in is on the context menu."
 	(treemapMorph selectedNode notNil
 		and: [treemapMorph selectedNode == hit key])
 		ifTrue: [
+			(self isDoubleClickOn: hit key) ifTrue: [
+				self noteClickOn: nil.
+				^ treemapMorph zoomInto: hit key].
+			self noteClickOn: hit key.
 			self changed.
 			^ treemapMorph selectTileNode: nil].
 
-	"Otherwise select this tile"
+	self noteClickOn: hit key.
 	self changed.
 	treemapMorph selectTileNode: hit key
 ]
@@ -339,6 +365,15 @@ SWATreemapOverlay >> mouseMove: evt [
 		ifTrue: [^ self changed].
 	hoveredTile := hit.
 	self changed
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:50'
+}
+SWATreemapOverlay >> noteClickOn: aNodeOrNil [
+	lastClickNode := aNodeOrNil.
+	lastClickTime := Time millisecondClockValue.
 ]
 
 {

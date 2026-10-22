@@ -37,9 +37,36 @@ Class {
 		'leafKind',
 		'renderedParents'
 	],
+	#classVars : [
+		'FontCache',
+		'TargetAspect'
+	],
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:43'
+}
+SWATreemapMorph class >> flushFontCache [
+	"The cache is keyed by point size alone, so it outlives a change of system font."
+
+	FontCache := nil.
+	self allSubInstances do: [:each |
+		each world ifNotNil: [:w | each flushCache]].
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:43'
+}
+SWATreemapMorph class >> fontOfPointSize: aNumber [
+	"Derived TTCFonts are expensive to build and the renderer asks per tile, so keep them."
+
+	FontCache ifNil: [FontCache := Dictionary new].
+	^ FontCache at: aNumber ifAbsentPut: [Preferences standardSystemFont copyWithPointSize: aNumber]
+]
 
 {
 	#category : #'instance creation',
@@ -48,6 +75,29 @@ Class {
 SWATreemapMorph class >> on: aNode [
 	"Create a treemap morph rooted at the given duck-typed node."
 	^ self new setRoot: aNode
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:37'
+}
+SWATreemapMorph class >> targetAspect [
+	"Width:height the layout aims for. 1 is the classic squarified treemap; above 1
+	favours landscape tiles, which carry a label better than a square of the same area."
+
+	^ TargetAspect ifNil: [1]
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:37'
+}
+SWATreemapMorph class >> targetAspect: aNumber [
+	"Every tile rectangle depends on this, so relayout and repaint the open views."
+
+	TargetAspect := aNumber max: 0.05.
+	self allSubInstances do: [:each |
+		each world ifNotNil: [:w | each invalidateLayout. each flushCache]].
 ]
 
 {
@@ -198,6 +248,23 @@ SWATreemapMorph >> computeLayout [
 }
 SWATreemapMorph >> currentNode [
 	^ currentNode
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:43'
+}
+SWATreemapMorph >> depthOfNode: aNode [
+	"Depth of aNode below currentNode, counting the root's children as 1. Bounded in
+	case aNode is not under currentNode at all."
+
+	| depth node |
+	depth := 0.
+	node := aNode.
+	[node notNil and: [node ~~ currentNode and: [depth < 16]]] whileTrue: [
+		depth := depth + 1.
+		node := node parent].
+	^ depth max: 1
 ]
 
 {
@@ -387,6 +454,29 @@ SWATreemapMorph >> flushCacheKeepingSelection [
 ]
 
 {
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:43'
+}
+SWATreemapMorph >> fontForNode: aNode [
+	| sizes depth |
+	sizes := self fontPointSizes.
+	depth := (self depthOfNode: aNode) min: sizes size.
+	^ self class fontOfPointSize: (sizes at: depth)
+]
+
+{
+	#category : #fonts,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:44'
+}
+SWATreemapMorph >> fontPointSizes [
+	"Label point size by tile depth below the current root; the last entry applies to
+	everything deeper. Graded so a package label reads as a heading and a method label
+	as a hint, and so small tiles get a label at all."
+
+	^ #(12 10.5 9 7 6)
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:10'
 }
@@ -454,6 +544,16 @@ SWATreemapMorph >> innerRectFor: aRectangle [
 				corner: inset right @ inset bottom.
 			^ available]
 		ifFalse: [^ inset]
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:37'
+}
+SWATreemapMorph >> invalidateLayout [
+	"Drop the tile list; the next draw rebuilds it."
+
+	layoutValid := false.
 ]
 
 {
@@ -585,26 +685,26 @@ SWATreemapMorph >> refreshChrome [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:09'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:43'
 }
 SWATreemapMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	"Paint every tile in draw order into aCanvas. No header, no hover.
 	Per-tile overlay content (e.g. SpaceTally's bitmap mode) is delegated to the
 	#drawTileContent:in:on: hook, which is a no-op by default."
-	| font fontH borderColor |
-	font := Preferences standardSystemFont.
-	fontH := font height.
+	| borderColor |
 	aCanvas fillRectangle: (anOrigin extent: self extent) color: Color black.
 	borderColor := Color gray: 0.2.
-	tiles do: [:assoc | | node r screenR fill labelStr labelClip |
+	tiles do: [:assoc | | node r screenR fill labelStr labelClip font fontH |
 		node := assoc key. r := assoc value.
 		screenR := r translateBy: anOrigin.
 		fill := self colorForNode: node.
 		aCanvas fillRectangle: screenR color: fill.
 		self drawTileContent: node in: screenR on: aCanvas.
 		aCanvas frameRectangle: screenR color: borderColor.
+		font := self fontForNode: node.
+		fontH := font height.
 		((screenR width * screenR height) >= minTileForLabel
-			and: [screenR width >= 40 and: [screenR height >= (fontH + 2)]])
+			and: [screenR width >= (fontH * 2) and: [screenR height >= (fontH + 2)]])
 			ifTrue: [
 				labelStr := self labelFor: node inWidth: screenR width - 6.
 				labelStr ifNotNil: [
@@ -714,15 +814,16 @@ SWATreemapMorph >> shouldLayoutChildrenOf: aNode [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:37'
 }
 SWATreemapMorph >> squarify: nodeArray scales: areaArray into: aRectangle [
-	"Classic Bruls/Huijsen/van Wijk squarified treemap.
+	"Classic Bruls/Huijsen/van Wijk squarified treemap, with the cost function
+	 aimed at #targetAspect rather than at a square.
 	 nodeArray is sorted desc by size. areaArray gives the target pixel area for
 	 each node, parallel to nodeArray. We carve aRectangle into rows.
 	 Appends Associations node -> Rectangle to the tiles OC."
 
-	| rect row rowSum bestRatio nextRatio shortSide n i nextSum |
+	| rect row rowSum bestRatio nextRatio shortSide n i nextSum rowTarget |
 	rect := aRectangle.
 	row := OrderedCollection new.
 	rowSum := 0.
@@ -731,16 +832,21 @@ SWATreemapMorph >> squarify: nodeArray scales: areaArray into: aRectangle [
 	[i <= n] whileTrue: [
 		shortSide := rect width min: rect height.
 		shortSide <= 0 ifTrue: [^ self].
+		"Rows run along the short side, so which way a tile gets stretched flips with
+		the orientation of the rect that is left."
+		rowTarget := rect height <= rect width
+			ifTrue: [1 / self targetAspect]
+			ifFalse: [self targetAspect].
 		row isEmpty
 			ifTrue: [
 				"Start a new row with this one element."
 				row add: i.
 				rowSum := areaArray at: i.
-				bestRatio := self worstAspectRatio: row areas: areaArray sum: rowSum side: shortSide.
+				bestRatio := self worstAspectRatio: row areas: areaArray sum: rowSum side: shortSide target: rowTarget.
 				i := i + 1]
 			ifFalse: [
 				nextSum := rowSum + (areaArray at: i).
-				nextRatio := self worstAspectRatio: (row copyWith: i) areas: areaArray sum: nextSum side: shortSide.
+				nextRatio := self worstAspectRatio: (row copyWith: i) areas: areaArray sum: nextSum side: shortSide target: rowTarget.
 				nextRatio <= bestRatio
 					ifTrue: [
 						"Adding this child improves (or holds) the worst aspect ratio."
@@ -784,6 +890,14 @@ SWATreemapMorph >> step [
 SWATreemapMorph >> stepTime [
 	"Poll at ~20fps while deferring resize."
 	^ 50
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:37'
+}
+SWATreemapMorph >> targetAspect [
+	^ self class targetAspect
 ]
 
 {
@@ -838,14 +952,16 @@ SWATreemapMorph >> updateBreadcrumb [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:37'
 }
-SWATreemapMorph >> worstAspectRatio: indexRow areas: areaArray sum: rowSum side: shortSide [
-	"Return the worst (max) aspect ratio of the rectangles produced by laying out
-	 indexRow along a side of length shortSide, where rowSum is the sum of their areas.
-	 max(s^2 * rMax / sum^2,  sum^2 / (s^2 * rMin))."
+SWATreemapMorph >> worstAspectRatio: indexRow areas: areaArray sum: rowSum side: shortSide target: targetRatio [
+	"Worst deviation from targetRatio among the rectangles that laying out indexRow
+	 along a side of length shortSide would produce, rowSum being the sum of their
+	 areas. A tile's ratio (extent along the row over row thickness) is
+	 s^2 * area / sum^2, so the extremes come from the largest and smallest area.
+	 targetRatio = 1 is the classic squarified cost function."
 
-	| rMax rMin s2 sum2 |
+	| rMax rMin s2 sum2 ratioMax ratioMin |
 	(rowSum <= 0 or: [shortSide <= 0]) ifTrue: [^ Float infinity].
 	rMax := 0.
 	rMin := Float infinity.
@@ -855,7 +971,10 @@ SWATreemapMorph >> worstAspectRatio: indexRow areas: areaArray sum: rowSum side:
 		a < rMin ifTrue: [rMin := a]].
 	s2 := shortSide * shortSide.
 	sum2 := rowSum * rowSum.
-	^ ((s2 * rMax) / sum2) max: (sum2 / (s2 * rMin))
+	ratioMax := s2 * rMax / sum2.
+	ratioMin := s2 * rMin / sum2.
+	ratioMin <= 0 ifTrue: [^ Float infinity].
+	^ (ratioMax / targetRatio) max: (targetRatio / ratioMin)
 ]
 
 {
