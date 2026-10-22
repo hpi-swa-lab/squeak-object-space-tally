@@ -47,11 +47,9 @@ Class {
 		'scrollY',
 		'contentHeight',
 		'scrollThumbDragOffset',
-		'linkedViews',
-		'linkedViewsGeneration'
+		'crossRefDependents'
 	],
 	#classVars : [
-		'CrossRefGeneration',
 		'DatasetContainerTint'
 	],
 	#category : #'SWA-Base',
@@ -59,7 +57,7 @@ Class {
 }
 
 {
-	#category : #'cross-ref',
+	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
 }
 SWAView class >> crossReferenceGeneration [
@@ -70,7 +68,7 @@ SWAView class >> crossReferenceGeneration [
 ]
 
 {
-	#category : #'cross-ref',
+	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
 }
 SWAView class >> crossReferenceLinksChanged [
@@ -221,8 +219,20 @@ SWAView >> activeDataset [
 ]
 
 {
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:05'
+}
+SWAView >> addCrossReferenceDependent: aView [
+	"aView colours by my data, so it has to hear when my data changes. WEAK on
+	purpose: a pane closed without deregistering must not be kept alive by me."
+
+	crossRefDependents ifNil: [crossRefDependents := WeakSet new].
+	crossRefDependents add: aView.
+]
+
+{
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:43'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:04'
 }
 SWAView >> addDataset: aSWADataset [
 	"Retain a named dataset and register ITS METRICS. Each metric gets a UNIQUE minted
@@ -235,7 +245,10 @@ SWAView >> addDataset: aSWADataset [
 	aSWADataset modeSymbol: (aSWADataset kind, '_', n printString) asSymbol.
 	base := aSWADataset kind, '_', n printString.
 	self datasets addLast: aSWADataset.
-	SWAView crossReferenceLinksChanged.
+	"A peer dataset is a live link to another view: register so it can push changes."
+	aSWADataset kind == #peer ifTrue: [
+		aSWADataset source peerView ifNotNil: [:view |
+			view addCrossReferenceDependent: self]].
 	aSWADataset metrics do: [:metric | | sym |
 		sym := (base, '_', metric id) asSymbol.
 		metric modeSymbol: sym.
@@ -556,6 +569,24 @@ SWAView >> coveringTestFilter [
 
 {
 	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:06'
+}
+SWAView >> crossReferenceDependents [
+	"The registered views still on screen. A closed pane that failed to deregister
+	drops out here rather than being notified."
+
+	| live |
+	live := OrderedCollection new.
+	crossRefDependents ifNil: [^ live].
+	"A WeakSet slot reads as nil once its view is collected, so test for that before
+	asking anything of it."
+	crossRefDependents do: [:view |
+		(view notNil and: [view world notNil]) ifTrue: [live add: view]].
+	^ live
+]
+
+{
+	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
 }
 SWAView >> crossReferenceFrom: aPeerView [
@@ -573,29 +604,35 @@ SWAView >> crossReferenceFrom: aPeerView [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:04'
 }
 SWAView >> crossReferenceLinkedViews [
-	"Open views joined to me by a #peer dataset, in EITHER direction: the link is
-	about two tools showing the same code, so it carries a selection both ways even
-	though the data only flows one."
+	"Views joined to me by a #peer dataset, in EITHER direction: the data flows one
+	way, but two tools showing the same code should share a selection both ways."
 
-	| linked generation |
-	"Finding them means SWAPane allInstances, a 25 ms heap scan, and this runs on
-	every selection. The generation changes with any dataset add or drop; a pane
-	that merely CLOSED is filtered out on the way through."
-	generation := SWAView crossReferenceGeneration.
-	(linkedViews notNil and: [linkedViewsGeneration = generation])
-		ifTrue: [^ linkedViews select: [:view | view world notNil]].
-	linkedViewsGeneration := generation.
-	linked := OrderedCollection new.
-	SWAPane openPanels do: [:panel |
-		panel treemap ifNotNil: [:view |
-			(view ~~ self
-				and: [(view peerDatasetsOn: self) notEmpty
-					or: [(self peerDatasetsOn: view) notEmpty]])
-				ifTrue: [linked add: view]]].
-	^ linkedViews := linked
+	| linked |
+	linked := OrderedCollection withAll: self crossReferenceDependents.
+	self crossReferenceSources do: [:view |
+		(linked includes: view) ifFalse: [linked add: view]].
+	^ linked
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:05'
+}
+SWAView >> crossReferenceSources [
+	"The views MY #peer datasets read. Known from the datasets themselves, so this
+	direction needs no registry and no search."
+
+	| sources |
+	sources := OrderedCollection new.
+	self datasets do: [:ds |
+		ds kind == #peer ifTrue: [
+			ds source peerView ifNotNil: [:view |
+				(view world notNil and: [(sources includes: view) not])
+					ifTrue: [sources add: view]]]].
+	^ sources
 ]
 
 {
@@ -1272,26 +1309,19 @@ SWAView >> navPanel: aSWAPane [
 
 {
 	#category : #'cross-ref',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:28'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:04'
 }
 SWAView >> notifyCrossReferenceDependents [
-	"A #peer dataset reads its weights live out of MY keyIndex, so every other open
-	view that cross-references me is showing stale colours the moment my tree changes.
-	Nothing else connects the two panes: the peer holds me, I hold nothing."
+	"A #peer dataset reads its weights live out of MY keyIndex, so every view
+	registered against me is showing stale colours the moment my tree changes."
 
 	| label |
 	label := self navPanel ifNotNil: [:panel | panel crossRefMenuLabel].
-	SWAPane openPanels do: [:panel |
-		panel treemap ifNotNil: [:view |
-			| peers |
-			peers := view == self
-				ifTrue: [#()]
-				ifFalse: [view peerDatasetsOn: self].
-			peers isEmpty ifFalse: [
-				peers do: [:ds |
-					ds refreshScales.
-					label ifNotNil: [:text | ds name: text]].
-				view flushCache]]].
+	self crossReferenceDependents do: [:view |
+		(view peerDatasetsOn: self) do: [:ds |
+			ds refreshScales.
+			label ifNotNil: [:text | ds name: text]].
+		view flushCache].
 ]
 
 {
@@ -1487,6 +1517,15 @@ SWAView >> rebuildSearchMatches [
 				searchMatchSet add: a.
 				a := a parent]]].
 	^ searchMatchSet
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:05'
+}
+SWAView >> removeCrossReferenceDependent: aView [
+	crossRefDependents ifNil: [^ self].
+	crossRefDependents remove: aView ifAbsent: [].
 ]
 
 {
@@ -1912,6 +1951,17 @@ SWAView >> toggleMark: aNode [
 	prov := self markProvenance.
 	prov at: 'nodeKind' put: aNode nodeKind asString.
 	SWAMarkSet default toggle: aNode markKey from: prov
+]
+
+{
+	#category : #'cross-ref',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:05'
+}
+SWAView >> unregisterCrossReferenceLinks [
+	"Drop out of every source I read. Sent when my pane closes: the registry is weak,
+	but a source should not carry a dead view until the next garbage collect."
+
+	self crossReferenceSources do: [:view | view removeCrossReferenceDependent: self].
 ]
 
 {

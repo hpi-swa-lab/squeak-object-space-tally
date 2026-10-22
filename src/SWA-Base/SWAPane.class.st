@@ -2437,7 +2437,7 @@ SWAPane >> defaultReviewedFileName [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 11:23'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:04'
 }
 SWAPane >> delete [
 	"Closing the pane/window MUST tear down any live invocation tally, otherwise the
@@ -2446,6 +2446,7 @@ SWAPane >> delete [
 	tool's ByteSymbol>>refTreeRoots DNU). Uninstall first, then proceed with normal
 	morph deletion."
 	liveTally ifNotNil: [self abandonInvocationTally].
+	self treemap ifNotNil: [:each | each unregisterCrossReferenceLinks].
 	super delete
 ]
 

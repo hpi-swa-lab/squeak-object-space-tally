@@ -1641,13 +1641,17 @@ SWACodeTreemapMorph >> provenanceListTitle [
 
 {
 	#category : #datasets,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:43'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:04'
 }
 SWACodeTreemapMorph >> removeDataset: aSWADataset [
 	"Unload a dataset and all its metrics. If the active color or size mode belonged
 	to it, fall back to an intrinsic default."
 	self datasets remove: aSWADataset ifAbsent: [].
-	SWAView crossReferenceLinksChanged.
+	aSWADataset kind == #peer ifTrue: [
+		"Deregister only when no OTHER dataset of mine still reads that view."
+		aSWADataset source peerView ifNotNil: [:view |
+			(self peerDatasetsOn: view) isEmpty
+				ifTrue: [view removeCrossReferenceDependent: self]]].
 	(self metricsByMode values select: [:m | m dataset == aSWADataset]) do: [:m |
 		m modeSymbol ifNotNil: [:sym |
 			self metricsByMode removeKey: sym ifAbsent: [].
