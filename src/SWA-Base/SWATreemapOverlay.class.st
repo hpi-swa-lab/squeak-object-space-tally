@@ -276,10 +276,11 @@ SWATreemapOverlay >> inspectObject: anObject [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
 }
 SWATreemapOverlay >> mouseDown: evt [
-	"Left-click a tile: select it. Click the ALREADY-SELECTED tile again: zoom in.
+	"Left-click a tile: select it. Click the ALREADY-SELECTED tile again: DESELECT it
+	 (zoom in moved to the context menu, which is also the only other way to reach it).
 	 Right-click: context menu.  Shift+click: toggle the tile in/out of the global
 	 mark set (bookmark). (Object-explore of the tally node moved to the context
 	 menu.)"
@@ -298,10 +299,13 @@ SWATreemapOverlay >> mouseDown: evt [
 		treemapMorph toggleMark: hit key.
 		^ self changed].
 
-	"Click on the already-selected tile -> zoom in"
+	"Click on the already-selected tile -> deselect it, so one button both selects
+	and clears. Zooming in is on the context menu."
 	(treemapMorph selectedNode notNil
 		and: [treemapMorph selectedNode == hit key])
-		ifTrue: [^ treemapMorph zoomInto: hit key].
+		ifTrue: [
+			self changed.
+			^ treemapMorph selectTileNode: nil].
 
 	"Otherwise select this tile"
 	self changed.
@@ -417,7 +421,7 @@ SWATreemapOverlay >> setSizeMode: aSymbol [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
 }
 SWATreemapOverlay >> showMenuFor: aNode event: evt [
 	"Show a context menu for the given node. Generic items (title, go back, the
@@ -427,6 +431,9 @@ SWATreemapOverlay >> showMenuFor: aNode event: evt [
 	| menu sizeMenu colorMenu |
 	menu := MenuMorph new defaultTarget: self.
 	menu addTitle: (aNode name ifNil: ['?']).
+	"Zoom in lives here since a second click on a tile now deselects it."
+	(treemapMorph shouldLayoutChildrenOf: aNode)
+		ifTrue: [menu add: 'zoom in' target: treemapMorph selector: #zoomInto: argumentList: {aNode}].
 	menu add: 'go back' target: treemapMorph selector: #zoomOut.
 	self addMarkMenuItems: menu for: aNode.
 	menu addLine.

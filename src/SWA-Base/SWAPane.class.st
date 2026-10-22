@@ -1793,7 +1793,7 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 16:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
@@ -1842,9 +1842,15 @@ SWAPane >> buildHeaderRow [
 			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
 	"Depth: cycle how deep tiles are drawn (only where the view supports leafKind:)."
 	(view respondsTo: #leafKind:) ifTrue: [
+		| letters |
 		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
 		self updateDepthLabel.
-		headerRow addMorphBack: depthButton].
+		headerRow addMorphBack: depthButton.
+		"One-letter shortcuts for the same thing, so a depth is one click away
+		rather than up to four."
+		letters := self depthLetters.
+		self depthOrder do: [:kind |
+			headerRow addMorphBack: (self depthJumpButtonFor: kind letter: (letters at: kind))]].
 	"Live name-search: dims tiles whose entity name doesn't match what you type."
 	(view respondsTo: #searchFor:) ifTrue: [
 		headerRow addMorphBack: self newSearchField].
@@ -2327,23 +2333,19 @@ SWAPane >> crossReferenceAsDataset: aPeerPanel [
 ]
 
 {
-	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:16'
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
 }
 SWAPane >> cycleLeafKind [
-	"Depth button: cycle the view's render depth (leafKind). The default order is
-	Package -> Class -> Category -> Method -> Package (Full/nil omitted; it renders
-	the whole tree at once, which doesn't make sense here). A view may narrow this to
-	its own meaningful depths by answering #leafKindOrder -- e.g. the class diagram
-	cycles just Class <-> Method (classes only vs classes + methods). Only affects
+	"Depth button: cycle the view's render depth (leafKind) through #depthOrder --
+	Package -> Class -> Category -> Method -> Package by default (Full/nil omitted; it
+	renders the whole tree at once, which doesn't make sense here). Only affects
 	rendering; the tree and metric roll-ups are unchanged, so this is cheap to
-	re-apply. If the view is at a depth outside the order, the first press goes to
-	the order's first entry."
+	re-apply. If the view is at a depth outside the order, the first press goes to the
+	order's first entry. The one-letter buttons beside it jump straight to a depth."
 	| order current next |
 	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
-	order := (view respondsTo: #leafKindOrder)
-		ifTrue: [view leafKindOrder]
-		ifFalse: [{ #package. #class. #category. #method }].
+	order := self depthOrder.
 	current := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
 	next := order at: ((order indexOf: current) \\ order size) + 1.
 	view leafKind: next.
@@ -2445,6 +2447,65 @@ SWAPane >> delete [
 	morph deletion."
 	liveTally ifNotNil: [self abandonInvocationTally].
 	super delete
+]
+
+{
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+}
+SWAPane >> depthJumpButtonFor: aKind letter: aString [
+	"A one-letter button that jumps straight to a depth. Deliberately narrow: these sit
+	beside the Depth button as shortcuts for it, not as controls in their own right.
+	Height is taken from a text button so the row still lines up."
+	| button |
+	button := SimpleButtonMorph new
+		label: aString;
+		color: (Color gray: 0.3);
+		borderWidth: 0;
+		target: self;
+		actionSelector: #setDepth:;
+		arguments: { aKind };
+		hResizing: #rigid;
+		vResizing: #rigid;
+		yourself.
+	button setBalloonText: 'Depth: ', aKind asString capitalized.
+	button extent: 18 @ (self buttonLabelled: 'X' action: nil) fullBounds height.
+	^ button
+]
+
+{
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+}
+SWAPane >> depthLetters [
+	"depth kind -> the single capital its quick-jump button shows. Derived, not fixed:
+	#class and #category both start with C, so a later depth takes its first letter
+	that is still free rather than repeating one already used. The balloon spells the
+	depth out, so the letter only has to be unique."
+	| used letters |
+	used := Set new.
+	letters := Dictionary new.
+	self depthOrder do: [:kind |
+		| letter |
+		letter := (kind asString
+			detect: [:char | (used includes: char asUppercase) not]
+			ifNone: [kind asString first]) asUppercase.
+		used add: letter.
+		letters at: kind put: (String with: letter)].
+	^ letters
+]
+
+{
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+}
+SWAPane >> depthOrder [
+	"The depths this view offers, in cycle order. A view may narrow the default to its
+	own meaningful ones via #leafKindOrder -- e.g. the class diagram cycles Class <->
+	Method rather than the treemap's four."
+	^ (view notNil and: [view respondsTo: #leafKindOrder])
+		ifTrue: [view leafKindOrder]
+		ifFalse: [{ #package. #class. #category. #method }]
 ]
 
 {
@@ -5133,6 +5194,18 @@ SWAPane >> setDataMode: aSymbol [
 	(tm notNil and: [tm respondsTo: #setDataMode:]) ifTrue: [
 		tm setDataMode: aSymbol.
 		self refresh]
+]
+
+{
+	#category : #chrome,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+}
+SWAPane >> setDepth: aKind [
+	"Depth quick-jump button: go straight to a level instead of cycling round to it."
+	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
+	view leafKind: aKind.
+	self updateDepthLabel.
+	self refresh
 ]
 
 {

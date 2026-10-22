@@ -701,7 +701,7 @@ SWAClassDiagram >> gitRangeLabel [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
 }
 SWAClassDiagram >> graphFieldClicked: anAssoc [
 	"A record sub-field was clicked: anAssoc is dotId -> fieldIndex (0-based, where
@@ -713,7 +713,7 @@ SWAClassDiagram >> graphFieldClicked: anAssoc [
 	fieldNodes ifNil: [^ self graphNodeClicked: anAssoc key].
 	idx := anAssoc value + 1.
 	(idx between: 1 and: fieldNodes size)
-		ifTrue: [self selectedNode: (fieldNodes at: idx)]
+		ifTrue: [self selectOrDeselectNode: (fieldNodes at: idx)]
 		ifFalse: [self graphNodeClicked: anAssoc key]
 ]
 
@@ -744,11 +744,11 @@ SWAClassDiagram >> graphMenuRequest: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:31'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
 }
 SWAClassDiagram >> graphNodeClicked: aDotId [
 	"A node in the embedded graph was clicked: select the matching SWACodeNode."
-	self selectedNode: (nodesByDotId at: aDotId ifAbsent: [nil])
+	self selectOrDeselectNode: (nodesByDotId at: aDotId ifAbsent: [nil])
 ]
 
 {
@@ -1253,6 +1253,18 @@ SWAClassDiagram >> rootNode: aCodeNode [
 	rootNode := aCodeNode.
 	self rebuildKeyIndex.
 	self rebuildGraph
+]
+
+{
+	#category : #events,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
+}
+SWAClassDiagram >> selectOrDeselectNode: aNodeOrNil [
+	"Click to select, click the same row again to clear: one gesture both ways. Not
+	used by the review badge -- clicking that must keep its row selected."
+	self selectedNode: (selectedNode == aNodeOrNil
+		ifTrue: [nil]
+		ifFalse: [aNodeOrNil])
 ]
 
 {
