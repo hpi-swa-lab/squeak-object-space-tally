@@ -1787,6 +1787,30 @@ SWACodeTreemapMorph >> setDecorationMode: aSymbol [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:59'
+}
+SWACodeTreemapMorph >> shouldLayoutChildrenOf: aNode [
+	"As the superclass, except at #package depth. The code tree nests sub-packages
+	(SqueakXR / Tests / Objects), so stopping at the FIRST package would hide exactly
+	the structure that depth asks for: a package keeps expanding while it still has
+	package children.
+
+	And at that depth nothing BUT a package may expand -- a package holding both
+	sub-packages and classes of its own would otherwise spill those classes, which
+	then expand into their protocols, because the generic rule only ever stops at
+	nodes whose kind IS the leaf kind."
+	| nodeKind |
+	(aNode children isNil or: [aNode children isEmpty]) ifTrue: [^ false].
+	leafKind == #package ifFalse: [^ super shouldLayoutChildrenOf: aNode].
+	nodeKind := (aNode respondsTo: #kind) ifTrue: [aNode kind] ifFalse: [nil].
+	nodeKind == #root ifTrue: [^ true].
+	nodeKind == #package ifFalse: [^ false].
+	^ aNode children anySatisfy: [:each |
+		(each respondsTo: #kind) and: [each kind == #package]]
+]
+
+{
 	#category : #coverage,
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:24'
 }

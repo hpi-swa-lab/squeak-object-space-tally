@@ -27,35 +27,22 @@ SWACodePackageNode >> browse [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 8/6/2026 11:31'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:55'
 }
 SWACodePackageNode >> buildChildren [
-	"Children are this package's nested SUB-PACKAGES followed by the CLASSES it owns
-	directly.
+	"Children are this package's nested SUB-PACKAGES, then its own category tree.
 
 	Sub-packages: selected packages whose immediate parent is this one (e.g.
 	'Graphics-Fonts' under 'Graphics'), resolved by the root.
 
-	Classes: kept only when THIS package is its category's most-specific owner among
-	the selected packages (see SWACodeRootNode>>ownerOfSystemCategory:). Without this
-	filter a class whose category prefix-overlaps a broader package -- e.g.
-	StrikeFont, category 'Graphics-Fonts' -- would be tiled under both 'Graphics' and
-	'Graphics-Fonts'. The owner lookup is nil when this node has no root (an isolated
-	single-package tree), in which case we keep every class and have no sub-packages."
-	| root subPackages classes result |
+	Own classes: split by system category into SWACodeSubpackageNode levels, so
+	'SqueakXR-Tests-Objects' nests as Tests / Objects rather than tiling 135 classes
+	flat. Classes whose category is exactly this package's prefix stay right here."
+	| root subPackages result |
 	root := self root.
 	subPackages := (root respondsTo: #childPackageInfosOf:)
 		ifTrue: [root childPackageInfosOf: subject]
 		ifFalse: [#()].
-	classes := subject classes select: [:cls |
-		| owner |
-		owner := (root respondsTo: #ownerOfSystemCategory:)
-			ifTrue: [root ownerOfSystemCategory: cls category]
-			ifFalse: [nil].
-		(owner isNil or: [owner == subject])
-			and: [(root respondsTo: #includesClass:) not
-				or: [root includesClass: cls]]].
-	classes := classes asSortedCollection: [:a :b | a name <= b name].
 	result := OrderedCollection new.
 	subPackages do: [:pkg | | node |
 		node := SWACodePackageNode on: pkg parent: self.
@@ -65,7 +52,10 @@ SWACodePackageNode >> buildChildren [
 		((root respondsTo: #hasClassFilter) and: [root hasClassFilter])
 			ifTrue: [node children ifNotEmpty: [result add: node]]
 			ifFalse: [result add: node]].
-	classes do: [:cls | result add: (SWACodeClassNode on: cls parent: self)].
+	result addAll: (SWACodeSubpackageNode
+		childrenFor: self ownedClasses
+		prefix: subject systemCategoryPrefix
+		parent: self).
 	^ result
 ]
 
@@ -259,6 +249,35 @@ SWACodePackageNode >> openRecordGraph [
 		openGraph: [self recordGraph]
 		engine: 'dot'
 		label: 'Code Map: ', self name, '  (UML records)'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:55'
+}
+SWACodePackageNode >> ownedClasses [
+	"The classes this package owns DIRECTLY -- those its own category tree holds and
+	no more-specific selected package claims.
+
+	Kept only when THIS package is its category's most-specific owner among the
+	selected packages (see SWACodeRootNode>>ownerOfSystemCategory:). Without that a
+	class whose category prefix-overlaps a broader package -- e.g. StrikeFont, category
+	'Graphics-Fonts' -- would be tiled under both 'Graphics' and 'Graphics-Fonts'. The
+	owner lookup is nil when this node has no root (an isolated single-package tree),
+	in which case every class is kept.
+
+	The sub-levels split THIS list (SWACodeSubpackageNode>>buildChildren), so whatever
+	they nest, each class is still tiled exactly once."
+	| root |
+	root := self root.
+	^ subject classes select: [:cls |
+		| owner |
+		owner := (root respondsTo: #ownerOfSystemCategory:)
+			ifTrue: [root ownerOfSystemCategory: cls category]
+			ifFalse: [nil].
+		(owner isNil or: [owner == subject])
+			and: [(root respondsTo: #includesClass:) not
+				or: [root includesClass: cls]]]
 ]
 
 {
