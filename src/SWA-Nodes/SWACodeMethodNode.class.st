@@ -93,9 +93,10 @@ SWACodeMethodNode class >> flushByteAnalysisCache [
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:02'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeMethodNode >> browse [
+	(subject isKindOf: SWASnapshotMethod) ifTrue: [^ subject browse].
 	^ ToolSet browse: subject actualClass selector: subject selector
 ]
 

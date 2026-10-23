@@ -128,6 +128,20 @@ SWADataset class >> callTraceFrom: aSWACoverage named: aString [
 
 {
 	#category : #'instance creation',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
+}
+SWADataset class >> compositionFrom: aSWACompositionData named: aName [
+	"A #composition dataset: which classes hold which in their instance variables (see
+	SWACompositionData), as association links plus a per-class association count."
+	^ self new
+		kind: #composition;
+		name: aName;
+		source: aSWACompositionData;
+		yourself
+]
+
+{
+	#category : #'instance creation',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:06'
 }
 SWADataset class >> coverageFrom: aSWACoverageData named: aString [
@@ -333,7 +347,7 @@ SWADataset class >> topicFrom: aSWATopicData named: aString [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
 }
 SWADataset >> buildMetrics [
 	"Construct this dataset's metrics (see #metrics for the cached accessor)."
@@ -472,6 +486,26 @@ SWADataset >> buildMetrics [
 			axes: #(#color); rollup: #max;
 			scale: (self gitRecencyScaleFrom: source minLastTouchSeconds
 				to: (source maxOf: #last)); yourself)].
+	"COMPOSITION: class-level metrics. Associations in total also carry the links; used
+	by / uses split them by direction, and role puts that direction into a hue."
+	kind == #composition ifTrue: [
+		ms add: ((SWADatasetMetric new
+			dataset: self; id: #compositionRole; label: 'By role: blue used by others, orange uses others (composition)';
+			axes: #(#color); rollup: #max; yourself)
+			colorBlock: [:node | source roleColorForKey: node crossRefKey];
+			yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #compositionUsedBy; label: 'By used by other classes (composition)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #usedByForKey:)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #compositionUses; label: 'By uses other classes (composition)';
+			axes: #(#color #size); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: (source maxOf: #usesForKey:)); yourself).
+		ms add: (SWADatasetMetric new
+			dataset: self; id: #composition; label: 'By associations (composition)';
+			axes: #(#color #links); rollup: #sum;
+			scale: (self spaceTallyScaleForMax: source maxDegree); yourself)].
 	^ ms
 ]
 
@@ -491,7 +525,7 @@ SWADataset >> coverageScale [
 
 {
 	#category : #metrics,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWADataset >> defaultBindings [
 	"The FITTING DEFAULTS this dataset applies across the treemap axes when it is
@@ -541,12 +575,15 @@ SWADataset >> defaultBindings [
 	opened, which is most of the image and the whole point of the comparison."
 	kind == #openCodeAccess ifTrue: [
 		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m]].
+	kind == #composition ifTrue: [
+		(self metrics detect: [:x | x supportsColor] ifNone: [nil]) ifNotNil: [:m | d at: #color put: m].
+		(self metrics detect: [:x | x supportsLinks] ifNone: [nil]) ifNotNil: [:m | d at: #decoration put: m]].
 	^ d
 ]
 
 {
 	#category : #scale,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWADataset >> defaultScale [
 	"A good out-of-the-box raw-value -> Color mapping chosen by #kind. Each metric
@@ -557,6 +594,7 @@ SWADataset >> defaultScale [
 	kind == #peer ifTrue: [^ self spaceTallyScaleForMax: source maxWeight].
 	kind == #gitChurn ifTrue: [^ self spaceTallyScaleForMax: (source maxOf: #commits)].
 	kind == #openCodeAccess ifTrue: [^ self spaceTallyScaleForMax: (source maxOf: #touches)].
+	kind == #composition ifTrue: [^ self spaceTallyScaleForMax: source maxDegree].
 	^ [:v | Color gray: 0.3]
 ]
 

@@ -369,7 +369,7 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showM
 
 {
 	#category : #graphviz,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:06'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:17'
 }
 SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showMethods: showMethods suppressingSuperclasses: aNameCollection clustered: clustered composition: composition [
 	"As the #suppressingSuperclasses: version, with two additions.
@@ -398,7 +398,7 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showM
 			| kept |
 			kept := Dictionary new.
 			cn compositionAssociations keysAndValuesDo: [:ivar :pair |
-				(byName includesKey: (pair first) name) ifTrue: [kept at: ivar put: pair]].
+				(byName includesKey: pair first) ifTrue: [kept at: ivar put: pair]].
 			assocs at: cn put: kept.
 			cn hiddenIvarNames: kept keys]].
 	dot := WriteStream on: String new.
@@ -455,7 +455,7 @@ SWACodeNode >> classDiagramGraphColorMode: aColorMode showState: showState showM
 			(assocs at: cn ifAbsent: [Dictionary new]) keysAndValuesDo: [:ivar :pair |
 				dot
 					nextPutAll: '  '; nextPutAll: cn dotId;
-					nextPutAll: ' -> '; nextPutAll: (byName at: pair first name) dotId;
+					nextPutAll: ' -> '; nextPutAll: (byName at: pair first) dotId;
 					nextPutAll: ' [arrowhead=vee, color="#8d6e63", labelfontcolor="#8d6e63", labelfontsize=9, labeldistance=2.0, labelangle=0, headlabel="';
 					nextPutAll: (SWACodeNode dotEscape: (pair second = '*'
 						ifTrue: [ivar, '  *'] ifFalse: [ivar]));

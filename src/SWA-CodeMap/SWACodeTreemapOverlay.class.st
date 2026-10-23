@@ -27,7 +27,7 @@ SWACodeTreemapOverlay >> aaCanvasFrom: aCanvas [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 13:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
 SWACodeTreemapOverlay >> addMenuItems: menu for: aNode [
 	"Code context-menu items: browse the element; for method tiles also offer
@@ -38,6 +38,10 @@ SWACodeTreemapOverlay >> addMenuItems: menu for: aNode [
 	aNode kind = #method ifTrue: [
 		menu add: 'senders' selector: #browseSenders: argument: aNode.
 		menu add: 'implementors' selector: #browseImplementors: argument: aNode].
+	(treemapMorph gitStatusOf: aNode) ifNotNil: [:status |
+		menu
+			add: (status == #reviewed ifTrue: ['Unmark reviewed'] ifFalse: ['Mark reviewed'])
+			target: treemapMorph selector: #toggleReviewedUnder: argument: aNode].
 	dataMenu := self dataMenuMorph.
 	dataMenu ifNotNil: [menu addLine. menu add: 'Data' subMenu: dataMenu].
 	decoMenu := self decorationMenuMorph.
@@ -73,7 +77,7 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:38'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	"Color (base-tint) modes for the Code Map: the CHEAP intrinsics only. The
@@ -98,6 +102,8 @@ SWACodeTreemapOverlay >> colorModeOptions [
 		(#author           'By author (last changed)')
 	) asOrderedCollection.
 	tm := self treemapMorph.
+	((tm respondsTo: #gitChanges) and: [tm gitChanges notNil]) ifTrue: [
+		base add: #(#gitChanges 'By commit range (added/modified/reviewed)')].
 	(tm respondsTo: #datasets) ifTrue: [
 		tm datasets do: [:ds |
 			ds metrics do: [:metric |
@@ -237,10 +243,11 @@ SWACodeTreemapOverlay >> drawAllDuplicationLinksOn: aCanvas origin: origin [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:30'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWACodeTreemapOverlay >> drawLinksFor: aMetric on: aCanvas origin: origin restrictedTo: keySetOrNil [
-	"Draw the metric's links between rendered method tiles. When keySetOrNil is non-nil
+	"Draw the metric's links between rendered tiles: methods for duplication, classes
+	for composition. When keySetOrNil is non-nil
 	(a selection subtree), a link is drawn only if AT LEAST ONE endpoint key is in the
 	set -- so selecting a package/class/method shows just the links connected to it
 	(including those going out to partners elsewhere). nil = no restriction (whole-map
@@ -259,7 +266,7 @@ SWACodeTreemapOverlay >> drawLinksFor: aMetric on: aCanvas origin: origin restri
 		| node fromR nodeKey |
 		node := assoc key.
 		fromR := assoc value.
-		(node isKindOf: SWACodeMethodNode) ifTrue: [
+		node crossRefKey ifNotNil: [
 			nodeKey := node crossRefKey.
 			(aMetric linksForKey: nodeKey) do: [:m |
 				| score partnerKey pairKey target r sharedLoc partnerNode |
@@ -303,7 +310,7 @@ SWACodeTreemapOverlay >> drawLinksFor: aMetric on: aCanvas origin: origin restri
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:33'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWACodeTreemapOverlay >> drawOn: aCanvas [
 	"Standard hover highlight (white border + ancestor borders) follows the mouse via
@@ -331,7 +338,7 @@ SWACodeTreemapOverlay >> drawOn: aCanvas [
 	sel ifNil: [
 		"no selection -> full overview"
 		^ self drawLinksFor: deco on: aCanvas origin: origin restrictedTo: nil].
-	restrict := treemapMorph leafKeySetUnder: sel.
+	restrict := treemapMorph keySetUnder: sel.
 	self drawLinksFor: deco on: aCanvas origin: origin restrictedTo: restrict
 ]
 

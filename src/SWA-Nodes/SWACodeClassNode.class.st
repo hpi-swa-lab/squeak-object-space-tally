@@ -9,66 +9,35 @@ Class {
 		'ivarFilter',
 		'hiddenIvarNames',
 		'removedMembers',
-		'memberKinds'
+		'memberKinds',
+		'compositionData',
+		'boxFill'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
 }
 
 {
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:06'
+	#category : #'as yet unclassified',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
 }
-SWACodeClassNode class >> compositionContainerNames [
-	"Holding an OrderedCollection is not a relationship with OrderedCollection. When an
-	ivar is assigned one of these, the association wanted is to the ELEMENT type, found
-	from what gets added to it."
-
-	^ #(Array OrderedCollection Set IdentitySet Dictionary IdentityDictionary Bag
-		SortedCollection WeakArray WeakSet) asSet
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:04'
-}
-SWACodeClassNode class >> compositionValueTypeNames [
-	"Classes that stay rows in the attribute compartment instead of becoming an
-	association edge. Without this almost every edge in the diagram would point at
-	Vector3 or Color and say nothing."
-
-	^ #(Vector3 Vector2 Quaternion Matrix4x4 Color Point Rectangle Form Symbol String
-		ByteString Number Integer Float Fraction Boolean Character Date Time Interval
-		Association WriteStream ReadStream Semaphore Process) asSet
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
-}
-SWACodeClassNode class >> isCompositionValueType: aClass [
-	"Value-like classes stay rows in the attribute compartment. Besides the named list,
-	anything from the FFI bindings counts: an RlMatrix ivar is a buffer, not a
-	relationship with raylib."
-
-	(self compositionValueTypeNames includes: aClass name asSymbol) ifTrue: [^ true].
-	(aClass name beginsWith: 'Rl') ifTrue: [^ true].
-	^ aClass category notNil
-		and: [(aClass category includesSubstring: 'Raylib')
-			or: [aClass category includesSubstring: 'OpenXR']]
+SWACodeClassNode >> boxFill: aHexStringOrNil [
+	"A fill the view chose for this box, overriding the colour mode's."
+	boxFill := aHexStringOrNil
 ]
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 12:01'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeClassNode >> browse [
+	(subject isKindOf: SWASnapshotBehavior) ifTrue: [^ subject browse].
 	^ ToolSet browseClass: subject
 ]
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeClassNode >> buildChildren [
 	"A SWACodeCommentNode for the class comment (when present), then one
@@ -85,10 +54,10 @@ SWACodeClassNode >> buildChildren [
 				metaClass: subject;
 				isStatic: false;
 				yourself)]].
-	subject class organization categories do: [:cat |
-		(subject class organization listAtCategoryNamed: cat) isEmpty ifFalse: [
+	subject classSide organization categories do: [:cat |
+		(subject classSide organization listAtCategoryNamed: cat) isEmpty ifFalse: [
 			nodes add: ((SWACodeCategoryNode on: cat parent: self)
-				metaClass: subject class;
+				metaClass: subject classSide;
 				isStatic: true;
 				yourself)]].
 	^ nodes
@@ -105,139 +74,20 @@ SWACodeClassNode >> classNode [
 
 {
 	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:07'
-}
-SWACodeClassNode >> composition: aNode into: aDictionary ivars: ivarNames [
-	"One parse node, two shapes worth reading: an assignment to an ivar, and an #add:
-	sent TO an ivar -- the latter being the only way to learn a collection's element
-	type, since the assignment itself only ever says OrderedCollection."
-
-	| name |
-	(aNode isKindOf: AssignmentNode) ifTrue: [
-		name := [aNode variable key asString] on: Error do: [:e | nil].
-		(name notNil and: [ivarNames includes: name])
-			ifTrue: [self compositionRecordAssignment: aNode value for: name into: aDictionary].
-		^ self].
-	(aNode isKindOf: MessageNode) ifFalse: [^ self].
-	(#(add: addAll: addFirst: addLast: at:put:) includes: aNode selector key) ifFalse: [^ self].
-	name := [aNode receiver key asString] on: Error do: [:e | nil].
-	(name notNil and: [ivarNames includes: name]) ifFalse: [^ self].
-	aNode arguments do: [:arg |
-		(self compositionDomainClassesIn: arg) do: [:each |
-			aDictionary at: name put: (Array with: each with: '*')]]
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:17'
 }
 SWACodeClassNode >> compositionAssociations [
-	"ivarName -> { targetClass. multiplicity }, inferred from what this class's own
-	methods store into its instance variables. In an untyped language that is the only
-	static evidence there is: 'camera := SRAvatarCamera new' names a type, whereas
-	'avatar: anAvatar' names nothing a tool can trust."
-
-	| cls result ivars |
-	cls := self theClass.
-	cls isNil ifTrue: [^ Dictionary new].
-	ivars := cls allInstVarNames.
-	result := Dictionary new.
-	(Array with: cls with: cls class) do: [:behavior |
-		behavior selectors do: [:sel |
-			[(behavior >> sel) methodNode nodesDo: [:node |
-				self composition: node into: result ivars: ivars]]
-					on: Error do: [:e | nil]]].
-	^ result
+	"ivarName -> { targetClassName. multiplicity }, see SWACompositionData."
+	compositionData ifNotNil: [:data | ^ data associationsForClassNamed: self name].
+	^ SWACompositionData associationsOf: self theClass
 ]
 
 {
 	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:06'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:17'
 }
-SWACodeClassNode >> compositionClassOfNode: aNode [
-	"The class a parse node names, or nil. A global reference carries an Association as
-	its key -- #SRHand=>SRHand -- where an ivar or temp carries a String, which is what
-	tells the two apart."
-
-	| key |
-	aNode isNil ifTrue: [^ nil].
-	key := [aNode key] on: Error do: [:e | nil].
-	(key isVariableBinding and: [key value isBehavior]) ifTrue: [^ key value].
-	^ nil
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
-}
-SWACodeClassNode >> compositionDomainClassesIn: aNode [
-	"Every class named anywhere under aNode that is neither a value type nor a
-	container. Used when the outermost send says nothing, as in
-	'(1 to: n) collect: [:i | SRFastCube new]'."
-
-	| found |
-	found := Set new.
-	aNode nodesDo: [:each |
-		(self compositionClassOfNode: each) ifNotNil: [:cls |
-			((SWACodeClassNode isCompositionValueType: cls)
-				or: [SWACodeClassNode compositionContainerNames includes: cls name asSymbol])
-					ifFalse: [found add: cls]]].
-	^ found
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:07'
-}
-SWACodeClassNode >> compositionIsManyIn: aNode [
-	"Whether what aNode builds is a collection of things rather than one thing."
-
-	aNode nodesDo: [:each |
-		(each isKindOf: MessageNode) ifTrue: [
-			(#(collect: select: reject: with:collect: copyWith:) includes: each selector key)
-				ifTrue: [^ true]].
-		(self compositionClassOfNode: each) ifNotNil: [:cls |
-			(SWACodeClassNode compositionContainerNames includes: cls name asSymbol)
-				ifTrue: [^ true]]].
-	^ false
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:08'
-}
-SWACodeClassNode >> compositionRecordAssignment: valueNode for: anIvarName into: aDictionary [
-	"Read one 'ivar := expression' for the type it stores."
-
-	| root target inner |
-	root := self compositionRootReceiverOf: valueNode.
-	target := self compositionClassOfNode: root.
-	target ifNotNil: [
-		(SWACodeClassNode isCompositionValueType: target) ifTrue: [^ self].
-		(SWACodeClassNode compositionContainerNames includes: target name asSymbol)
-			ifFalse: [^ aDictionary at: anIvarName put: (Array with: target with: '1')]].
-	inner := self compositionDomainClassesIn: valueNode.
-	inner size = 1 ifTrue: [
-		aDictionary
-			at: anIvarName
-			put: (Array
-				with: inner anyOne
-				with: ((self compositionIsManyIn: valueNode) ifTrue: ['*'] ifFalse: ['1']))]
-]
-
-{
-	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:06'
-}
-SWACodeClassNode >> compositionRootReceiverOf: aNode [
-	"Walk down the receiver chain, so 'SRHand left avatar: self' answers the node for
-	SRHand rather than the outermost send."
-
-	| cur |
-	cur := aNode.
-	[(cur isKindOf: MessageNode) or: [cur isKindOf: CascadeNode]]
-		whileTrue: [cur := cur receiver].
-	^ cur
+SWACodeClassNode >> compositionData: aCompositionDataOrNil [
+	compositionData := aCompositionDataOrNil
 ]
 
 {
@@ -294,18 +144,17 @@ SWACodeClassNode >> kind [
 
 {
 	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeClassNode >> kindColorFor: aCrossRefKey [
-	"Green added, orange modified, nil for anything we were told nothing about. Removed
-	members are red, but they are drawn by #recordDeadRowsOn:ivars: -- they have no node
-	here to key on."
+	"Green added, orange modified, red removed, nil for anything we were told nothing about."
 
 	| kind |
 	memberKinds isNil ifTrue: [^ nil].
 	kind := memberKinds at: aCrossRefKey ifAbsent: [nil].
 	kind == #added ifTrue: [^ '#d8f0d8'].
 	kind == #modified ifTrue: [^ '#ffe8cc'].
+	kind == #removed ifTrue: [^ '#f8d7da'].
 	^ nil
 ]
 
@@ -322,14 +171,14 @@ SWACodeClassNode >> memberKinds: aDictionary [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 15:29'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeClassNode >> methodCategoryFor: aMethodNode [
 	"The browser protocol aMethodNode lives in. Class-side methods are organised by the
 	METACLASS, which keeps categories of its own."
 	| behavior category |
 	behavior := aMethodNode isStatic
-		ifTrue: [self theClass class]
+		ifTrue: [self theClass classSide]
 		ifFalse: [self theClass].
 	category := [behavior organization categoryOfElement: aMethodNode name asSymbol]
 		on: Error do: [:e | nil].
@@ -642,11 +491,14 @@ SWACodeClassNode >> recordMethodNodes [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:27'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeClassNode >> recordNameRowOn: ws [
 	"Emit the class-name compartment (bold, left-aligned) into ws."
-	ws nextPutAll: '<tr><td align="text"><b>'.
+	ws nextPutAll: '<tr><td align="text"'.
+	(self kindColorFor: self crossRefKey) ifNotNil: [:color |
+		ws nextPutAll: ' bgcolor="'; nextPutAll: color; nextPutAll: '"'].
+	ws nextPutAll: '><b>'.
 	ws nextPutAll: (SWACodeNode htmlEscape: self name).
 	ws nextPutAll: '</b><br align="left"/></td></tr>'
 ]
@@ -701,11 +553,12 @@ SWACodeClassNode >> recordStateCompartmentOn: ws startingAt: startIndex [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:27'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
 }
 SWACodeClassNode >> recordTableBgColorMode: aColorMode [
 	"The <table> background color for a UML class box: a neutral gray in #loc mode
 	(so per-method LOC tints read clearly), else the flat by-kind fill."
+	boxFill ifNotNil: [^ boxFill].
 	^ aColorMode = #loc
 		ifTrue: ['#f4f4f4']
 		ifFalse: [self dotFillColor]

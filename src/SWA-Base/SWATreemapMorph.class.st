@@ -571,7 +571,7 @@ SWATreemapMorph >> labelFor: aNode inWidth: maxPixels [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 13:32'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
 SWATreemapMorph >> layoutChildrenOf: aNode in: aRectangle [
 	"Squarify aNode's children into aRectangle; for each child tile, recurse if
@@ -582,15 +582,15 @@ SWATreemapMorph >> layoutChildrenOf: aNode in: aRectangle [
 	layoutProgress ifNotNil: [:p | p value: aNode].
 	(aRectangle width < minRecurseExtent or: [aRectangle height < minRecurseExtent])
 		ifTrue: [^ self].
-	kids := aNode children ifNil: [^ self].
+	kids := (self visibleChildrenOf: aNode) ifNil: [^ self].
 	kids isEmpty ifTrue: [^ self].
-	kids := (kids select: [:k | k totalSize > 0])
+	kids := (kids select: [:k | (self layoutSizeOf: k) > 0])
 		asSortedCollection: [:a :b | a totalSize >= b totalSize].
 	kids isEmpty ifTrue: [^ self].
-	total := kids inject: 0 into: [:s :k | s + k totalSize].
+	total := kids inject: 0 into: [:s :k | s + (self layoutSizeOf: k)].
 	total <= 0 ifTrue: [^ self].
 	area := aRectangle width * aRectangle height.
-	scales := kids collect: [:k | k totalSize * area / total].
+	scales := kids collect: [:k | (self layoutSizeOf: k) * area / total].
 	self squarify: kids asArray scales: scales into: aRectangle
 ]
 
@@ -602,6 +602,14 @@ SWATreemapMorph >> layoutProgress: aBlockOrNil [
 	"Optional one-arg block invoked once per laid-out parent node during layout,
 	for driving a progress bar. nil (default) means no reporting and zero overhead."
 	layoutProgress := aBlockOrNil
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+}
+SWATreemapMorph >> layoutSizeOf: aNode [
+	^ aNode totalSize
 ]
 
 {
@@ -952,6 +960,14 @@ SWATreemapMorph >> updateBreadcrumb [
 	navPanel
 		ifNotNil: [:p | p refresh]
 		ifNil: [breadcrumbMorph ifNotNil: [breadcrumbMorph contents: self breadcrumbString]]
+]
+
+{
+	#category : #layout,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+}
+SWATreemapMorph >> visibleChildrenOf: aNode [
+	^ aNode children
 ]
 
 {

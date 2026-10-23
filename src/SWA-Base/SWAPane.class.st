@@ -23,7 +23,7 @@ Class {
 		'coveringTestsTitle',
 		'provenanceEntries',
 		'provenanceIndex',
-		'depthButton',
+		'depthButtons',
 		'fullButton',
 		'savedWindowFrame',
 		'liveTally',
@@ -1423,6 +1423,14 @@ SWAPane >> acquireTestCoverageThenColor [
 ]
 
 {
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
+}
+SWAPane >> activeButtonColor [
+	^ Color h: 210 s: 0.6 v: 0.7
+]
+
+{
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/3/2026 11:22'
 }
@@ -1514,6 +1522,34 @@ SWAPane >> addCallTraceDataset: aSWACoverage name: aName [
 	self treemapCoverageStatus: 'Call Trace (', ds name, '): ',
 		aSWACoverage resultMap size printString, ' methods, ',
 		aSWACoverage traceStatus, ' -- open it from Tree > Trace (calls over time)'.
+	self refresh.
+	^ ds
+]
+
+{
+	#category : #building,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
+}
+SWAPane >> addCodeViewButtonsTo: aRow [
+	#(#(#codeMap 'Code map') #(#classDiagram 'Class diagram')) do: [:pair | | button |
+		button := (self buttonLabelled: pair second action: #switchToCodeView:)
+			arguments: {pair first};
+			yourself.
+		pair first == view codeViewKey ifTrue: [button color: self activeButtonColor].
+		aRow addMorphBack: button].
+]
+
+{
+	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
+}
+SWAPane >> addCompositionDataset: aCompositionData name: aName [
+	| tm ds |
+	tm := self treemap.
+	ds := tm addDataset: (SWADataset compositionFrom: aCompositionData named: aName).
+	tm selectDataset: ds.
+	self treemapCoverageStatus: 'Composition (', ds name, '): ',
+		aCompositionData associationCount printString, ' associations'.
 	self refresh.
 	^ ds
 ]
@@ -1793,13 +1829,13 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
 	(far left; overflow home for growing actions like Export/Load), then Back/Browse/
 	optional Deselect, then the overlay-gated Data/Tree/Size/Color/Links, then
-	optional Depth and the name-search field. (Marks and Source are NO LONGER header
+	the Depth buttons and the name-search field. (Marks and Source are NO LONGER header
 	buttons -- each is a floating flap tab over the body: Marks vertical on the LEFT,
 	Source horizontal on the BOTTOM; see #buildBodyRow.) Each optional control is
 	gated on the view/overlay actually SUPPORTING it, so a view opts into just the
@@ -1829,6 +1865,8 @@ SWAPane >> buildHeaderRow [
 	a property of the PANEL. Gating it on the overlay made the button vanish on
 	exactly the views reached by it -- the timeline and calendar have no overlay, so
 	once you morphed into one there was no way back."
+	((view respondsTo: #codeViewKey) and: [view codeViewKey notNil])
+		ifTrue: [self addCodeViewButtonsTo: headerRow].
 	self showsTreeButton ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Tree' action: #popUpTreeMenu)].
 	ovl ifNotNil: [
@@ -1840,17 +1878,16 @@ SWAPane >> buildHeaderRow [
 			headerRow addMorphBack: (self buttonLabelled: 'Color' action: #popUpColorMenu)].
 		(view respondsTo: #decorationMetric) ifTrue: [
 			headerRow addMorphBack: (self buttonLabelled: 'Links' action: #popUpDecorationMenu)]].
-	"Depth: cycle how deep tiles are drawn (only where the view supports leafKind:)."
+	"Depth: one button per level the view offers, the active one highlighted."
 	(view respondsTo: #leafKind:) ifTrue: [
 		| letters |
-		depthButton := self buttonLabelled: 'Depth: Full' action: #cycleLeafKind.
-		self updateDepthLabel.
-		headerRow addMorphBack: depthButton.
-		"One-letter shortcuts for the same thing, so a depth is one click away
-		rather than up to four."
+		depthButtons := Dictionary new.
 		letters := self depthLetters.
 		self depthOrder do: [:kind |
-			headerRow addMorphBack: (self depthJumpButtonFor: kind letter: (letters at: kind))]].
+			headerRow addMorphBack: (depthButtons
+				at: kind
+				put: (self depthJumpButtonFor: kind letter: (letters at: kind)))].
+		self updateDepthButtons].
 	"Live name-search: dims tiles whose entity name doesn't match what you type."
 	(view respondsTo: #searchFor:) ifTrue: [
 		headerRow addMorphBack: self newSearchField].
@@ -2063,7 +2100,7 @@ SWAPane >> closeTallyStopWindow [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 11:24'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWAPane >> codeMapGeneratorEntries [
 	"{ menuLabel. generatorSelector } pairs for the async, on-the-fly dataset
@@ -2088,6 +2125,7 @@ SWAPane >> codeMapGeneratorEntries [
 	(self treemap isKindOf: SWACodeTreemapMorph) ifFalse: [^ #()].
 	entries := OrderedCollection new.
 	entries add: { 'Generate: duplication (clone heat)'. #generateDuplicationDataset }.
+	entries add: { 'Generate: composition (ivar types, static)'. #generateCompositionDataset }.
 	entries add: { 'Generate: test coverage (run related tests)'. #generateCoverageDataset }.
 	liveTally isNil
 		ifTrue: [
@@ -2333,27 +2371,6 @@ SWAPane >> crossReferenceAsDataset: aPeerPanel [
 ]
 
 {
-	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
-}
-SWAPane >> cycleLeafKind [
-	"Depth button: cycle the view's render depth (leafKind) through #depthOrder --
-	Package -> Class -> Category -> Method -> Package by default (Full/nil omitted; it
-	renders the whole tree at once, which doesn't make sense here). Only affects
-	rendering; the tree and metric roll-ups are unchanged, so this is cheap to
-	re-apply. If the view is at a depth outside the order, the first press goes to the
-	order's first entry. The one-letter buttons beside it jump straight to a depth."
-	| order current next |
-	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
-	order := self depthOrder.
-	current := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
-	next := order at: ((order indexOf: current) \\ order size) + 1.
-	view leafKind: next.
-	self updateDepthLabel.
-	self refresh
-]
-
-{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/20/2026 14:06'
 }
@@ -2452,11 +2469,10 @@ SWAPane >> delete [
 
 {
 	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
 }
 SWAPane >> depthJumpButtonFor: aKind letter: aString [
-	"A one-letter button that jumps straight to a depth. Deliberately narrow: these sit
-	beside the Depth button as shortcuts for it, not as controls in their own right.
+	"A one-letter button that jumps straight to a depth; the balloon spells it out.
 	Height is taken from a text button so the row still lines up."
 	| button |
 	button := SimpleButtonMorph new
@@ -2819,6 +2835,28 @@ SWAPane >> generateCallTraceDataset [
 
 {
 	#category : #'code map - datasets',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
+}
+SWAPane >> generateCompositionDataset [
+	"Data-menu GENERATE: read the ivar types of every class on the map -- from the
+	image, or from git when a commit range is shown -- in a fork, then retain the
+	result as a dataset."
+	| tm classes label |
+	tm := self treemap.
+	tm rootNode ifNil: [^ self].
+	classes := OrderedCollection new.
+	tm rootNode withAllChildrenDo: [:node |
+		(node isKindOf: SWACodeClassNode) ifTrue: [classes add: node theClass]].
+	label := 'Composition ', tm rootNode name.
+	self treemapCoverageStatus: 'Composition: analysing ', classes size printString, ' classes...'.
+	[ | data |
+	  data := SWACompositionData fromClasses: classes named: label.
+	  WorldState addDeferredUIMessage: [self addCompositionDataset: data name: label] ]
+		forkAt: Processor userBackgroundPriority
+]
+
+{
+	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
 }
 SWAPane >> generateCoverageDataset [
@@ -3051,12 +3089,12 @@ SWAPane >> growSourceRowBy: deltaPixels [
 
 {
 	#category : #'data flap',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:24'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
 }
 SWAPane >> hasDataPanel [
 	"Whether the view offers Data flap contents. Like every other optional control,
 	the flap is gated on the view actually supporting it."
-	^ view notNil and: [view respondsTo: #dataPanelFor:]
+	^ view notNil and: [(view respondsTo: #supportsGitRange) and: [view supportsGitRange]]
 ]
 
 {
@@ -3266,7 +3304,7 @@ SWAPane >> loadDuplicationJson: json name: aName [
 
 {
 	#category : #'code map - datasets',
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:03'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWAPane >> loadJsonFile: aPath [
 	"Load the analysis JSON at aPath into this Code Map, dispatching by its format
@@ -3288,6 +3326,9 @@ SWAPane >> loadJsonFile: aPath [
 		ifTrue: [^ self loadDuplicationJson: json name: (self datasetNameFor: aPath)].
 	(format beginsWith: 'SWATopicData')
 		ifTrue: [^ self loadTopicJson: json name: (self datasetNameFor: aPath)].
+	(format beginsWith: 'SWACompositionData')
+		ifTrue: [^ self addCompositionDataset: (SWACompositionData fromJson: json)
+			name: (self datasetNameFor: aPath)].
 	(format beginsWith: 'SWAGitChurnData')
 		ifTrue: [^ self addGitChurnDataset: (SWAGitChurnData fromJson: json)
 			name: (self datasetNameFor: aPath)].
@@ -3620,7 +3661,7 @@ SWAPane >> metaInfoContents [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 7/20/2026 12:56'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
 }
 SWAPane >> morphViewInto: aViewMorph [
 	"Replace the panel's inner view with aViewMorph and rebuild the chrome around it,
@@ -3638,7 +3679,7 @@ SWAPane >> morphViewInto: aViewMorph [
 	headerRow := breadcrumbMorph := selectionPathMorph := metaInfoMorph := runInfoMorph := nil.
 	sourceMorph := detailsPane := detailsTitle := sourceRow := nil.
 	coveringTestsPane := coveringTestsTitle := sourceSplitter := nil.
-	depthButton := fullButton := nil.
+	depthButtons := fullButton := nil.
 	bodyRow := marksPanel := marksList := marksButton := nil.
 	marksSplitter := commentField := nil.
 	self setView: aViewMorph.
@@ -4409,7 +4450,7 @@ SWAPane >> packagesShowWorkingSet [
 
 {
 	#category : #'pane menu',
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 17:47'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWAPane >> paneMenu: aMenu [
 	"The generic per-pane overflow menu, opened from the hamburger icon at the FAR
@@ -4426,6 +4467,11 @@ SWAPane >> paneMenu: aMenu [
 		aMenu add: 'Remove package...' target: self selector: #removePackageFromCodeMap.
 		aMenu add: 'Set as default working set' target: self selector: #saveCodeMapWorkingSet.
 		aMenu add: 'Reset to default working set' target: self selector: #resetCodeMapToWorkingSet].
+	(view respondsTo: #datasets) ifTrue: [
+		(view datasets select: [:each | each source respondsTo: #writeToFile:]) ifNotEmpty: [:saveable |
+			aMenu addLine.
+			saveable do: [:each |
+				aMenu add: 'Save data: ', each name, '...' target: self selector: #saveDataset: argument: each]]].
 	aMenu addLine.
 	aMenu add: 'Remove all instrumentation wrappers'
 		target: self selector: #cleanupAllWrappers.
@@ -5084,6 +5130,22 @@ SWAPane >> saveCodeMapWorkingSet [
 ]
 
 {
+	#category : #coverage,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
+}
+SWAPane >> saveDataset: aDataset [
+	| path |
+	path := self
+		request: 'Write ', aDataset name, ' to:'
+		initialAnswer: (FileDirectory default fullNameFor:
+			((aDataset name select: [:each | each isAlphaNumeric or: ['-_.' includes: each]]), '.json')).
+	(path isNil or: [path isEmpty]) ifTrue: [^ self].
+	[aDataset source writeToFile: path withBlanksTrimmed]
+		on: Error do: [:e | ^ self showMessage: 'Save failed: ', e messageText].
+	self showMessage: aDataset name, ' written to ', path withBlanksTrimmed.
+]
+
+{
 	#category : #'marks - persistence',
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
 }
@@ -5198,14 +5260,13 @@ SWAPane >> setDataMode: aSymbol [
 ]
 
 {
-	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:17'
+	#category : #actions,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
 }
 SWAPane >> setDepth: aKind [
-	"Depth quick-jump button: go straight to a level instead of cycling round to it."
 	(view respondsTo: #leafKind:) ifFalse: [^ Beeper beep].
 	view leafKind: aKind.
-	self updateDepthLabel.
+	self updateDepthButtons.
 	self refresh
 ]
 
@@ -5536,6 +5597,25 @@ SWAPane >> structureViews [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+}
+SWAPane >> switchToCodeView: aKey [
+	"Morph between the Code Map and the class diagram in place. Both views are kept,
+	so going back finds the zoom and layout it left; the incoming one takes over the
+	root, commit range, datasets and selection of the one it replaces."
+	| target |
+	(view codeViewKey isNil or: [aKey == view codeViewKey]) ifTrue: [^ self].
+	self structureViews at: view codeViewKey put: view.
+	target := self structureViews at: aKey ifAbsent: [view newCounterpart].
+	target extent: view extent.
+	target takeOverFrom: view.
+	self morphViewInto: target.
+	self wireOverlayFor: target.
+	self updateCodeViewWindowLabel.
+]
+
+{
 	#category : #'data flap',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
 }
@@ -5669,6 +5749,19 @@ SWAPane >> updateCodeMapWindowLabel [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+}
+SWAPane >> updateCodeViewWindowLabel [
+	| window |
+	window := self enclosingWindow ifNil: [^ self].
+	view codeViewKey == #codeMap ifTrue: [^ self updateCodeMapWindowLabel].
+	window setLabel: (view showsGitRange
+		ifTrue: [view gitRangeLabel]
+		ifFalse: ['Class Diagram: ', (view rootNode ifNil: [''] ifNotNil: [:root | root name])])
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:41'
 }
@@ -5710,21 +5803,14 @@ SWAPane >> updateCoveringTests [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:25'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
 }
-SWAPane >> updateDepthLabel [
-	"Relabel the depth button to reflect the view's current render depth (leafKind).
-	A view may supply its own friendlier text via #depthLabelString (e.g. the class
-	diagram maps #class/#state/#method to Classes / +State / +Methods)."
-	| kind text |
-	depthButton ifNil: [^ self].
-	(view respondsTo: #depthLabelString) ifTrue: [
-		^ depthButton label: view depthLabelString].
-	kind := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
-	text := kind
-		ifNil: ['Depth: Full']
-		ifNotNil: ['Depth: ', (kind asString capitalized)].
-	depthButton label: text
+SWAPane >> updateDepthButtons [
+	| current |
+	depthButtons ifNil: [^ self].
+	current := (view respondsTo: #leafKind) ifTrue: [view leafKind] ifFalse: [nil].
+	depthButtons keysAndValuesDo: [:kind :button |
+		button color: (kind == current ifTrue: [self activeButtonColor] ifFalse: [Color gray: 0.3])].
 ]
 
 {
@@ -5833,14 +5919,15 @@ SWAPane >> viewForStructureKey: aKey [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:19'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
 }
 SWAPane >> wireOverlayFor: aTreemapMorph [
 	"Attach the matching event/menu overlay to aTreemapMorph if it doesn't have one
 	yet, mirroring the opener wiring (SWACodeNode>>openTreemapLeafKind: /
 	SWASpaceTally>>openTreemap). The overlay class is the treemap's #overlayClass."
 	| overlay |
-	(aTreemapMorph respondsTo: #overlayMorph) ifFalse: [^ aTreemapMorph].
+	((aTreemapMorph respondsTo: #overlayMorph) and: [aTreemapMorph respondsTo: #overlayClass])
+		ifFalse: [^ aTreemapMorph].
 	aTreemapMorph overlayMorph ifNotNil: [^ aTreemapMorph].
 	overlay := aTreemapMorph overlayClass new.
 	overlay treemapMorph: aTreemapMorph.

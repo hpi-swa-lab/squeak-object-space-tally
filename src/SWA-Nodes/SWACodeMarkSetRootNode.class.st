@@ -11,7 +11,8 @@ Class {
 	#name : #SWACodeMarkSetRootNode,
 	#superclass : #SWACodeRootNode,
 	#instVars : [
-		'markSet'
+		'markSet',
+		'snapshot'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
@@ -19,7 +20,7 @@ Class {
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
 SWACodeMarkSetRootNode >> buildChildren [
 	"One flat SWACodeClassNode per marked CLASS (marks whose recorded nodeKind is #class),
@@ -31,14 +32,14 @@ SWACodeMarkSetRootNode >> buildChildren [
 	classes := Set new.
 	self markSet keys do: [:key | | cls |
 		cls := self classForMarkKey: key.
-		cls ifNotNil: [classes add: cls]].
+		(cls notNil and: [self includesClass: cls]) ifTrue: [classes add: cls]].
 	^ (classes asSortedCollection: [:a :b | a name <= b name])
 		collect: [:cls | SWACodeClassNode on: cls parent: self]
 ]
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:12'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeMarkSetRootNode >> classForMarkKey: aKey [
 	"The live class a markKey refers to, or nil. Uses the recorded node kind when present:
@@ -55,6 +56,7 @@ SWACodeMarkSetRootNode >> classForMarkKey: aKey [
 		ifFalse: [aKey].
 	name := name withBlanksTrimmed.
 	(kind == #package or: [kind == #category]) ifTrue: [^ nil].
+	snapshot ifNotNil: [^ snapshot classNamed: name].
 	^ (Smalltalk classNamed: name) ifNotNil: [:c | c isBehavior ifTrue: [c theNonMetaClass] ifFalse: [nil]]
 ]
 
@@ -103,4 +105,22 @@ SWACodeMarkSetRootNode >> markSet: aMarkSet [
 SWACodeMarkSetRootNode >> name [
 	"Label for the diagram: how many marked classes it currently contains."
 	^ 'Marked classes (', self children size printString, ')'
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+}
+SWACodeMarkSetRootNode >> snapshot [
+	^ snapshot
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
+}
+SWACodeMarkSetRootNode >> snapshot: aCodeSnapshot [
+	"Resolve the marked classes in aCodeSnapshot instead of the image."
+	snapshot := aCodeSnapshot.
+	children := nil.
 ]

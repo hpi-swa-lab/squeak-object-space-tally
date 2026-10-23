@@ -19,13 +19,9 @@ Class {
 		'suppressedSuperclassNames',
 		'clustered',
 		'showsComposition',
-		'priorSources',
-		'reviewScope',
-		'repositoryName',
-		'fromCommit',
-		'toCommit',
-		'cachedGitHistory',
-		'displayedKeys'
+		'displayedKeys',
+		'fullRoot',
+		'focus'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
@@ -56,73 +52,6 @@ SWAClassDiagram class >> addIvarMarksFor: anOperation definition: aClassDefiniti
 		((oldNames includes: each) not
 			and: [behavior allInstVarNames includes: each])
 				ifTrue: [aMarkSet add: clsName, '>>#', each]]
-]
-
-{
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:21'
-}
-SWAClassDiagram class >> addRemoval: aString static: isStatic isIvar: isIvar forClassNamed: aClassName into: aRemovalDictionary [
-	| list entry |
-	list := aRemovalDictionary at: aClassName ifAbsentPut: [OrderedCollection new].
-	entry := Array with: aString with: isStatic with: isIvar.
-	(list anySatisfy: [:each | each = entry]) ifFalse: [list add: entry]
-]
-
-{
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:36'
-}
-SWAClassDiagram class >> behaviorNamed: aString [
-	"The class or metaclass aString names, or nil. Monticello spells the class side
-	'SRAvatar class', which is also how a crossRefKey does."
-
-	| behaviorName |
-	behaviorName := aString asString.
-	(behaviorName endsWith: ' class') ifTrue: [
-		^ (Smalltalk at: (behaviorName copyFrom: 1 to: behaviorName size - 6) asSymbol ifAbsent: [nil])
-			ifNotNil: [:cls | cls class]].
-	^ Smalltalk at: behaviorName asSymbol ifAbsent: [nil]
-]
-
-{
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:32'
-}
-SWAClassDiagram class >> changesForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
-	"Everything the diagram needs about a commit range, from ONE diff -- the diff costs a
-	tree materialisation and must not be run more than once. Answers a Dictionary:
-
-		#marks         a SWAMarkSet, for the #selected granularity
-		#kinds         crossRefKey -> #added / #modified, to colour the rows
-		#removals      class name -> { displayText. isStatic. isIvar }, drawn struck through
-		#priorSources  crossRefKey -> the source as it was, for the diff in the source pane
-
-	Prior source comes off the obsoletion definition, which already carries it, so this
-	costs nothing beyond the diff itself."
-
-	| history base head changes result |
-	history := SWAGitHistory onWorkingCopyNamed: aRepositoryName.
-	base := history commitWithHexPrefix: aHexPrefix.
-	base ifNil: [^ self error: 'no commit starting ', aHexPrefix, ' on this branch'].
-	head := aHexPrefixOrNil
-		ifNil: [history workingCopy headCommit]
-		ifNotNil: [:prefix |
-			(history commitWithHexPrefix: prefix)
-				ifNil: [^ self error: 'no commit starting ', prefix, ' on this branch']].
-	changes := #().
-	UIManager default
-		informUser: 'Diffing ', aHexPrefix, ' .. ', (aHexPrefixOrNil ifNil: ['HEAD'])
-		during: [
-			changes := [history workingCopy changesFromCommit: base toCommit: head]
-				on: Error do: [:e | #()]].
-	result := Dictionary new.
-	result at: #marks put: SWAMarkSet new.
-	result at: #kinds put: Dictionary new.
-	result at: #removals put: Dictionary new.
-	result at: #priorSources put: Dictionary new.
-	changes do: [:change | self record: change into: result].
-	^ result
 ]
 
 {
@@ -391,81 +320,6 @@ SWAClassDiagram class >> openOnPackageNamed: aPackageGlob [
 ]
 
 {
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
-}
-SWAClassDiagram class >> record: aCodeChange into: aResult [
-	"One change: mark it and note its kind if the member still exists, record it as a
-	removal if it does not. An MCModification carries the definition as it was, which is
-	both how a modification is told from an addition and where the diff text comes from."
-
-	| op defn prior clsName sel behavior key |
-	op := [aCodeChange operation] on: Error do: [:e | nil].
-	op ifNil: [^ self].
-	defn := [op definition] on: Error do: [:e | nil].
-	defn ifNil: [^ self].
-	prior := (op respondsTo: #obsoletion) ifTrue: [[op obsoletion] on: Error do: [:e | nil]] ifFalse: [nil].
-	(defn isKindOf: MCMethodDefinition) ifTrue: [
-		clsName := [defn fullClassName asString] on: Error do: [:e | nil].
-		sel := [defn selector] on: Error do: [:e | nil].
-		(clsName isNil or: [sel isNil]) ifTrue: [^ self].
-		behavior := self behaviorNamed: clsName.
-		behavior ifNil: [^ self].
-		(([op isRemoval] on: Error do: [:e | false])
-			or: [(behavior includesSelector: sel asSymbol) not])
-				ifTrue: [^ self
-					addRemoval: sel asString
-					static: behavior isMeta
-					isIvar: false
-					forClassNamed: behavior theNonMetaClass name asString
-					into: (aResult at: #removals)].
-		key := clsName, '>>', sel asString.
-		(aResult at: #marks) add: key.
-		(aResult at: #kinds) at: key put: (prior isNil ifTrue: [#added] ifFalse: [#modified]).
-		prior ifNotNil: [
-			([prior source] on: Error do: [:e | nil])
-				ifNotNil: [:src | (aResult at: #priorSources) at: key put: src asString]].
-		^ self].
-	(defn isKindOf: MCClassDefinition) ifTrue: [
-		clsName := [defn className asString] on: Error do: [:e | nil].
-		clsName ifNil: [^ self].
-		behavior := self behaviorNamed: clsName.
-		behavior ifNil: [^ self].
-		(aResult at: #marks) add: behavior theNonMetaClass name asString.
-		self recordIvarsOf: op definition: defn into: aResult]
-]
-
-{
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:33'
-}
-SWAClassDiagram class >> recordIvarsOf: anOperation definition: aClassDefinition into: aResult [
-	"Added instance variables get marked as #added, dropped ones recorded as removals.
-	Only an MCModification carries an #obsoletion, so a newly added class has nothing to
-	compare against and every ivar of it is new."
-
-	| clsName behavior oldNames newNames |
-	clsName := [aClassDefinition className asString] on: Error do: [:e | nil].
-	clsName ifNil: [^ self].
-	behavior := self behaviorNamed: clsName.
-	behavior ifNil: [^ self].
-	newNames := [aClassDefinition instVarNames] on: Error do: [:e | #()].
-	oldNames := (anOperation respondsTo: #obsoletion)
-		ifTrue: [[anOperation obsoletion instVarNames] on: Error do: [:e | #()]]
-		ifFalse: [#()].
-	newNames do: [:each |
-		((oldNames includes: each) not and: [behavior allInstVarNames includes: each]) ifTrue: [
-			(aResult at: #marks) add: clsName, '>>#', each.
-			(aResult at: #kinds) at: clsName, '>>#', each put: #added]].
-	oldNames do: [:each |
-		(newNames includes: each) ifFalse: [
-			self
-				addRemoval: each static: false isIvar: true
-				forClassNamed: behavior theNonMetaClass name asString
-				into: (aResult at: #removals)]]
-]
-
-{
 	#category : #'class initialization',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:45'
 }
@@ -476,13 +330,28 @@ SWAClassDiagram class >> unload [
 ]
 
 {
-	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 10:57'
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
+}
+SWAClassDiagram >> boxFillFor: aClassNode [
+	"Pale enough to keep the box's black text readable."
+	| metric |
+	metric := self metricForMode: colorMode.
+	metric ifNil: [^ nil].
+	^ (metric colorForNode: aClassNode)
+		ifNil: ['#f4f4f4']
+		ifNotNil: [:color | SWACodeNode hexColor: (color alphaMixed: 0.45 with: Color white)]
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
 SWAClassDiagram >> breadcrumbString [
-	"Top breadcrumb line: the graph's root."
-	rootNode ifNil: [^ ''].
-	^ rootNode name, '  (class diagram)'
+	fullRoot ifNil: [^ ''].
+	^ fullRoot name,
+		(focus ifNil: [''] ifNotNil: [:each | '  >  ', each value]),
+		'  (class diagram)'
 ]
 
 {
@@ -494,6 +363,14 @@ SWAClassDiagram >> browseSelected [
 	selectedNode
 		ifNil: [Beeper beep]
 		ifNotNil: [:n | n browse]
+]
+
+{
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+}
+SWAClassDiagram >> canZoomOut [
+	^ focus notNil
 ]
 
 {
@@ -513,6 +390,14 @@ SWAClassDiagram >> clustered [
 SWAClassDiagram >> clustered: aBoolean [
 	clustered := aBoolean.
 	self rebuildGraph
+]
+
+{
+	#category : #switching,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+}
+SWAClassDiagram >> codeViewKey [
+	^ #classDiagram
 ]
 
 {
@@ -539,89 +424,43 @@ SWAClassDiagram >> colorMode: aSymbol [
 ]
 
 {
-	#category : #coloring,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:39'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
 }
 SWAClassDiagram >> colorModeOptions [
-	"{ symbol. label } pairs for the shared Color menu/button. The graph recolors by
-	re-rendering with per-row fill from the chosen mode."
-	^ {
-		{ #kind. 'Flat (by kind)' }.
-		{ #loc. 'LOC heat (green->red)' } }
+	"{ symbol. label } pairs for the shared Color menu/button. Kind and LOC fill per row;
+	the composition metrics fill each class box."
+	^ { { #kind. 'Flat (by kind)' }. { #loc. 'LOC heat (green->red)' } },
+		((self compositionDataset metrics select: [:each | each supportsColor])
+			collect: [:each | { each modeSymbol. each label }]) asArray
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
-SWAClassDiagram >> commitLabelFor: aHexPrefix [
-	"'aae5930  the subject line', short enough to sit in a field."
-	| repoHistory commit |
-	aHexPrefix ifNil: [^ ''].
-	repoHistory := self gitHistory.
-	repoHistory ifNil: [^ aHexPrefix].
-	commit := repoHistory commitWithHexPrefix: aHexPrefix.
-	commit ifNil: [^ aHexPrefix].
-	^ aHexPrefix, '  ', ((repoHistory summaryOf: commit) truncateWithElipsisTo: 30)
+SWAClassDiagram >> compositionDataset [
+	"The newest #composition dataset, analysed from the shown classes when there is none."
+	^ (self datasets reverse detect: [:each | each kind == #composition] ifNone: [nil])
+		ifNil: [self addDataset: (SWADataset
+			compositionFrom: (SWACompositionData fromClasses: self shownClasses named: self compositionLabel)
+			named: self compositionLabel)]
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:24'
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
-SWAClassDiagram >> dataPanelFor: aPane [
-	"The Data flap's contents: the commit range this diagram is a picture of. Each
-	field is typeable as well as pickable -- a hash under review is usually pasted
-	from a mail or a pull request, not one of the recent ones -- and each shows the
-	commit's subject line, so the range reads as what it is rather than as two hashes.
-
-	From also takes PARENT: with that set, stepping To down the log walks the history
-	one commit at a time. Accepting any field re-diffs (see #reloadFromGit); Reload
-	re-runs the same range, for after a commit.
-
-	Wraps like the header bar, so a narrow pane stacks the fields instead of
-	overflowing its window."
-	| row reload |
-	row := Morph new
-		color: Color transparent;
-		layoutPolicy: TableLayout new;
-		listDirection: #leftToRight;
-		wrapDirection: #topToBottom;
-		cellPositioning: #leftCenter;
-		cellInset: 8;
-		hResizing: #spaceFill;
-		vResizing: #shrinkWrap;
-		yourself.
-	reload := (aPane buttonLabelled: 'Reload' action: #reloadFromGit)
-		target: self;
-		yourself.
-	reload setBalloonText: 'Diff this range again, picking up new commits'.
-	row
-		addMorphBack: (SWAComboFieldMorph new
-			on: self get: #repositoryName set: #repositoryName:
-			choices: #repositoryChoices label: 'Repository' width: 170);
-		addMorphBack: (SWAComboFieldMorph new
-			on: self get: #fromCommitLabel set: #fromCommit:
-			choices: #fromCommitChoices label: 'From' width: 210);
-		addMorphBack: (SWAComboFieldMorph new
-			on: self get: #toCommitLabel set: #toCommit:
-			choices: #toCommitChoices label: 'To' width: 210);
-		addMorphBack: reload.
-	^ row
+SWAClassDiagram >> compositionLabel [
+	^ 'Composition of ', (repositoryName ifNil: [rootNode name] ifNotNil: [self gitRangeLabel])
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:44'
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
-SWAClassDiagram >> depthLabelString [
-	"Friendly Depth-button text for this view's granularities."
-	^ 'Depth: ', (leafKind caseOf: {
-		[#class]  -> ['Classes'].
-		[#state]  -> ['+State'].
-		[#method] -> ['+Methods'].
-		[#selected] -> ['+Selected'] }
-		otherwise: ['Classes'])
+SWAClassDiagram >> currentFocus [
+	^ focus
 ]
 
 {
@@ -659,77 +498,66 @@ SWAClassDiagram >> displayedCrossRefKeys [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
-SWAClassDiagram >> fromCommit [
-	^ fromCommit
+SWAClassDiagram >> focusIncludesClass: aClass [
+	| category |
+	focus ifNil: [^ true].
+	focus key == #class ifTrue: [^ aClass name asString = focus value].
+	category := aClass category ifNil: [^ false].
+	^ category asString = focus value or: [category asString beginsWith: focus value, '-']
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:22'
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
-SWAClassDiagram >> fromCommit: aString [
-	| value |
-	value := self normalizeCommitInput: aString.
-	value = fromCommit ifTrue: [^ self].
-	self tryRange: [fromCommit := value]
+SWAClassDiagram >> focusOn: aFocus [
+	focus = aFocus ifTrue: [^ self].
+	focus := aFocus.
+	fullRoot ifNotNil: [self showFocus].
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
-SWAClassDiagram >> fromCommitChoices [
-	"PARENT leads the list: with From on PARENT, stepping To down the log shows what
-	each commit changed, one at a time."
-	^ (OrderedCollection with: 'PARENT' -> 'PARENT (just what To changed)') , self recentCommits
+SWAClassDiagram >> focusedCopyOf: aRoot [
+	"A root of its own rather than a filter on aRoot, which the Code Map may be showing."
+	| filter |
+	(focus isNil or: [aRoot isNil]) ifTrue: [^ aRoot].
+	filter := [:class | self focusIncludesClass: class].
+	(aRoot isKindOf: SWACodeMarkSetRootNode) ifTrue: [
+		^ SWACodeMarkSetRootNode new
+			markSet: aRoot markSet;
+			snapshot: aRoot snapshot;
+			classFilter: filter;
+			yourself].
+	(aRoot isKindOf: SWACodeSnapshotRootNode) ifTrue: [
+		^ SWACodeSnapshotRootNode new
+			snapshot: aRoot snapshot;
+			name: aRoot displayName;
+			addPackages: aRoot packageNames;
+			classFilter: filter;
+			yourself].
+	(aRoot isKindOf: SWACodeRootNode) ifTrue: [
+		^ SWACodeRootNode new
+			name: aRoot displayName;
+			addPackages: aRoot packageNames;
+			classFilter: filter;
+			yourself].
+	^ aRoot
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
 }
-SWAClassDiagram >> fromCommitLabel [
-	"What the From field shows: the keyword as chosen, or the commit's subject line so
-	the field says what it points at rather than just where."
-	self isParentFrom ifTrue: [^ 'PARENT'].
-	^ self commitLabelFor: fromCommit
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:20'
-}
-SWAClassDiagram >> gitHistory [
-	"A history on the named repository, or nil when there is no such working copy.
-	Kept across calls: it holds the walked commit list, which a fresh history per
-	call would throw away."
-	repositoryName isNil ifTrue: [^ nil].
-	(cachedGitHistory notNil
-		and: [([cachedGitHistory workingCopy name] on: Error do: [:e | nil]) = repositoryName])
-		ifTrue: [^ cachedGitHistory].
-	^ cachedGitHistory := [SWAGitHistory onWorkingCopyNamed: repositoryName]
-		on: Error do: [:e | nil]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:22'
-}
-SWAClassDiagram >> gitRangeLabel [
-	"'mysqueak aae5930..a1f8091' -- names the range for the window title and, more
-	importantly, for the review marks: a sign-off is only meaningful together with the
-	version it was given to, so both ends are the RESOLVED hashes. PARENT and HEAD
-	would each mean something different tomorrow."
-	| from to |
-	repositoryName ifNil: [^ 'Class Diagram'].
-	from := self resolvedFromCommit.
-	from ifNil: [^ repositoryName].
-	to := self resolvedToCommit ifNil: ['HEAD'].
-	^ repositoryName, ' ',
-		(from first: (from size min: 7)), '..', (to first: (to size min: 7))
+SWAClassDiagram >> forgetGeneratedComposition [
+	"An analysis belongs to the classes it was made of. A loaded one is kept."
+	(self datasets select: [:each | each kind == #composition and: [each source isGenerated]])
+		do: [:each | self forgetDataset: each].
 ]
 
 {
@@ -762,7 +590,7 @@ SWAClassDiagram >> graphMarkerClicked: aNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
 SWAClassDiagram >> graphMenuRequest: evt [
 	"Right-click on the graph: pop up a context menu with the shared Color submenu
@@ -772,6 +600,18 @@ SWAClassDiagram >> graphMenuRequest: evt [
 	menu addTitle: 'Class Diagram'.
 	colorMenu := self colorMenuMorph.
 	colorMenu ifNotNil: [menu add: 'Color' subMenu: colorMenu].
+	self zoomTargetsForSelection ifNotEmpty: [:targets | | zoomMenu |
+		zoomMenu := MenuMorph new defaultTarget: self.
+		targets do: [:each | zoomMenu add: each value selector: #focusOn: argument: each].
+		menu add: 'Zoom into' subMenu: zoomMenu].
+	menu add: 'Composition' subMenu: ((MenuMorph new defaultTarget: self)
+		add: 're-analyse' action: #reanalyseComposition;
+		add: 'save data...' action: #saveCompositionData;
+		add: 'load data...' action: #loadCompositionData;
+		yourself).
+	menu addLine.
+	menu add: 'export DOT...' target: graphMorph selector: #exportDot.
+	menu add: 'export PDF...' target: graphMorph selector: #exportPdf.
 	self popUpMenu: menu at: (evt ifNil: [self currentHand] ifNotNil: [evt hand]) position truncated
 ]
 
@@ -822,26 +662,6 @@ SWAClassDiagram >> initialize [
 	graphPane onNodeClick: [:dotId | self graphNodeClicked: dotId].
 	graphPane hResizing: #spaceFill; vResizing: #spaceFill.
 	self addMorphBack: graphPane
-]
-
-{
-	#category : #review,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
-}
-SWAClassDiagram >> isNodeReviewed: aNode [
-	| key |
-	key := self reviewKeyFor: aNode.
-	key ifNil: [^ false].
-	^ SWAMarkSet reviewed includes: key
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
-}
-SWAClassDiagram >> isParentFrom [
-	"Whether the From end is the symbolic PARENT rather than a hash."
-	^ fromCommit notNil and: [fromCommit asUppercase = 'PARENT']
 ]
 
 {
@@ -907,46 +727,18 @@ SWAClassDiagram >> leafKindOrder [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:26'
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
-SWAClassDiagram >> loadGitRange [
-	"Diff the range and rebuild everything the diagram shows from that ONE diff.
-	Answers whether it loaded.
-
-	Works on the RESOLVED ends: the fields may say PARENT or HEAD, which are positions
-	rather than commits, and a review sign-off has to name the commit it was given to.
-	An end that will not resolve is REPORTED -- answering false quietly would look
-	exactly like a range that changed nothing.
-
-	Order matters: priorSources and reviewScope must be in place before #rootNode:,
-	which rebuilds the graph and reads both."
-	| from to result root |
-	(repositoryName isNil or: [fromCommit isNil]) ifTrue: [^ false].
-	to := self resolvedToCommit.
-	from := self resolvedFromCommit.
-	from ifNil: [
-		self reportProblem: (self isParentFrom
-			ifTrue: ['no commit starting ', (toCommit ifNil: ['HEAD']), ' to take the parent of']
-			ifFalse: ['no commit starting ', fromCommit, ' in ', repositoryName]).
-		^ false].
-	result := [self class changesForRepository: repositoryName from: from to: to]
-		on: Error
-		do: [:e | self reportProblem: e messageText. nil].
-	result ifNil: [^ false].
-	root := SWACodeMarkSetRootNode new markSet: (result at: #marks); yourself.
-	root withAllChildrenDo: [:node |
-		(node isKindOf: SWACodeClassNode) ifTrue: [
-			node memberKinds: (result at: #kinds).
-			((result at: #removals) at: node name ifAbsent: [nil])
-				ifNotNil: [:list | node removedMembers: list]]].
-	"A diagram opened on the live mark set filters against THAT set (see
-	#markSetForBuild); leaving the sync up would hide everything the range found."
-	self syncToMarkSet: nil.
-	self priorSources: (result at: #priorSources).
-	self reviewScope: self gitRangeLabel.
-	self rootNode: root.
-	^ true
+SWAClassDiagram >> loadCompositionData [
+	| path data |
+	navPanel ifNil: [^ self].
+	path := navPanel chooseJsonFilePrompt: 'Load composition JSON from:'.
+	path ifNil: [^ self].
+	data := [SWACompositionData fromFile: path]
+		on: Error do: [:e | ^ self reportProblem: 'Load failed: ', e messageText].
+	self addDataset: (SWADataset compositionFrom: data named: (FileDirectory localNameFor: path)).
+	self showsComposition ifTrue: [self rebuildGraphKeepView: true] ifFalse: [self showsComposition: true].
 ]
 
 {
@@ -980,19 +772,11 @@ SWAClassDiagram >> methodFilterForBuild [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
+	#category : #switching,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
 }
-SWAClassDiagram >> normalizeCommitInput: aString [
-	"The fields show 'aae5930  the subject line', so an accepted value may be a whole
-	label, a bare hash, or a keyword. Everything up to the first blank is the value."
-	| text |
-	text := aString ifNil: [''] ifNotNil: [:s | s asString withBlanksTrimmed].
-	text isEmpty ifTrue: [^ nil].
-	text := (text findTokens: ' ') first.
-	text asUppercase = 'PARENT' ifTrue: [^ 'PARENT'].
-	text asUppercase = 'HEAD' ifTrue: [^ 'HEAD'].
-	^ text
+SWAClassDiagram >> newCounterpart [
+	^ SWACodeTreemapMorph new
 ]
 
 {
@@ -1029,28 +813,15 @@ SWAClassDiagram >> peerWeightKeys [
 ]
 
 {
-	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
-SWAClassDiagram >> priorSourceForSelection [
-	"The selected member's source as it was before the range being shown, or nil."
-
-	| key |
-	(priorSources isNil or: [selectedNode isNil]) ifTrue: [^ nil].
-	key := [selectedNode crossRefKey] on: Error do: [:e | nil].
-	key ifNil: [^ nil].
-	^ priorSources at: key ifAbsent: [nil]
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:37'
-}
-SWAClassDiagram >> priorSources: aDictionary [
-	"crossRefKey -> the source as it was before the range being shown. Makes the Show
-	pane display a diff rather than just the current source."
-
-	priorSources := aDictionary
+SWAClassDiagram >> reanalyseComposition [
+	self forgetGeneratedComposition.
+	self addDataset: (SWADataset
+		compositionFrom: (SWACompositionData fromClasses: self shownClasses named: self compositionLabel)
+		named: self compositionLabel).
+	self rebuildGraphKeepView: true.
 ]
 
 {
@@ -1065,7 +836,7 @@ SWAClassDiagram >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:36'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
 SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the class diagram and hand it to the embedded
@@ -1078,7 +849,7 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	classes + only the MARKED ivars and MARKED methods). Re-seat the morph in the pane,
 	preserving the current zoom + pan when keepView is true (e.g. a color-mode recolor,
 	which keeps the same layout) and resetting to top-left/100% otherwise."
-	| tuple ids showState showMethods methodFilter ivarFilter |
+	| tuple ids showState showMethods methodFilter ivarFilter composition |
 	rootNode ifNil: [^ self].
 	showState := self showsState.
 	showMethods := self showsMethods.
@@ -1087,10 +858,16 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	all agree."
 	methodFilter := self methodFilterForBuild.
 	ivarFilter := self ivarFilterForBuild.
+	composition := ((self showsComposition and: [showState]) or: [self showsCompositionColor])
+		ifTrue: [self compositionDataset source]
+		ifFalse: [nil].
 	rootNode withAllChildrenDo: [:node |
 		(node isKindOf: SWACodeClassNode) ifTrue: [
 			node methodFilter: methodFilter.
-			node ivarFilter: ivarFilter]].
+			node ivarFilter: ivarFilter.
+			node compositionData: composition.
+			node memberKinds: (self showsGitRange ifTrue: [gitChanges at: #kinds] ifFalse: [nil]).
+			node boxFill: (self showsCompositionColor ifTrue: [self boxFillFor: node] ifFalse: [nil])]].
 	tuple := rootNode
 		classDiagramGraphColorMode: self colorMode
 		showState: showState
@@ -1129,144 +906,12 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:18'
-}
-SWAClassDiagram >> recentCommits [
-	"The newest commits of the current repository as value -> menu label: short hash
-	-> the git log --oneline line. Capped, since this feeds a pop-up menu."
-	| repoHistory ancestry |
-	repoHistory := self gitHistory.
-	repoHistory ifNil: [^ #()].
-	ancestry := [repoHistory newestCommits: SWAGitHistory defaultMaxCommits] on: Error do: [:e | #()].
-	ancestry ifNil: [^ #()].
-
-	^ ancestry collect: [:commit |
-		([commit hexHash first: 7] on: Error do: [:e | '???????'])
-			-> (repoHistory commitLabelFor: commit)]
-]
-
-{
 	#category : #updating,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
 SWAClassDiagram >> refreshChrome [
 	"Refresh all chrome labels + source pane via the nav panel, if attached."
 	navPanel ifNotNil: [:p | p refresh]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:34'
-}
-SWAClassDiagram >> refreshDataPanel [
-	"Reload the Data flap's fields from me, after I changed them myself."
-	navPanel ifNotNil: [:panel | panel refreshDataPanel]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:34'
-}
-SWAClassDiagram >> reloadFromGit [
-	"Re-diff and rebuild, answering whether it loaded. A range that does not resolve
-	leaves the current diagram standing: the fields are edited live, so a half-typed
-	hash must not wipe the screen."
-	self loadGitRange ifFalse: [^ false].
-	self updateWindowLabel.
-	^ true
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:26'
-}
-SWAClassDiagram >> reportProblem: aString [
-	"Say why the range did not load, without a modal dialog -- the fields are edited
-	live, and a dialog would block the pane that owns them."
-	navPanel
-		ifNil: [Transcript cr; show: 'class diagram: ', aString]
-		ifNotNil: [:panel | panel showMessage: aString]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
-}
-SWAClassDiagram >> repositoryChoices [
-	"value -> menu label for the Repository drop-down: every git working copy the
-	image has open."
-	^ SWAGitHistory workingCopies collect: [:wc |
-		| name |
-		name := [wc name] on: Error do: [:e | '?'].
-		name -> name]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
-}
-SWAClassDiagram >> repositoryName [
-	^ repositoryName
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:34'
-}
-SWAClassDiagram >> repositoryName: aString [
-	"Switching repository invalidates the range: hashes are repository-local, so the
-	old ones would not resolve. The new range defaults to what the newest commit
-	changed."
-	| name |
-	name := aString ifNil: [''] ifNotNil: [:s | s asString withBlanksTrimmed].
-	name = repositoryName ifTrue: [^ self].
-	self tryRange: [
-		repositoryName := name.
-		self resetRangeToNewestCommit]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:22'
-}
-SWAClassDiagram >> resetRangeToNewestCommit [
-	"Point the range at what the newest commit changed. Said symbolically, so it needs
-	no git walk here and stays right as the branch grows."
-	fromCommit := 'PARENT'.
-	toCommit := nil
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
-}
-SWAClassDiagram >> resolvedFromCommit [
-	"The hash the range starts at. PARENT means the first parent of the TO end, which
-	is what makes stepping To down the log show one commit at a time."
-	| repoHistory target |
-	fromCommit ifNil: [^ nil].
-	self isParentFrom ifFalse: [^ fromCommit].
-	repoHistory := self gitHistory.
-	repoHistory ifNil: [^ nil].
-	target := toCommit
-		ifNil: [[repoHistory workingCopy headCommit] on: Error do: [:e | nil]]
-		ifNotNil: [:hex | repoHistory commitWithHexPrefix: hex].
-	target ifNil: [^ nil].
-	^ [target firstParent hexHash first: 7] on: Error do: [:e | nil]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
-}
-SWAClassDiagram >> resolvedToCommit [
-	"The hash the range ends at. The field may say HEAD, which moves."
-	| repoHistory |
-	toCommit ifNotNil: [^ toCommit].
-	repoHistory := self gitHistory.
-	repoHistory ifNil: [^ nil].
-	^ [repoHistory workingCopy headCommit hexHash first: 7] on: Error do: [:e | nil]
 ]
 
 {
@@ -1283,48 +928,21 @@ SWAClassDiagram >> reviewBadgeRectFor: aFieldRect [
 ]
 
 {
-	#category : #review,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
-}
-SWAClassDiagram >> reviewKeyFor: aNode [
-	"The key under which aNode is signed off in SWAMarkSet reviewed, or nil when there
-	is nothing to sign off: no commit range, or a node with no mark key."
-	| key |
-	reviewScope ifNil: [^ nil].
-	aNode ifNil: [^ nil].
-	key := aNode markKey.
-	key ifNil: [^ nil].
-	^ reviewScope, ' ', key
-]
-
-{
-	#category : #review,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
-}
-SWAClassDiagram >> reviewScope [
-	^ reviewScope
-]
-
-{
-	#category : #review,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
-}
-SWAClassDiagram >> reviewScope: aStringOrNil [
-	"Names the commit range this diagram shows, e.g. 'SqueakXRNative 2269a69..399beef'.
-	A review mark is only meaningful together with the version reviewed, so the scope
-	becomes part of the reviewed key. nil switches the review badges off."
-	reviewScope := aStringOrNil.
-]
-
-{
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:31'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
 SWAClassDiagram >> rootNode: aCodeNode [
-	"Set the SWACodeNode subtree to visualize and build the graph."
-	rootNode := aCodeNode.
-	self rebuildKeyIndex.
-	self rebuildGraph
+	"The tree to draw; #focus narrows it to one category or class."
+	fullRoot := aCodeNode.
+	self showFocus.
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
+}
+SWAClassDiagram >> saveCompositionData [
+	navPanel ifNotNil: [:panel | panel saveDataset: self compositionDataset].
 ]
 
 {
@@ -1375,21 +993,12 @@ SWAClassDiagram >> selectedNode: aNodeOrNil [
 ]
 
 {
-	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
 SWAClassDiagram >> selectedSourceString [
-	"Source text for the Show pane: the selected node's source, or empty."
-	| prior |
 	(selectedNode notNil and: [selectedNode respondsTo: #sourceString]) ifFalse: [^ ''].
-	prior := self priorSourceForSelection.
-	prior ifNil: [^ selectedNode sourceString].
-	^ [TextDiffBuilder
-		buildDisplayPatchFrom: prior
-		to: selectedNode sourceString asString
-		inClass: ([selectedNode parent theClass] on: Error do: [:e | nil])
-		prettyDiffs: false]
-			on: Error do: [:e | selectedNode sourceString]
+	^ self gitDiffForSelection ifNil: [selectedNode sourceString]
 ]
 
 {
@@ -1415,18 +1024,6 @@ SWAClassDiagram >> selectionPathString [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:30'
-}
-SWAClassDiagram >> setRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
-	"Install the range WITHOUT loading -- the individual setters each reload, which is
-	right when a field is edited and wrong while all three are being installed."
-	repositoryName := aRepositoryName.
-	fromCommit := aHexPrefix.
-	toCommit := aHexPrefixOrNil
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:15'
 }
@@ -1437,6 +1034,45 @@ SWAClassDiagram >> setRoot: aNode [
 	self flushMarksCache.
 	self rootNode: aNode.
 	^ self
+]
+
+{
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+}
+SWAClassDiagram >> showFocus [
+	rootNode := self focusedCopyOf: fullRoot.
+	self forgetGeneratedComposition.
+	self rebuildKeyIndex.
+	self rebuildGraph.
+	self refreshChrome.
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+}
+SWAClassDiagram >> showGitChanges: aDictionary [
+	"A diagram opened on the live mark set filters against THAT set (see
+	#markSetForBuild); leaving the sync up would hide everything the range found."
+	self syncToMarkSet: nil.
+	self rootNode: (SWACodeMarkSetRootNode new
+		markSet: (aDictionary at: #marks);
+		snapshot: (aDictionary at: #snapshot);
+		yourself).
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
+}
+SWAClassDiagram >> shownClasses [
+	| classes |
+	classes := OrderedCollection new.
+	rootNode ifNotNil: [
+		rootNode withAllChildrenDo: [:node |
+			(node isKindOf: SWACodeClassNode) ifTrue: [classes add: node theClass]]].
+	^ classes
 ]
 
 {
@@ -1457,6 +1093,23 @@ SWAClassDiagram >> showsComposition [
 SWAClassDiagram >> showsComposition: aBoolean [
 	showsComposition := aBoolean.
 	self rebuildGraph
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
+}
+SWAClassDiagram >> showsCompositionColor [
+	^ colorMode notNil and: [colorMode asString beginsWith: 'composition_']
+]
+
+{
+	#category : #switching,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+}
+SWAClassDiagram >> showsGitRange [
+	^ gitChanges notNil
+		and: [(rootNode isKindOf: SWACodeMarkSetRootNode) and: [rootNode snapshot notNil]]
 ]
 
 {
@@ -1482,16 +1135,11 @@ SWAClassDiagram >> showsState [
 ]
 
 {
-	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:46'
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
 }
-SWAClassDiagram >> styleClassForSelection [
-	"No styling class while a diff is on show: Shout restyles the whole pane from the
-	source text and would overwrite the insert/remove attributes TextDiffBuilder put
-	there, leaving the diff looking exactly like ordinary source."
-
-	self priorSourceForSelection ifNotNil: [^ nil].
-	^ super styleClassForSelection
+SWAClassDiagram >> supportsGitRange [
+	^ true
 ]
 
 {
@@ -1527,79 +1175,32 @@ SWAClassDiagram >> syncToMarkSet: aMarkSet [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:29'
+	#category : #switching,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
-SWAClassDiagram >> toCommit [
-	"nil means the head commit."
-	^ toCommit
+SWAClassDiagram >> takeOverRootFrom: aView [
+	"Root and focus together: drawing the whole tree first would cost a layout of
+	every class only to be thrown away."
+	| newFocus |
+	newFocus := aView currentFocus.
+	aView showsGitRange ifFalse: [
+		(aView unfocusedRoot == fullRoot and: [newFocus = focus]) ifTrue: [^ self].
+		focus := newFocus.
+		^ self rootNode: aView unfocusedRoot].
+	"A range reads best showing only what changed, but a depth chosen here is kept."
+	fullRoot ifNil: [leafKind := #selected].
+	(self showsGitRange and: [rootNode snapshot == (gitChanges at: #snapshot)])
+		ifTrue: [^ self focusOn: newFocus].
+	focus := newFocus.
+	self showGitChanges: gitChanges.
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:22'
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
-SWAClassDiagram >> toCommit: aString [
-	"HEAD is a position, not a commit: the diff API spells it nil."
-	| value |
-	value := self normalizeCommitInput: aString.
-	(value notNil and: [value = 'HEAD']) ifTrue: [value := nil].
-	value = toCommit ifTrue: [^ self].
-	self tryRange: [toCommit := value]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
-}
-SWAClassDiagram >> toCommitChoices [
-	"HEAD leads the list: reviewing up to the tip is the common case, and it stays
-	right as the branch grows."
-	^ (OrderedCollection with: 'HEAD' -> 'HEAD (branch tip)') , self recentCommits
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 14:21'
-}
-SWAClassDiagram >> toCommitLabel [
-	"What the To field shows. The head commit has a name rather than a blank."
-	toCommit ifNil: [^ 'HEAD'].
-	^ self commitLabelFor: toCommit
-]
-
-{
-	#category : #review,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
-}
-SWAClassDiagram >> toggleReviewed: aNode [
-	"Sign aNode off, or take the sign-off back."
-	| key prov |
-	key := self reviewKeyFor: aNode.
-	key ifNil: [^ self].
-	prov := self markProvenance.
-	prov at: 'nodeKind' put: aNode nodeKind asString.
-	prov at: 'reviewScope' put: reviewScope.
-	SWAMarkSet reviewed toggle: key from: prov.
-	self updateReviewMarkers.
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:34'
-}
-SWAClassDiagram >> tryRange: aBlock [
-	"Apply a range change, undoing it when the new range does not load. The fields have
-	to describe the picture on screen, and a hash that resolves to nothing would
-	otherwise leave them claiming a range the diagram is not of."
-	| snapshot |
-	snapshot := { repositoryName. fromCommit. toCommit }.
-	aBlock value.
-	self reloadFromGit ifFalse: [
-		repositoryName := snapshot first.
-		fromCommit := snapshot second.
-		toCommit := snapshot third].
-	self refreshDataPanel
+SWAClassDiagram >> unfocusedRoot [
+	^ fullRoot ifNil: [rootNode]
 ]
 
 {
@@ -1620,14 +1221,14 @@ SWAClassDiagram >> update: anAspect [
 
 {
 	#category : #review,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:18'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
 }
 SWAClassDiagram >> updateReviewMarkers [
 	"Hand the GraphvizMorph one badge per method row, keyed by the node so a click
 	resolves back without a second hit test."
 	| list |
 	graphMorph ifNil: [^ self].
-	(reviewScope isNil or: [rectKeyByNode isNil])
+	(self reviewScope isNil or: [rectKeyByNode isNil])
 		ifTrue: [^ graphMorph markers: nil].
 	list := OrderedCollection new.
 	rectKeyByNode keysAndValuesDo: [:node :key |
@@ -1653,16 +1254,6 @@ SWAClassDiagram >> updateSelectionHighlight [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:30'
-}
-SWAClassDiagram >> updateWindowLabel [
-	"Keep the window title on the range actually shown."
-	navPanel ifNil: [^ self].
-	navPanel enclosingWindow ifNotNil: [:window | window setLabel: self gitRangeLabel]
-]
-
-{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:01'
 }
@@ -1671,10 +1262,51 @@ SWAClassDiagram >> viewKind [
 ]
 
 {
-	#category : #events,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+}
+SWAClassDiagram >> widerFocus [
+	"One level up: a class to its category, a category to its parent, the top to all."
+	| category |
+	focus ifNil: [^ nil].
+	focus key == #class ifTrue: [
+		category := (self keyIndex at: focus value ifAbsent: [nil])
+			ifNotNil: [:node | node theClass category].
+		^ category ifNotNil: [#category -> category asString]].
+	(focus value includes: $-) ifFalse: [^ nil].
+	^ #category -> (focus value copyUpToLast: $-)
+]
+
+{
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
 SWAClassDiagram >> zoomOut [
-	"Back button: no hierarchical zoom in the graph view, so just deselect."
-	self deselect
+	"Back: widen the focus, and deselect once there is nothing left to widen."
+	focus ifNil: [^ self deselect].
+	self focusOn: self widerFocus.
+]
+
+{
+	#category : #focus,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+}
+SWAClassDiagram >> zoomTargetsForSelection [
+	"Every category prefix of the selected class narrower than the focus, then the class."
+	| classNode category prefixes targets |
+	(selectedNode notNil and: [selectedNode respondsTo: #classNode]) ifFalse: [^ #()].
+	classNode := selectedNode classNode ifNil: [^ #()].
+	targets := OrderedCollection new.
+	category := classNode theClass category.
+	(category notNil and: [focus isNil or: [focus key == #category]]) ifTrue: [
+		prefixes := OrderedCollection new.
+		(category asString findTokens: '-') inject: '' into: [:prefix :segment | | next |
+			next := prefix isEmpty ifTrue: [segment] ifFalse: [prefix, '-', segment].
+			prefixes add: next.
+			next].
+		prefixes do: [:each |
+			(focus isNil or: [each size > focus value size and: [each beginsWith: focus value]])
+				ifTrue: [targets add: #category -> each]]].
+	(focus isNil or: [focus value ~= classNode name]) ifTrue: [targets add: #class -> classNode name].
+	^ targets
 ]

@@ -10,10 +10,11 @@ Class {
 
 {
 	#category : #jump,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 16:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
 }
 SWACodeCommentNode >> browse [
 	"Open a browser on the class; its comment is shown in the comment pane."
+	(subject isKindOf: SWASnapshotBehavior) ifTrue: [^ subject browse].
 	^ ToolSet browse: subject theNonMetaClass selector: nil
 ]
 

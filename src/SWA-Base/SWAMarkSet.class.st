@@ -68,6 +68,21 @@ SWAMarkSet >> add: aKey from: aProvenanceDict [
 ]
 
 {
+	#category : #mutating,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:06'
+}
+SWAMarkSet >> addAll: aCollection [
+	"As #add: for each key, notifying the panes once."
+	| known |
+	known := keys asSet.
+	aCollection do: [:each |
+		(each notNil and: [(known includes: each) not]) ifTrue: [
+			keys addLast: each.
+			known add: each]].
+	self notifyPanes.
+]
+
+{
 	#category : #persistence,
 	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:39'
 }

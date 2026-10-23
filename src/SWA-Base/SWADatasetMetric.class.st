@@ -207,16 +207,17 @@ SWADatasetMetric >> label: aString [
 
 {
 	#category : #links,
-	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:11'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
 SWADatasetMetric >> linksForKey: aCrossRefKey [
 	"Array of (scoreFloat -> partnerCrossRefKey) associations, best-first, describing
-	links FROM the method aCrossRefKey. Empty unless this is a link-capable
-	(duplication) metric. Keyed by crossRefKey so it's independent of which nodes are
+	links FROM aCrossRefKey: a method for duplication, a class for composition. Empty
+	unless this is a link-capable metric. Keyed by crossRefKey so it's independent of which nodes are
 	on screen -- the view resolves partner keys to nodes (or their nearest visible
 	ancestor)."
 	self supportsLinks ifFalse: [^ #()].
 	id == #duplication ifTrue: [^ dataset source matchesForKey: aCrossRefKey].
+	id == #composition ifTrue: [^ dataset source linksForKey: aCrossRefKey].
 	^ #()
 ]
 
@@ -271,7 +272,7 @@ SWADatasetMetric >> printOn: aStream [
 
 {
 	#category : #querying,
-	#'squeak_changestamp' : 'MCPServer 8/5/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:26'
 }
 SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	"The metric's raw domain value for a single method crossRefKey (no rollup),
@@ -299,6 +300,9 @@ SWADatasetMetric >> rawValueForKey: aCrossRefKey [
 	id == #openCodeReads ifTrue: [^ dataset source readsFor: aCrossRefKey].
 	id == #openCodeSessions ifTrue: [^ dataset source sessionCountFor: aCrossRefKey].
 	id == #openCodeRecency ifTrue: [^ dataset source lastTouchSecondsFor: aCrossRefKey].
+	id == #composition ifTrue: [^ dataset source degreeForKey: aCrossRefKey].
+	id == #compositionUsedBy ifTrue: [^ dataset source usedByForKey: aCrossRefKey].
+	id == #compositionUses ifTrue: [^ dataset source usesForKey: aCrossRefKey].
 	^ nil
 ]
 

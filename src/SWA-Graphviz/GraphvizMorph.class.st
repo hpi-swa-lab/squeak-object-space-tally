@@ -319,7 +319,7 @@ GraphvizMorph class >> fromDot: aDotString [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 11:36'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
 }
 GraphvizMorph >> addCustomMenuItems: aCustomMenu hand: aHandMorph [
 	"Add Graphviz-specific items to the halo / control menu."
@@ -329,7 +329,9 @@ GraphvizMorph >> addCustomMenuItems: aCustomMenu hand: aHandMorph [
 		target: self selector: #chooseEngine.
 	aCustomMenu add: 'show DOT source' target: self selector: #showDotSource.
 	aCustomMenu add: 'edit DOT source...' target: self selector: #editDotSource.
-	aCustomMenu add: 'rerender' target: self selector: #render
+	aCustomMenu add: 'rerender' target: self selector: #render.
+	aCustomMenu add: 'export DOT...' target: self selector: #exportDot.
+	aCustomMenu add: 'export PDF...' target: self selector: #exportPdf
 ]
 
 {
@@ -442,6 +444,59 @@ GraphvizMorph >> engine: aString [
 ]
 
 {
+	#category : #exporting,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
+}
+GraphvizMorph >> export: format to: fileName [
+	"Goes through the same pipeline as #render, so the file shows the on-screen layout."
+	| base dotFile gvprFile |
+	base := FileDirectory default fullNameFor: 'graphvizmorph-export'.
+	dotFile := base, '.dot'.
+	gvprFile := base, '.gvpr'.
+	self exportDotTo: dotFile.
+	self relaxesEdgeLabels ifTrue: [
+		(FileStream forceNewFileNamed: gvprFile)
+			nextPutAll: self class edgeLabelRelaxationScript withUnixLineEndings; close].
+	(FileDirectory default fileExists: fileName)
+		ifTrue: [FileDirectory default deleteFileNamed: fileName].
+	(OSProcess waitForCommand: (self
+		layoutCommandFrom: dotFile
+		outputs: ' -T', format, ' -o ', fileName surroundedBySingleQuotes
+		gvpr: gvprFile)) exitStatus = 0
+			ifFalse: [^ self error: self engine, ' failed'].
+	(FileDirectory default fileExists: fileName)
+		ifFalse: [^ self error: self engine, ' produced no ', format].
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
+}
+GraphvizMorph >> exportDot [
+	(UIManager default saveFilenameRequest: 'Export DOT' initialAnswer: 'graph.dot')
+		ifNotNil: [:fileName | self exportDotTo: fileName].
+]
+
+{
+	#category : #exporting,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
+}
+GraphvizMorph >> exportDotTo: fileName [
+	(FileStream forceNewFileNamed: fileName)
+		nextPutAll: (dotSource ifNil: ['']) withUnixLineEndings;
+		close.
+]
+
+{
+	#category : #menu,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
+}
+GraphvizMorph >> exportPdf [
+	(UIManager default saveFilenameRequest: 'Export PDF' initialAnswer: 'graph.pdf')
+		ifNotNil: [:fileName | self export: 'pdf' to: fileName].
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:43'
 }
@@ -482,19 +537,29 @@ GraphvizMorph >> handlesMouseDown: evt [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
+}
+GraphvizMorph >> layoutCommandFrom: dotFile outputs: outputs gvpr: gvprFile [
+	| eng |
+	eng := self engine.
+	self relaxesEdgeLabels ifFalse: [^ eng, outputs, ' ', dotFile].
+	^ eng, ' -Tdot ', dotFile,
+		' | gvpr -c -f ', gvprFile,
+		' | neato -n2', outputs
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:37'
 }
 GraphvizMorph >> layoutCommandFrom: dotFile to: pngFile and: jsonFile gvpr: gvprFile [
 	"The shell command producing both outputs. Still ONE invocation when the edge-label
 	pass is on: the layout runs as -Tdot, gvpr rewrites head_lp in the stream, and
 	neato -n2 only renders the positions it is handed, so nothing is laid out twice."
-	| eng |
-	eng := self engine.
-	self relaxesEdgeLabels ifFalse: [
-		^ eng, ' -Tpng -o ', pngFile, ' -Tjson -o ', jsonFile, ' ', dotFile].
-	^ eng, ' -Tdot ', dotFile,
-		' | gvpr -c -f ', gvprFile,
-		' | neato -n2 -Tpng -o ', pngFile, ' -Tjson -o ', jsonFile
+	^ self
+		layoutCommandFrom: dotFile
+		outputs: ' -Tpng -o ', pngFile, ' -Tjson -o ', jsonFile
+		gvpr: gvprFile
 ]
 
 {
