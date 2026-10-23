@@ -11,12 +11,7 @@ Class {
 		'dupMinLoc',
 		'dupLoaded',
 		'dupDiffFrom',
-		'focusedTopic',
-		'gitStatusCache',
-		'rangeView',
-		'liveRoot',
-		'snapshotRoot',
-		'rangeViewButtons'
+		'focusedTopic'
 	],
 	#category : #'SWA-CodeMap',
 	#'squeak_changestamp' : '<historical>'
@@ -191,6 +186,15 @@ SWACodeTreemapMorph >> byteCompositionMode [
 	by author, kind, recency, etc. (and conversely see the composition bar on a
 	LOC-sized layout)."
 	^ self colorMode == #byteComposition
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWACodeTreemapMorph >> codeChanged [
+	super codeChanged.
+	self invalidateLayout.
 ]
 
 {
@@ -528,26 +532,6 @@ SWACodeTreemapMorph >> computeDuplicationScores [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
-}
-SWACodeTreemapMorph >> computeGitStateOf: aNode [
-	| kinds reviewed |
-	kinds := Set new.
-	reviewed := true.
-	(self gitKindOf: aNode) ifNotNil: [:kind |
-		kinds add: kind.
-		(self isNodeReviewed: aNode) ifFalse: [reviewed := false]].
-	aNode children ifNotNil: [:kids |
-		kids do: [:each |
-			(self gitStateOf: each) ifNotNil: [:state |
-				kinds add: state first.
-				state second ifFalse: [reviewed := false]]]].
-	kinds isEmpty ifTrue: [^ nil].
-	^ { #(#modified #added #removed) detect: [:each | kinds includes: each]. reviewed }
-]
-
-{
 	#category : #duplication,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:12'
 }
@@ -717,21 +701,10 @@ SWACodeTreemapMorph >> currentFocus [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWACodeTreemapMorph >> dataPanelExtrasFor: aPane [
-	| buttons |
-	rangeViewButtons := Dictionary new.
-	buttons := #(#(#full 'Full picture') #(#changes 'Changes only') #(#live 'Live image'))
-		collect: [:pair | | button |
-			button := (aPane buttonLabelled: pair second action: #rangeView:)
-				target: self;
-				arguments: {pair first};
-				yourself.
-			rangeViewButtons at: pair first put: button.
-			button].
-	self updateRangeViewButtons.
-	^ buttons
+	^ self rangeViewButtonsFor: aPane
 ]
 
 {
@@ -1367,51 +1340,11 @@ SWACodeTreemapMorph >> formatWeight: aNumber [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
-}
-SWACodeTreemapMorph >> gitKindOf: aNode [
-	"#added or #modified for a member the range changed. A class counts as modified
-	when only its definition changed."
-	| key |
-	gitChanges ifNil: [^ nil].
-	key := aNode crossRefKey.
-	key ifNil: [^ nil].
-	^ (gitChanges at: #kinds) at: key ifAbsent: [
-		(aNode kind == #class and: [(gitChanges at: #marks) includes: key])
-			ifTrue: [#modified]
-			ifFalse: [nil]]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWACodeTreemapMorph >> gitRangePackageNames [
 	^ (liveRoot ifNil: [rootNode]) ifNotNil: [:root |
 		(root respondsTo: #packageNames) ifTrue: [root packageNames asArray] ifFalse: [nil]]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
-}
-SWACodeTreemapMorph >> gitStateOf: aNode [
-	"{ kind. allReviewed } rolled up over the subtree, nil when nothing in it changed.
-	The kind is #modified over #added over #removed."
-	gitChanges ifNil: [^ nil].
-	gitStatusCache ifNil: [gitStatusCache := IdentityDictionary new].
-	^ gitStatusCache
-		at: aNode
-		ifAbsent: [gitStatusCache at: aNode put: (self computeGitStateOf: aNode)]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
-}
-SWACodeTreemapMorph >> gitStatusOf: aNode [
-	"#added, #modified or #removed, rolled up; nil when nothing in the subtree changed."
-	^ (self gitStateOf: aNode) ifNotNil: [:state | state first]
 ]
 
 {
@@ -1462,16 +1395,6 @@ SWACodeTreemapMorph >> initialize [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
-}
-SWACodeTreemapMorph >> installRoot: aRootNode [
-	aRootNode == rootNode ifTrue: [^ self].
-	self setRoot: aRootNode.
-	navPanel ifNotNil: [:panel | panel refresh].
-]
-
-{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 7/15/2026 11:25'
 }
@@ -1503,25 +1426,6 @@ SWACodeTreemapMorph >> isDuplicationProvenanceActive [
 	"True when a duplication (link-capable) decoration metric is active, so the side
 	pane lists near-duplicates and a click there DIFFS rather than navigates."
 	^ self decorationMetric notNil and: [self decorationMetric supportsLinks]
-]
-
-{
-	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
-}
-SWACodeTreemapMorph >> isLiveCodeRoot: aNode [
-	^ (aNode isKindOf: SWACodeRootNode)
-		and: [(aNode isKindOf: SWACodeSnapshotRootNode) not
-		and: [(aNode isKindOf: SWACodeMarkSetRootNode) not]]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
-}
-SWACodeTreemapMorph >> isReviewedChange: aNode [
-	"Whether every change at or under aNode is signed off."
-	^ (self gitStateOf: aNode) ifNil: [false] ifNotNil: [:state | state second]
 ]
 
 {
@@ -1738,14 +1642,6 @@ SWACodeTreemapMorph >> metricsByMode [
 ]
 
 {
-	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
-}
-SWACodeTreemapMorph >> newCounterpart [
-	^ SWAClassDiagram new
-]
-
-{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 11:12'
 }
@@ -1756,18 +1652,6 @@ SWACodeTreemapMorph >> nodeForCrossRefKey: aKey orStubLoc: aLoc [
 	ancestor exists)."
 	^ self keyIndex at: aKey ifAbsent: [
 		SWADuplicationPartnerStub new crossRefKey: aKey loc: aLoc]
-]
-
-{
-	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
-}
-SWACodeTreemapMorph >> nodeForFocus: aFocus [
-	aFocus key == #class ifTrue: [^ self keyIndex at: aFocus value ifAbsent: [nil]].
-	rootNode withAllChildrenDo: [:each |
-		((each isKindOf: SWACodePackageNode) or: [each isKindOf: SWACodeSubpackageNode])
-			ifTrue: [(self focusForNode: each) = aFocus ifTrue: [^ each]]].
-	^ nil
 ]
 
 {
@@ -1876,29 +1760,12 @@ SWACodeTreemapMorph >> provenanceListTitle [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
-SWACodeTreemapMorph >> rangeView [
-	^ rangeView ifNil: [#live]
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
-}
-SWACodeTreemapMorph >> rangeView: aSymbol [
-	"#full and #changes show the loaded range on the tree built from git, #live the image."
-	(aSymbol ~~ #live and: [snapshotRoot isNil]) ifTrue: [^ self].
-	rangeView := aSymbol.
-	gitStatusCache := nil.
-	self installRoot: (aSymbol == #live
-		ifTrue: [liveRoot ifNil: [rootNode]]
-		ifFalse: [snapshotRoot]).
-	self colorMode: (aSymbol == #live ifTrue: [self intrinsicColorMode] ifFalse: [#gitChanges]).
+SWACodeTreemapMorph >> rangeViewChanged [
+	self colorMode: (self rangeView == #live ifTrue: [self intrinsicColorMode] ifFalse: [#gitChanges]).
 	self invalidateLayout.
 	self flushCache.
-	self updateRangeViewButtons.
-	self updateWindowLabel.
 ]
 
 {
@@ -2080,38 +1947,10 @@ SWACodeTreemapMorph >> shouldLayoutChildrenOf: aNode [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWACodeTreemapMorph >> showGitChanges: aDictionary [
-	"The range gets a tree of its own, built from git, so it can show what the image
-	no longer has. The image''s tree is kept for #live."
-	(rootNode notNil and: [self rangeView == #live]) ifTrue: [liveRoot := rootNode].
-	liveRoot ifNil: [liveRoot := rootNode].
-	(snapshotRoot isNil or: [snapshotRoot snapshot ~~ (aDictionary at: #snapshot)]) ifTrue: [
-		snapshotRoot := SWACodeSnapshotRootNode new
-			snapshot: (aDictionary at: #snapshot);
-			name: liveRoot displayName;
-			addPackages: liveRoot packageNames;
-			yourself.
-		snapshotRoot children isEmpty ifTrue: [
-			self reportProblem: 'none of this map''s packages are in ', repositoryName]].
-	self rangeView: (self rangeView == #live ifTrue: [#full] ifFalse: [self rangeView]).
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
-}
-SWACodeTreemapMorph >> showsChangesOnly [
-	^ self rangeView == #changes
-]
-
-{
-	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
-}
-SWACodeTreemapMorph >> showsGitRange [
-	^ gitChanges notNil and: [self rangeView ~~ #live]
+	self showRangeTree: aDictionary.
 ]
 
 {
@@ -2124,23 +1963,10 @@ SWACodeTreemapMorph >> supportsGitRange [
 
 {
 	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWACodeTreemapMorph >> takeOverRootFrom: aView [
-	"A package root from aView becomes the live tree. A diagram of a range has none, so
-	a map made from it gets one over the packages the range was loaded for."
-	(self isLiveCodeRoot: aView unfocusedRoot) ifTrue: [
-		liveRoot := aView unfocusedRoot.
-		self rangeView == #live ifTrue: [self installRoot: liveRoot]].
-	liveRoot ifNil: [
-		liveRoot := (aView showsGitRange and: [aView gitChanges notNil])
-			ifTrue: [SWACodeRootNode new
-				name: repositoryName;
-				addPackages: ((aView gitChanges at: #snapshot) packages collect: [:each | each packageName]);
-				yourself]
-			ifFalse: [aView unfocusedRoot]].
-	aView showsGitRange ifFalse: [^ self rangeView: #live].
-	self showGitChanges: gitChanges.
+	self takeOverRangeRootsFrom: aView.
 ]
 
 {
@@ -2161,17 +1987,10 @@ SWACodeTreemapMorph >> testProvenanceNoteForNode: aNode [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWACodeTreemapMorph >> toggleReviewedUnder: aNode [
-	"Sign off every change under aNode, or take them all back once all are signed off."
-	| changed reviewing |
-	changed := OrderedCollection new.
-	aNode withAllChildrenDo: [:each |
-		(self gitKindOf: each) ifNotNil: [:kind | changed add: each]].
-	reviewing := changed anySatisfy: [:each | (self isNodeReviewed: each) not].
-	changed do: [:each |
-		(self isNodeReviewed: each) = reviewing ifFalse: [self toggleReviewed: each]].
+	self toggleReviewedAllUnder: aNode.
 ]
 
 {
@@ -2229,19 +2048,7 @@ SWACodeTreemapMorph >> topicProvenanceTitleFor: aNode [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:07'
-}
-SWACodeTreemapMorph >> updateRangeViewButtons [
-	rangeViewButtons ifNil: [^ self].
-	rangeViewButtons keysAndValuesDo: [:view :button |
-		button color: (view == self rangeView
-			ifTrue: [Color h: 210 s: 0.6 v: 0.7]
-			ifFalse: [Color gray: 0.3])].
-]
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWACodeTreemapMorph >> updateReviewMarkers [
 	gitStatusCache := nil.
@@ -2250,11 +2057,11 @@ SWACodeTreemapMorph >> updateReviewMarkers [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:45'
 }
 SWACodeTreemapMorph >> updateWindowLabel [
 	"The code map keeps its own title; the range is named in the Data flap."
-	navPanel ifNotNil: [:panel | panel updateCodeMapWindowLabel]
+	navPanel ifNotNil: [:panel | panel view == self ifTrue: [panel updateCodeMapWindowLabel]]
 ]
 
 {

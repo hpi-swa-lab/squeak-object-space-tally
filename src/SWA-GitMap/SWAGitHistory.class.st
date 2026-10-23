@@ -276,10 +276,10 @@ SWAGitHistory >> branchName [
 
 {
 	#category : #scanning,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
 }
 SWAGitHistory >> branchNames [
-	^ ([workingCopy fsgitRepository branchNames] on: Error do: [:e | #()]) asSortedCollection asArray
+	^ self localBranchNames, self remoteBranchNames
 ]
 
 {
@@ -388,13 +388,17 @@ SWAGitHistory >> commitLabelFor: aCommit [
 
 {
 	#category : #scanning,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
 }
 SWAGitHistory >> commitNamed: aString [
-	"A branch's tip commit, or the commit a hash prefix names."
+	"A branch's tip commit -- this image's branch, or a remote one as 'origin/main' --
+	or the commit a hash prefix names."
+	| unitOfWork objectId |
 	aString isEmptyOrNil ifTrue: [^ nil].
-	(self branchNames includes: aString) ifTrue: [
-		^ [self gitUnitOfWork branchNamed: aString] on: Error do: [:e | nil]].
+	(self refNameOf: aString) ifNotNil: [:ref |
+		unitOfWork := self gitUnitOfWork.
+		objectId := [unitOfWork resolveRef: ref] on: Error do: [:e | nil].
+		^ objectId ifNotNil: [[unitOfWork objectNamed: objectId] on: Error do: [:e | nil]]].
 	^ self commitWithHexPrefix: aString
 ]
 
@@ -575,6 +579,21 @@ SWAGitHistory >> leafFor: aCodeChange commit: aCommit at: aTimeStamp [
 		packageName: ([aCodeChange package name asString] on: Error do: [:e | nil]);
 		label: label;
 		yourself
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
+}
+SWAGitHistory >> localBranchNames [
+	"This image's branches, the ones the Git Browser shows. GitS keeps them under
+	refs/squeak/<image>/heads; refs/heads belongs to whatever command-line checkout last
+	ran in the directory, and its main can be far behind."
+	| names |
+	names := OrderedCollection new.
+	[workingCopy branchesDo: [:ref | names add: (workingCopy branchBasename: ref)]]
+		on: Error do: [:e | ].
+	^ names asSortedCollection asArray
 ]
 
 {
@@ -769,6 +788,30 @@ SWAGitHistory >> packagePattern: aStringOrNil [
 	"Keep only changes whose Monticello package name matches this glob
 	(e.g. 'SWA-*'). nil = every package in the repository."
 	packagePattern := aStringOrNil
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
+}
+SWAGitHistory >> refNameOf: aString [
+	(self localBranchNames includes: aString) ifTrue: [^ workingCopy branchName: aString].
+	(self remoteBranchNames includes: aString) ifTrue: [^ 'refs/remotes/', aString].
+	^ nil
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
+}
+SWAGitHistory >> remoteBranchNames [
+	"Remote-tracking branches as 'origin/main'."
+	| names |
+	names := OrderedCollection new.
+	[workingCopy remoteRefsDo: [:ref |
+		(ref endsWith: '/HEAD') ifFalse: [names add: (ref allButFirst: 'refs/remotes/' size)]]]
+		on: Error do: [:e | ].
+	^ names asSortedCollection asArray
 ]
 
 {

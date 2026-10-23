@@ -55,7 +55,12 @@ Class {
 		'priorSources',
 		'reviewScope',
 		'gitChanges',
-		'lastChanges'
+		'lastChanges',
+		'liveRoot',
+		'snapshotRoot',
+		'rangeView',
+		'rangeViewButtons',
+		'gitStatusCache'
 	],
 	#classVars : [
 		'CrossRefGeneration',
@@ -64,22 +69,6 @@ Class {
 	#category : #'SWA-Base',
 	#'squeak_changestamp' : '<historical>'
 }
-
-{
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
-}
-SWAView class >> behaviorNamed: aString [
-	"The class or metaclass aString names, or nil. Monticello spells the class side
-	'SRAvatar class', which is also how a crossRefKey does."
-
-	| behaviorName |
-	behaviorName := aString asString.
-	(behaviorName endsWith: ' class') ifTrue: [
-		^ (Smalltalk at: (behaviorName copyFrom: 1 to: behaviorName size - 6) asSymbol ifAbsent: [nil])
-			ifNotNil: [:cls | cls class]].
-	^ Smalltalk at: behaviorName asSymbol ifAbsent: [nil]
-]
 
 {
 	#category : #'as yet unclassified',
@@ -169,7 +158,7 @@ SWAView class >> reviewHashOf: aString [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:00'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
 }
 SWAView class >> viewKindLabelFor: aSymbol [
 	"Human-readable label for a #viewKind Symbol, for the Marks details pane. Falls back
@@ -181,7 +170,7 @@ SWAView class >> viewKindLabelFor: aSymbol [
 		[#messageTallyTreemap] -> ['Message Tally (treemap)'].
 		[#messageTallyFlamegraph] -> ['Message Tally (flamegraph)'].
 		[#changeMap] -> ['Change Map'].
-		[#classDiagram] -> ['Class Diagram']
+		[#classDiagram] -> ['Class Diagram'].		[#codeBrowser] -> ['Code Browser']
 	} otherwise: [aSymbol asString capitalized]
 ]
 
@@ -218,6 +207,26 @@ SWAView >> aboutToStyle: aStyler requestor: anObject [
 	source pane's Shout model (see SWAPane>>newSourceMorph), so every view
 	needs this."
 	^ self aboutToStyle: aStyler
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> acceptSource: aText notifying: aRequestor [
+	"Cmd+S in the Source flap."
+	| node key |
+	node := selectedNode.
+	(self canEditSourceOf: node) ifFalse: [
+		self reportProblem: (self showsGitRange
+			ifTrue: ['Not saved: this is the text git has. Switch to Live image to edit.']
+			ifFalse: ['Not saved: the Source flap does not show the source of the selection.']).
+		^ false].
+	key := self save: aText asString of: node notifying: aRequestor.
+	key ifNil: [^ false].
+	self sourceChangedUnder: node parent.
+	self selectNodeForKey: key.
+	^ true
 ]
 
 {
@@ -359,11 +368,12 @@ SWAView >> baseColorForNode: aNode [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
 }
 SWAView >> branchChoices [
-	^ (self gitHistory ifNil: [#()] ifNotNil: [:history | history branchNames])
-		collect: [:each | each -> (each, ' (branch tip)')]
+	^ (self gitHistory ifNil: [#()] ifNotNil: [:history |
+		(history localBranchNames collect: [:each | each -> (each, ' (branch tip)')]),
+		(history remoteBranchNames collect: [:each | each -> (each, ' (remote branch tip)')])])
 ]
 
 {
@@ -377,6 +387,22 @@ SWAView >> bumpKey: aCoverageClass dim: aBoolean [
 	aCoverageClass == #red ifTrue: [^ aBoolean ifTrue: [#redDim] ifFalse: [#red]].
 	aCoverageClass == #blue ifTrue: [^ aBoolean ifTrue: [#blueDim] ifFalse: [#blue]].
 	^ nil
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> canEditSourceOf: aNode [
+	"Only members of the image, and only while the flap shows their text rather than a
+	description or a diff."
+	aNode ifNil: [^ false].
+	self showsGitRange ifTrue: [^ false].
+	((aNode isKindOf: SWACodeMethodNode) or: [aNode isKindOf: SWACodeClassNode]) ifFalse: [^ false].
+	((aNode subject isKindOf: SWASnapshotMethod) or: [aNode subject isKindOf: SWASnapshotBehavior])
+		ifTrue: [^ false].
+	(self respondsTo: #selectedSourceString) ifFalse: [^ false].
+	^ self selectedSourceString asString = (self currentTextFor: aNode)
 ]
 
 {
@@ -408,6 +434,15 @@ SWAView >> clearTestFilters [
 	restore the full coverage overlay."
 	coveringTestFilter := nil.
 	self filterToTestKey: nil
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> codeChanged [
+	self rebuildKeyIndex.
+	self flushCache.
 ]
 
 {
@@ -501,6 +536,26 @@ SWAView >> commitLabelFor: aCommitName [
 	commit := repoHistory commitNamed: aCommitName.
 	commit ifNil: [^ aCommitName].
 	^ aCommitName, '  ', ((repoHistory summaryOf: commit) truncateWithElipsisTo: 30)
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> computeGitStateOf: aNode [
+	| kinds reviewed |
+	kinds := Set new.
+	reviewed := true.
+	(self gitKindOf: aNode) ifNotNil: [:kind |
+		kinds add: kind.
+		(self isNodeReviewed: aNode) ifFalse: [reviewed := false]].
+	aNode children ifNotNil: [:kids |
+		kids do: [:each |
+			(self gitStateOf: each) ifNotNil: [:state |
+				kinds add: state first.
+				state second ifFalse: [reviewed := false]]]].
+	kinds isEmpty ifTrue: [^ nil].
+	^ { #(#modified #added #removed) detect: [:each | kinds includes: each]. reviewed }
 ]
 
 {
@@ -724,6 +779,17 @@ SWAView >> crossReferenceSources [
 SWAView >> currentFocus [
 	"The zoom position as #focusForNode: answers it."
 	^ nil
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
+}
+SWAView >> currentTextFor: aNode [
+	"What aNode reads as at the To end. A class reads as its definition, in the form
+	its prior source is kept in."
+	(aNode isKindOf: SWACodeClassNode) ifTrue: [^ self definitionTextOf: aNode theClass].
+	^ aNode sourceString asString
 ]
 
 {
@@ -1058,7 +1124,7 @@ SWAView >> gitChanges [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:06'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
 }
 SWAView >> gitDiffForSelection [
 	"The selected member's change over the loaded range as a styled diff, or nil when
@@ -1068,7 +1134,7 @@ SWAView >> gitDiffForSelection [
 	prior ifNil: [^ nil].
 	current := (self gitKindAt: selectedNode crossRefKey) == #removed
 		ifTrue: ['']
-		ifFalse: [selectedNode sourceString asString].
+		ifFalse: [self currentTextFor: selectedNode].
 	^ [TextDiffBuilder
 		buildDisplayPatchFrom: prior
 		to: current
@@ -1104,6 +1170,23 @@ SWAView >> gitKindAt: aKey [
 
 {
 	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> gitKindOf: aNode [
+	"#added or #modified for a member the range changed. A class counts as modified
+	when only its definition changed."
+	| key |
+	gitChanges ifNil: [^ nil].
+	key := aNode crossRefKey.
+	key ifNil: [^ nil].
+	^ (gitChanges at: #kinds) at: key ifAbsent: [
+		(aNode kind == #class and: [(gitChanges at: #marks) includes: key])
+			ifTrue: [#modified]
+			ifFalse: [nil]]
+]
+
+{
+	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
 SWAView >> gitRangeLabel [
@@ -1122,11 +1205,11 @@ SWAView >> gitRangeLabel [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:06'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:44'
 }
 SWAView >> gitRangePackageNames [
 	"The packages a range is loaded for, nil for all code packages of the repository."
-	^ nil
+	^ liveRoot ifNotNil: [:root | root packageNames asArray]
 ]
 
 {
@@ -1148,6 +1231,29 @@ SWAView >> gitRangeState: anArray [
 	gitChanges := anArray fourth.
 	priorSources := anArray fifth.
 	reviewScope := anArray sixth.
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> gitStateOf: aNode [
+	"{ kind. allReviewed } rolled up over the subtree, nil when nothing in it changed.
+	The kind is #modified over #added over #removed."
+	gitChanges ifNil: [^ nil].
+	gitStatusCache ifNil: [gitStatusCache := IdentityDictionary new].
+	^ gitStatusCache
+		at: aNode
+		ifAbsent: [gitStatusCache at: aNode put: (self computeGitStateOf: aNode)]
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> gitStatusOf: aNode [
+	"#added, #modified or #removed, rolled up; nil when nothing in the subtree changed."
+	^ (self gitStateOf: aNode) ifNotNil: [:state | state first]
 ]
 
 {
@@ -1322,6 +1428,16 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 ]
 
 {
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> installRoot: aRootNode [
+	aRootNode == rootNode ifTrue: [^ self].
+	self setRoot: aRootNode.
+	navPanel ifNotNil: [:panel | panel refresh].
+]
+
+{
 	#category : #drawing,
 	#'squeak_changestamp' : 'MCPServer 9/22/2026 18:02'
 }
@@ -1433,6 +1549,16 @@ SWAView >> isFilteredOut: aNode [
 ]
 
 {
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> isLiveCodeRoot: aNode [
+	^ (aNode isKindOf: SWACodeRootNode)
+		and: [(aNode isKindOf: SWACodeSnapshotRootNode) not
+		and: [(aNode isKindOf: SWACodeMarkSetRootNode) not]]
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
 }
@@ -1468,6 +1594,15 @@ SWAView >> isParentFrom [
 SWAView >> isReviewKey: aCharacter event: anEvent [
 	^ aCharacter = $r
 		and: [(anEvent commandKeyPressed or: [anEvent controlKeyPressed]) not]
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> isReviewedChange: aNode [
+	"Whether every change at or under aNode is signed off."
+	^ (self gitStateOf: aNode) ifNil: [false] ifNotNil: [:state | state second]
 ]
 
 {
@@ -1612,6 +1747,14 @@ SWAView >> leavesUnder: aNode do: aBlock [
 	aNode children isEmpty
 		ifTrue: [aBlock value: aNode]
 		ifFalse: [aNode children do: [:c | self leavesUnder: c do: aBlock]]
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> liveRoot [
+	^ liveRoot
 ]
 
 {
@@ -1776,10 +1919,13 @@ SWAView >> navPanel: aSWAPane [
 
 {
 	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
 }
-SWAView >> newCounterpart [
-	"A fresh view of the other kind, see #codeViewKey."
+SWAView >> nodeForFocus: aFocus [
+	aFocus key == #class ifTrue: [^ self keyIndex at: aFocus value ifAbsent: [nil]].
+	rootNode withAllChildrenDo: [:each |
+		((each isKindOf: SWACodePackageNode) or: [each isKindOf: SWACodeSubpackageNode])
+			ifTrue: [(self focusForNode: each) = aFocus ifTrue: [^ each]]].
 	^ nil
 ]
 
@@ -1827,6 +1973,27 @@ SWAView >> notifyCrossReferenceSelection [
 	| key |
 	key := selectedNode ifNotNil: [:node | node crossRefKey].
 	self crossReferenceLinkedViews do: [:view | view showForeignSelectionKey: key]
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> okToChange [
+	"Unsaved edits in the Source flap: ask before the selection moves away from them."
+	| source |
+	source := navPanel ifNotNil: [:panel | panel sourceMorph].
+	(source isNil or: [source canDiscardEdits]) ifTrue: [^ true].
+	source promptForCancel: false.
+	^ source canDiscardEdits
+]
+
+{
+	#category : #switching,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
+}
+SWAView >> opensSourceFlap [
+	^ false
 ]
 
 {
@@ -1900,13 +2067,14 @@ SWAView >> popUpMenu: aMenu at: aPoint [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
 }
 SWAView >> priorSourceForSelection [
-	"The selected member's source as it was before the range being shown, or nil."
-
+	"The selected member's source as it was before the range being shown, or nil. The
+	live image shows source, not a diff, so it can be edited."
 	| key |
 	(priorSources isNil or: [selectedNode isNil]) ifTrue: [^ nil].
+	self showsGitRange ifFalse: [^ nil].
 	key := [selectedNode crossRefKey] on: Error do: [:e | nil].
 	key ifNil: [^ nil].
 	^ priorSources at: key ifAbsent: [nil]
@@ -1970,6 +2138,58 @@ SWAView >> provenanceListTitle [
 	(selectedNode kind == #method and: [coverageData isCovered: key]) ifTrue: [
 		^ 'Covered by ', (coverageData coveringTestCountFor: key) printString, ' tests'].
 	^ 'Coverage'
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> rangeView [
+	^ rangeView ifNil: [#live]
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> rangeView: aSymbol [
+	"#full and #changes show the loaded range on the tree built from git, #live the image."
+	(aSymbol ~~ #live and: [snapshotRoot isNil]) ifTrue: [^ self].
+	rangeView := aSymbol.
+	gitStatusCache := nil.
+	self installRoot: (aSymbol == #live
+		ifTrue: [liveRoot ifNil: [rootNode]]
+		ifFalse: [snapshotRoot]).
+	self rangeViewChanged.
+	self updateRangeViewButtons.
+	self updateWindowLabel.
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> rangeViewButtonsFor: aPane [
+	| buttons |
+	rangeViewButtons := Dictionary new.
+	buttons := #(#(#full 'Full picture') #(#changes 'Changes only') #(#live 'Live image'))
+		collect: [:pair | | button |
+			button := (aPane buttonLabelled: pair second action: #rangeView:)
+				target: self;
+				arguments: {pair first};
+				yourself.
+			rangeViewButtons at: pair first put: button.
+			button].
+	self updateRangeViewButtons.
+	^ buttons
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> rangeViewChanged [
+	self flushCache.
 ]
 
 {
@@ -2268,6 +2488,24 @@ SWAView >> reviewTextFor: aNode [
 }
 SWAView >> rootNode [
 	^ rootNode
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> save: aString of: aNode notifying: aRequestor [
+	"Answer the crossRefKey of what was saved, nil when it did not compile."
+	| class selector |
+	(aNode isKindOf: SWACodeCommentNode) ifTrue: [
+		aNode subject theNonMetaClass classComment: aString stamp: Utilities changeStamp.
+		^ aNode crossRefKey].
+	(aNode isKindOf: SWACodeClassNode) ifTrue: [
+		class := Compiler evaluate: aString notifying: aRequestor logged: true.
+		^ (class isKindOf: Behavior) ifTrue: [class name asString] ifFalse: [nil]].
+	class := aNode subject actualClass.
+	selector := class compile: aString classified: aNode subject category notifying: aRequestor.
+	^ selector ifNotNil: [class name asString, '>>', selector]
 ]
 
 {
@@ -2609,11 +2847,73 @@ SWAView >> showGitChanges: aDictionary [
 ]
 
 {
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> showRangeTree: aDictionary [
+	"The range gets a tree of its own, built from git, so it can show what the image
+	no longer has. The image's tree is kept for #live."
+	(rootNode notNil and: [self rangeView == #live]) ifTrue: [liveRoot := rootNode].
+	liveRoot ifNil: [liveRoot := rootNode].
+	(snapshotRoot isNil or: [snapshotRoot snapshot ~~ (aDictionary at: #snapshot)]) ifTrue: [
+		snapshotRoot := SWACodeSnapshotRootNode new
+			snapshot: (aDictionary at: #snapshot);
+			name: liveRoot displayName;
+			addPackages: liveRoot packageNames;
+			yourself.
+		snapshotRoot children isEmpty ifTrue: [
+			self reportProblem: 'none of this view''s packages are in ', repositoryName]].
+	self rangeView: (self rangeView == #live ifTrue: [#full] ifFalse: [self rangeView]).
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> showsChangesOnly [
+	^ self rangeView == #changes
+]
+
+{
 	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWAView >> showsGitRange [
-	^ false
+	^ gitChanges notNil and: [self rangeView ~~ #live]
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> snapshotRoot [
+	^ snapshotRoot
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> sourceChangedUnder: aNode [
+	"Rebuild aNode's children from the image, so a new selector gets a node, and drop
+	the sizes cached above them."
+	| node |
+	aNode ifNil: [^ self].
+	aNode forgetChildren.
+	node := aNode.
+	[node notNil] whileTrue: [
+		(node respondsTo: #flushAllRollups) ifTrue: [node flushAllRollups].
+		node := node parent].
+	self codeChanged.
+	navPanel ifNotNil: [:panel | panel codeChangedBy: self].
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAView >> sourceFlapText [
+	^ ((self respondsTo: #selectedSourceString) ifTrue: [self selectedSourceString]) ifNil: ['']
 ]
 
 {
@@ -2688,6 +2988,32 @@ SWAView >> takeOverFrom: aView [
 	(aView colorMode notNil and: [(self metricForMode: aView colorMode) notNil])
 		ifTrue: [self colorMode: aView colorMode].
 	aView selectedNode ifNotNil: [:node | self selectNodeForKey: node crossRefKey].
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> takeOverRangeRootsFrom: aView [
+	"A package root from aView becomes the live tree. A diagram of a range has none, so
+	a view made from it gets one over the packages the range was loaded for. A tree
+	aView built from the same commits is shared, and so is how it was shown."
+	(self isLiveCodeRoot: aView unfocusedRoot) ifTrue: [
+		liveRoot := aView unfocusedRoot.
+		self rangeView == #live ifTrue: [self installRoot: liveRoot]].
+	aView liveRoot ifNotNil: [:root | liveRoot := root].
+	liveRoot ifNil: [
+		liveRoot := (aView showsGitRange and: [aView gitChanges notNil])
+			ifTrue: [SWACodeRootNode new
+				name: repositoryName;
+				addPackages: ((aView gitChanges at: #snapshot) packages collect: [:each | each packageName]);
+				yourself]
+			ifFalse: [aView unfocusedRoot]].
+	aView showsGitRange ifFalse: [^ self rangeView: #live].
+	(aView snapshotRoot notNil and: [aView snapshotRoot snapshot == (gitChanges at: #snapshot)])
+		ifTrue: [snapshotRoot := aView snapshotRoot].
+	aView rangeView == #live ifFalse: [rangeView := aView rangeView].
+	self showRangeTree: gitChanges.
 ]
 
 {
@@ -2832,6 +3158,21 @@ SWAView >> toggleReviewed: aNode [
 
 {
 	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> toggleReviewedAllUnder: aNode [
+	"Sign off every change under aNode, or take them all back once all are signed off."
+	| changed reviewing |
+	changed := OrderedCollection new.
+	aNode withAllChildrenDo: [:each |
+		(self gitKindOf: each) ifNotNil: [:kind | changed add: each]].
+	reviewing := changed anySatisfy: [:each | (self isNodeReviewed: each) not].
+	changed do: [:each |
+		(self isNodeReviewed: each) = reviewing ifFalse: [self toggleReviewed: each]].
+]
+
+{
+	#category : #review,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
 }
 SWAView >> toggleReviewedUnder: aNode [
@@ -2876,10 +3217,23 @@ SWAView >> unregisterCrossReferenceLinks [
 ]
 
 {
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+}
+SWAView >> updateRangeViewButtons [
+	rangeViewButtons ifNil: [^ self].
+	rangeViewButtons keysAndValuesDo: [:view :button |
+		button color: (view == self rangeView
+			ifTrue: [Color h: 210 s: 0.6 v: 0.7]
+			ifFalse: [Color gray: 0.3])].
+]
+
+{
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWAView >> updateReviewMarkers [
+	gitStatusCache := nil.
 	self flushCache.
 ]
 

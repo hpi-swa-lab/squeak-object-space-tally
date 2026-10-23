@@ -1528,14 +1528,14 @@ SWAPane >> addCallTraceDataset: aSWACoverage name: aName [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
 }
 SWAPane >> addCodeViewButtonsTo: aRow [
-	#(#(#codeMap 'Code map') #(#classDiagram 'Class diagram')) do: [:pair | | button |
-		button := (self buttonLabelled: pair second action: #switchToCodeView:)
-			arguments: {pair first};
+	self codeViewSpecs do: [:spec | | button |
+		button := (self buttonLabelled: spec second action: #switchToCodeView:)
+			arguments: {spec first};
 			yourself.
-		pair first == view codeViewKey ifTrue: [button color: self activeButtonColor].
+		spec first == view codeViewKey ifTrue: [button color: self activeButtonColor].
 		aRow addMorphBack: button].
 ]
 
@@ -2099,6 +2099,15 @@ SWAPane >> closeTallyStopWindow [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAPane >> codeChangedBy: aView [
+	"The views kept for switching share the tree aView just changed."
+	self structureViews do: [:each | each == aView ifFalse: [each codeChanged]].
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
@@ -2173,6 +2182,15 @@ SWAPane >> codeRoot [
 	(tm notNil and: [tm rootNode isKindOf: SWACodeRootNode])
 		ifTrue: [^ tm rootNode].
 	^ nil
+]
+
+{
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
+}
+SWAPane >> codeViewSpecs [
+	"{ key. label. view class name } for each view of code the pane switches between in place."
+	^ #(#(#codeMap 'Code map' #SWACodeTreemapMorph) #(#classDiagram 'Class diagram' #SWAClassDiagram) #(#browser 'Browser' #SWACodeBrowser))
 ]
 
 {
@@ -3707,6 +3725,14 @@ SWAPane >> newChromeRow [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
+}
+SWAPane >> newCodeView: aKey [
+	^ (Smalltalk at: (self codeViewSpecs detect: [:each | each first == aKey]) third) new
+]
+
+{
 	#category : #'covering tests pane',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 14:36'
 }
@@ -4108,15 +4134,18 @@ SWAPane >> newSearchField [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:51'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
 }
 SWAPane >> newSourceMorph [
-	"A read-only, syntax-highlighted code pane. Its MODEL is the view morph, so the
-	view's #aboutToStyle: drives Shout highlighting in the right class context."
+	"A syntax-highlighted code pane on the view. Cmd+S saves through the view, which
+	refuses anything that is not the live image's source.
+	Wrapping is on: unwrapped, a paragraph keeps the width of its unstyled text, and
+	Shout's bold selector then breaks inside the word."
 	| tm |
-	tm := PluggableTextMorphPlus on: view text: nil accept: nil.
+	tm := PluggableTextMorphPlus on: view text: #sourceFlapText accept: #acceptSource:notifying:.
 	tm useDefaultStyler.
 	tm
+		wrapFlag: true;
 		hResizing: #spaceFill;
 		vResizing: #rigid;
 		height: 220;
@@ -5598,21 +5627,22 @@ SWAPane >> structureViews [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
 }
 SWAPane >> switchToCodeView: aKey [
-	"Morph between the Code Map and the class diagram in place. Both views are kept,
-	so going back finds the zoom and layout it left; the incoming one takes over the
-	root, commit range, datasets and selection of the one it replaces."
+	"Morph between the views of code in place. All are kept, so going back finds the
+	zoom and layout it left; the incoming one takes over the root, commit range,
+	datasets and selection of the one it replaces."
 	| target |
 	(view codeViewKey isNil or: [aKey == view codeViewKey]) ifTrue: [^ self].
 	self structureViews at: view codeViewKey put: view.
-	target := self structureViews at: aKey ifAbsent: [view newCounterpart].
+	target := self structureViews at: aKey ifAbsent: [self newCodeView: aKey].
 	target extent: view extent.
 	target takeOverFrom: view.
 	self morphViewInto: target.
 	self wireOverlayFor: target.
 	self updateCodeViewWindowLabel.
+	target opensSourceFlap ifTrue: [self openSource].
 ]
 
 {
@@ -5750,7 +5780,7 @@ SWAPane >> updateCodeMapWindowLabel [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
 }
 SWAPane >> updateCodeViewWindowLabel [
 	| window |
@@ -5758,7 +5788,8 @@ SWAPane >> updateCodeViewWindowLabel [
 	view codeViewKey == #codeMap ifTrue: [^ self updateCodeMapWindowLabel].
 	window setLabel: (view showsGitRange
 		ifTrue: [view gitRangeLabel]
-		ifFalse: ['Class Diagram: ', (view rootNode ifNil: [''] ifNotNil: [:root | root name])])
+		ifFalse: [(self codeViewSpecs detect: [:each | each first == view codeViewKey]) second, ': ',
+			(view rootNode ifNil: [''] ifNotNil: [:root | root name])])
 ]
 
 {

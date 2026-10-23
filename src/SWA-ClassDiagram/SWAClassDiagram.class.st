@@ -28,33 +28,6 @@ Class {
 }
 
 {
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:13'
-}
-SWAClassDiagram class >> addIvarMarksFor: anOperation definition: aClassDefinition into: aMarkSet [
-	"Mark the instance variables this class definition ADDED. Only MCModification carries
-	an #obsoletion -- the definition as it was -- so for a newly added class there is
-	nothing to compare against and every ivar counts as new.
-
-	An ivar that no longer exists in the image is skipped, the same as a removed method:
-	there would be no node to mark."
-
-	| clsName behavior oldNames newNames |
-	clsName := [aClassDefinition className asString] on: Error do: [:e | nil].
-	clsName ifNil: [^ self].
-	behavior := self behaviorNamed: clsName.
-	behavior ifNil: [^ self].
-	newNames := [aClassDefinition instVarNames] on: Error do: [:e | #()].
-	oldNames := (anOperation respondsTo: #obsoletion)
-		ifTrue: [[anOperation obsoletion instVarNames] on: Error do: [:e | #()]]
-		ifFalse: [#()].
-	newNames do: [:each |
-		((oldNames includes: each) not
-			and: [behavior allInstVarNames includes: each])
-				ifTrue: [aMarkSet add: clsName, '>>#', each]]
-]
-
-{
 	#category : #defaults,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:04'
 }
@@ -88,75 +61,6 @@ SWAClassDiagram class >> initialize [
 		'SWA Code: Class Diagram (commit range)'.
 		{self. #openOnGitRange}.
 		'Open a class diagram of what a range of commits changed, for review' }
-]
-
-{
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:54'
-}
-SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix [
-	^ self markSetForRepository: aRepositoryName from: aHexPrefix to: nil
-]
-
-{
-	#category : #git,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 17:13'
-}
-SWAClassDiagram class >> markSetForRepository: aRepositoryName from: aHexPrefix to: aHexPrefixOrNil [
-	"A SWAMarkSet of what changed between two commits, keyed the way every SWA view keys
-	members, so it can drive the #selected granularity. A nil second argument means the
-	head commit.
-
-	ONE diff, not a walk over the commits between the two. Each changesFromCommit:toCommit:
-	materialises both trees through the code mapper, so doing it per commit costs that many
-	times over -- and answers a different question: the accumulated churn, in which a
-	method changed and then reverted still counts. A range wants its net effect.
-
-	Deletions are left out: a removed method is in the history but not in the image, so
-	there is no node to mark. A class-definition change marks the class itself."
-
-	| history base head changes marks |
-	history := SWAGitHistory onWorkingCopyNamed: aRepositoryName.
-	base := history commitWithHexPrefix: aHexPrefix.
-	base ifNil: [^ self error: 'no commit starting ', aHexPrefix, ' on this branch'].
-	head := aHexPrefixOrNil
-		ifNil: [history workingCopy headCommit]
-		ifNotNil: [:prefix |
-			(history commitWithHexPrefix: prefix)
-				ifNil: [^ self error: 'no commit starting ', prefix, ' on this branch']].
-	changes := #().
-	UIManager default
-		informUser: 'Diffing ', aHexPrefix, ' .. ', (aHexPrefixOrNil ifNil: ['HEAD'])
-		during: [
-			changes := [history workingCopy changesFromCommit: base toCommit: head]
-				on: Error do: [:e | #()]].
-	marks := SWAMarkSet new.
-	changes do: [:change |
-		| defn clsName sel behavior |
-		defn := [change operation definition] on: Error do: [:e | nil].
-		defn ifNotNil: [
-			clsName := nil.
-			sel := nil.
-			(defn isKindOf: MCMethodDefinition)
-				ifTrue: [
-					clsName := [defn fullClassName asString] on: Error do: [:e | nil].
-					sel := [defn selector] on: Error do: [:e | nil]]
-				ifFalse: [
-					(defn isKindOf: MCClassDefinition) ifTrue: [
-						clsName := [defn className asString] on: Error do: [:e | nil].
-						self
-							addIvarMarksFor: change operation
-							definition: defn
-							into: marks]].
-			clsName ifNotNil: [
-				behavior := self behaviorNamed: clsName.
-				behavior ifNotNil: [
-					sel isNil
-						ifTrue: [marks add: behavior theNonMetaClass name asString]
-						ifFalse: [
-							(behavior includesSelector: sel asSymbol)
-								ifTrue: [marks add: clsName, '>>', sel asString]]]]]].
-	^ marks
 ]
 
 {
@@ -390,6 +294,14 @@ SWAClassDiagram >> clustered [
 SWAClassDiagram >> clustered: aBoolean [
 	clustered := aBoolean.
 	self rebuildGraph
+]
+
+{
+	#category : #editing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWAClassDiagram >> codeChanged [
+	fullRoot ifNotNil: [self showFocus].
 ]
 
 {
@@ -774,14 +686,6 @@ SWAClassDiagram >> methodFilterForBuild [
 ]
 
 {
-	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
-}
-SWAClassDiagram >> newCounterpart [
-	^ SWACodeTreemapMorph new
-]
-
-{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:39'
 }
@@ -995,7 +899,7 @@ SWAClassDiagram >> selectedNode: aNodeOrNil [
 ]
 
 {
-	#category : #accessing,
+	#category : #chrome,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
 SWAClassDiagram >> selectedSourceString [

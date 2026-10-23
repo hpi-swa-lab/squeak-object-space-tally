@@ -682,6 +682,17 @@ SWACodeNode >> eventTimeStamp [
 ]
 
 {
+	#category : #metrics,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWACodeNode >> flushAllRollups [
+	rollupLoc := nil.
+	rollupMethodCount := nil.
+	rollupTopic := nil.
+	self flushSizeRollups.
+]
+
+{
 	#category : #'byte-metrics',
 	#'squeak_changestamp' : 'MCPServer 7/1/2026 10:52'
 }
@@ -692,6 +703,14 @@ SWACodeNode >> flushSizeRollups [
 	rollupBytes := nil.
 	rollupCoverage := nil.
 	rollupDataset := nil
+]
+
+{
+	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:59'
+}
+SWACodeNode >> forgetChildren [
+	children := nil.
 ]
 
 {
