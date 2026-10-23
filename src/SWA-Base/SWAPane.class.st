@@ -59,7 +59,14 @@ Class {
 		'dataRow',
 		'dataSplitter',
 		'dataTab',
-		'dataCollapseTab'
+		'dataCollapseTab',
+		'leaderPane',
+		'followers',
+		'following',
+		'followButton',
+		'followingNow',
+		'keyShownInLeader',
+		'followedState'
 	],
 	#classVars : [
 		'CallTallyCounter',
@@ -1592,6 +1599,33 @@ SWAPane >> addDuplicationDataset: aDuplicationData name: aName [
 ]
 
 {
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> addFollowButtonsTo: aRow [
+	| spawn |
+	((view respondsTo: #codeViewKey) and: [view codeViewKey notNil]) ifTrue: [
+		spawn := self buttonLabelled: 'Spawn' action: #spawnFollower.
+		spawn setBalloonText: 'Open a second pane that follows this one'.
+		aRow addMorphBack: spawn].
+	followButton := nil.
+	leaderPane ifNil: [^ self].
+	followButton := self buttonLabelled: 'Follow' action: #toggleFollow.
+	followButton setBalloonText: 'Follow the selection, zoom and range of the pane this one was spawned from'.
+	self updateFollowButton.
+	aRow addMorphBack: followButton.
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> addFollower: aPane [
+	followers ifNil: [followers := WeakSet new].
+	followers add: aPane.
+]
+
+{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 11:07'
 }
@@ -1829,7 +1863,7 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
@@ -1855,6 +1889,7 @@ SWAPane >> buildHeaderRow [
 	headerRow
 		addMorphBack: (self buttonLabelled: 'Back' action: #zoomOut);
 		addMorphBack: (self buttonLabelled: 'Browse' action: #browseSelected).
+	self addFollowButtonsTo: headerRow.
 	"Deselect: clear the selection so the map shows everything again."
 	(view respondsTo: #selectTileNode:) ifTrue: [
 		headerRow addMorphBack: (self buttonLabelled: 'Deselect' action: #deselect)].
@@ -2086,6 +2121,16 @@ SWAPane >> clearReviewed [
 ]
 
 {
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> clearSelectionShownInLeader [
+	keyShownInLeader ifNil: [^ self].
+	keyShownInLeader := nil.
+	leaderPane view showForeignSelectionKey: nil.
+]
+
+{
 	#category : #tally,
 	#'squeak_changestamp' : 'MCPServer 7/20/2026 13:17'
 }
@@ -2186,11 +2231,11 @@ SWAPane >> codeRoot [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:42'
 }
 SWAPane >> codeViewSpecs [
 	"{ key. label. view class name } for each view of code the pane switches between in place."
-	^ #(#(#codeMap 'Code map' #SWACodeTreemapMorph) #(#classDiagram 'Class diagram' #SWAClassDiagram) #(#browser 'Browser' #SWACodeBrowser))
+	^ #(#(#codeMap 'Code map' #SWACodeTreemapMorph) #(#classDiagram 'Class diagram' #SWAClassDiagram) #(#browser 'Browser' #SWACodeBrowser) #(#linear 'Linear' #SWACodeLinearView))
 ]
 
 {
@@ -2472,7 +2517,7 @@ SWAPane >> defaultReviewedFileName [
 
 {
 	#category : #tally,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 19:04'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
 }
 SWAPane >> delete [
 	"Closing the pane/window MUST tear down any live invocation tally, otherwise the
@@ -2482,6 +2527,7 @@ SWAPane >> delete [
 	morph deletion."
 	liveTally ifNotNil: [self abandonInvocationTally].
 	self treemap ifNotNil: [:each | each unregisterCrossReferenceLinks].
+	leaderPane ifNotNil: [:leader | leader removeFollower: self].
 	super delete
 ]
 
@@ -2669,6 +2715,55 @@ SWAPane >> focusSearchField: evt [
 	searchField ifNil: [^ self].
 	evt hand newKeyboardFocus: searchField.
 	searchField selectAll
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:39'
+}
+SWAPane >> followLeader [
+	"Take over what changed at the leader since the last time: its range, else its zoom
+	and selection. Only changes count, so a pane that went its own way stays there
+	until the leader moves. Following refreshes this pane, which notifies the next pane
+	down the chain."
+	| leaderView key state |
+	(following == true and: [leaderPane notNil and: [leaderPane world notNil]]) ifFalse: [^ self].
+	followingNow == true ifTrue: [^ self].
+	leaderView := leaderPane view.
+	(leaderView respondsTo: #codeViewKey) ifFalse: [^ self].
+	leaderView codeViewKey ifNil: [^ self].
+	key := leaderView selectedNode ifNotNil: [:node | node crossRefKey].
+	state := { leaderView gitChanges. leaderView rangeView. leaderView currentFocus. key }.
+	(followedState notNil
+		and: [followedState first == state first
+		and: [(followedState allButFirst) = (state allButFirst)]]) ifTrue: [^ self].
+	followedState := state.
+	followingNow := true.
+	[view gitChanges == leaderView gitChanges
+		ifFalse: [
+			view takeOverFrom: leaderView.
+			self refreshDataPanel]
+		ifTrue: [
+			(leaderView hasRangeViews and: [view hasRangeViews and: [view rangeView ~~ leaderView rangeView]])
+				ifTrue: [view rangeView: leaderView rangeView].
+			view currentFocus = leaderView currentFocus ifFalse: [view focusOn: leaderView currentFocus].
+			(view selectedNode ifNotNil: [:node | node crossRefKey]) = key ifFalse: [
+				key
+					ifNil: [view selectedNode: nil]
+					ifNotNil: [view selectNodeForKey: key]]].
+		self clearSelectionShownInLeader]
+			ensure: [followingNow := false].
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:39'
+}
+SWAPane >> followPane: aPane [
+	leaderPane := aPane.
+	following := true.
+	followedState := nil.
+	aPane addFollower: self.
 ]
 
 {
@@ -4235,6 +4330,15 @@ SWAPane >> nextCallTraceName [
 ]
 
 {
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> notifyFollowers [
+	followers ifNil: [^ self].
+	followers do: [:each | each world ifNotNil: [each followLeader]].
+]
+
+{
 	#category : #'data flap',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:28'
 }
@@ -4817,20 +4921,21 @@ SWAPane >> rebuildCodeMap [
 
 {
 	#category : #actions,
-	#'squeak_changestamp' : 'MCPServer 6/29/2026 15:01'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
 }
 SWAPane >> refresh [
 	"Re-pull all label strings from the view and reload the source + details +
 	covering-tests panes (if shown). The view calls this after any selection/zoom
-	change. The info area is TWO lines: line 1 = generic whole-run info
-	(#runInfoMorph), line 2 = current-selection info (#metaInfoMorph)."
+	change, so it is also where linked panes hear about it."
 	breadcrumbMorph ifNotNil: [breadcrumbMorph contents: self breadcrumbContents].
 	selectionPathMorph ifNotNil: [selectionPathMorph contents: (self selectionPathContents ifNil: [''])].
 	runInfoMorph ifNotNil: [runInfoMorph contents: (self runInfoContents ifNil: [''])].
 	metaInfoMorph ifNotNil: [metaInfoMorph contents: (self selectionInfoContents ifNil: [''])].
 	self updateSource.
 	self updateDetails.
-	self updateCoveringTests
+	self updateCoveringTests.
+	self showSelectionInLeader.
+	self notifyFollowers.
 ]
 
 {
@@ -4853,6 +4958,14 @@ SWAPane >> refreshMorphPanel [
 	"Re-measure and repaint the SRMorphPanel showing this pane in XR; no-op elsewhere.
 	See SWAPane class>>refreshMorphPanelFor:."
 	self class refreshMorphPanelFor: self
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> removeFollower: aPane [
+	followers ifNotNil: [followers remove: aPane ifAbsent: []].
 ]
 
 {
@@ -5418,6 +5531,21 @@ SWAPane >> showSelectedMark [
 ]
 
 {
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> showSelectionInLeader [
+	"Where this pane went its own way, the leader shows it as its red second selection."
+	| key |
+	(leaderPane isNil or: [followingNow == true]) ifTrue: [^ self].
+	key := view selectedNode ifNotNil: [:node | node crossRefKey].
+	key = (leaderPane view selectedNode ifNotNil: [:node | node crossRefKey]) ifTrue: [^ self].
+	key = keyShownInLeader ifTrue: [^ self].
+	keyShownInLeader := key.
+	leaderPane view showForeignSelectionKey: key.
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/22/2026 16:54'
 }
@@ -5469,6 +5597,29 @@ SWAPane >> showsTreeButton [
 SWAPane >> sourceMorph [
 	"The embedded source pane, or nil if never shown. Owner is nil while hidden."
 	^ sourceMorph
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> spawnFollower [
+	"A second pane on the same tree, range and datasets that follows this one."
+	| newView pane frame |
+	view codeViewKey ifNil: [^ Beeper beep].
+	newView := self newCodeView: view codeViewKey.
+	newView extent: view extent.
+	((view respondsTo: #leafKind) and: [newView respondsTo: #leafKind:])
+		ifTrue: [newView leafKind: view leafKind].
+	newView takeOverFrom: view.
+	self wireOverlayFor: newView.
+	pane := SWAPane on: newView.
+	pane followPane: self.
+	frame := (self enclosingWindow ifNil: [self]) bounds translateBy: 40 @ 40.
+	pane openInWindowLabeled: '' bounds: frame.
+	pane updateCodeViewWindowLabel.
+	newView opensSourceFlap ifTrue: [pane openSource].
+	^ pane
 ]
 
 {
@@ -5654,6 +5805,17 @@ SWAPane >> toggleData [
 	(dataRow notNil and: [dataRow owner notNil])
 		ifTrue: [self collapseData]
 		ifFalse: [self openData]
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:39'
+}
+SWAPane >> toggleFollow [
+	following := following ~~ true.
+	followedState := nil.
+	self updateFollowButton.
+	following ifTrue: [self followLeader].
 ]
 
 {
@@ -5853,6 +6015,17 @@ SWAPane >> updateDetails [
 	(sourceRow isNil or: [sourceRow owner isNil]) ifTrue: [^ self].
 	detailsPane ifNotNil: [
 		detailsPane contents: (self detailInfoContents ifNil: [''])]
+]
+
+{
+	#category : #following,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWAPane >> updateFollowButton [
+	followButton ifNil: [^ self].
+	followButton color: (following == true
+		ifTrue: [self activeButtonColor]
+		ifFalse: [Color gray: 0.3]).
 ]
 
 {

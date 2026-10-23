@@ -1348,6 +1348,14 @@ SWACodeTreemapMorph >> gitRangePackageNames [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+}
+SWACodeTreemapMorph >> hasRangeViews [
+	^ true
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:54'
 }
