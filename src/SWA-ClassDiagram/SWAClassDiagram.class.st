@@ -562,7 +562,7 @@ SWAClassDiagram >> forgetGeneratedComposition [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
 }
 SWAClassDiagram >> graphFieldClicked: anAssoc [
 	"A record sub-field was clicked: anAssoc is dotId -> fieldIndex (0-based, where
@@ -570,6 +570,7 @@ SWAClassDiagram >> graphFieldClicked: anAssoc [
 	matching SWACodeNode and select it. Falls back to the whole-node selection if
 	the class or field index is unknown."
 	| fieldNodes idx |
+	self currentHand newKeyboardFocus: self.
 	fieldNodes := fieldNodesByDotId at: anAssoc key ifAbsent: [nil].
 	fieldNodes ifNil: [^ self graphNodeClicked: anAssoc key].
 	idx := anAssoc value + 1.
@@ -617,10 +618,11 @@ SWAClassDiagram >> graphMenuRequest: evt [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:16'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
 }
 SWAClassDiagram >> graphNodeClicked: aDotId [
 	"A node in the embedded graph was clicked: select the matching SWACodeNode."
+	self currentHand newKeyboardFocus: self.
 	self selectOrDeselectNode: (nodesByDotId at: aDotId ifAbsent: [nil])
 ]
 
@@ -1003,13 +1005,14 @@ SWAClassDiagram >> selectedSourceString [
 
 {
 	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
 }
 SWAClassDiagram >> selectionInfoString [
 	"Second info line: metrics about the current selection."
 	selectedNode ifNil: [^ ''].
 	^ selectedNode kind asString, ': ', selectedNode name,
-		'   ', selectedNode loc printString, ' LOC'
+		'   ', selectedNode loc printString, ' LOC',
+		(self lastChangeInfoFor: selectedNode)
 ]
 
 {

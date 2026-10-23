@@ -287,18 +287,18 @@ SWACodeTreemapMorph >> colorByFocusedTopic: aNode [
 ]
 
 {
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#category : #coloring,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
 }
 SWACodeTreemapMorph >> colorByGitChange: aNode [
-	"Green added, orange modified, blue signed off; containers muted so the changed
-	members inside them stand out."
+	"Green added, orange modified, red removed; containers muted so the changed
+	members inside them stand out. Review is a border, see #drawTileFrame:in:on:."
 	| color |
 	color := (self gitStatusOf: aNode)
 		caseOf: {
 			[#added] -> [Color h: 120 s: 0.6 v: 0.8].
 			[#modified] -> [Color h: 30 s: 0.75 v: 0.95].
-			[#reviewed] -> [Color h: 210 s: 0.45 v: 0.8] }
+			[#removed] -> [Color h: 0 s: 0.65 v: 0.85] }
 		otherwise: [^ Color gray: 0.3].
 	(self hasRenderedChildren: aNode) ifTrue: [^ color alphaMixed: 0.35 with: (Color gray: 0.2)].
 	^ color
@@ -529,19 +529,22 @@ SWACodeTreemapMorph >> computeDuplicationScores [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
 }
-SWACodeTreemapMorph >> computeGitStatusOf: aNode [
-	| statuses |
-	statuses := OrderedCollection new.
+SWACodeTreemapMorph >> computeGitStateOf: aNode [
+	| kinds reviewed |
+	kinds := Set new.
+	reviewed := true.
 	(self gitKindOf: aNode) ifNotNil: [:kind |
-		statuses add: ((self isNodeReviewed: aNode) ifTrue: [#reviewed] ifFalse: [kind])].
+		kinds add: kind.
+		(self isNodeReviewed: aNode) ifFalse: [reviewed := false]].
 	aNode children ifNotNil: [:kids |
-		kids do: [:each | (self gitStatusOf: each) ifNotNil: [:status | statuses add: status]]].
-	statuses isEmpty ifTrue: [^ nil].
-	(statuses includes: #modified) ifTrue: [^ #modified].
-	(statuses includes: #added) ifTrue: [^ #added].
-	^ #reviewed
+		kids do: [:each |
+			(self gitStateOf: each) ifNotNil: [:state |
+				kinds add: state first.
+				state second ifFalse: [reviewed := false]]]].
+	kinds isEmpty ifTrue: [^ nil].
+	^ { #(#modified #added #removed) detect: [:each | kinds includes: each]. reviewed }
 ]
 
 {
@@ -991,6 +994,17 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
+}
+SWACodeTreemapMorph >> drawTileFrame: aNode in: screenR on: aCanvas [
+	"Signed-off changes get a thin blue border, so the fill can stay whatever the
+	colour mode says."
+	(self isReviewedChange: aNode) ifFalse: [^ self].
+	aCanvas frameRectangle: (screenR insetBy: 1) width: 2 color: (Color h: 210 s: 0.85 v: 1.0).
+]
+
+{
 	#category : #rendering,
 	#'squeak_changestamp' : 'MCPServer 7/7/2026 11:42'
 }
@@ -1379,16 +1393,25 @@ SWACodeTreemapMorph >> gitRangePackageNames [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
 }
-SWACodeTreemapMorph >> gitStatusOf: aNode [
-	"#added, #modified or #reviewed, rolled up over the subtree; nil when nothing in it
-	changed. A container is #reviewed only once every change in it is."
+SWACodeTreemapMorph >> gitStateOf: aNode [
+	"{ kind. allReviewed } rolled up over the subtree, nil when nothing in it changed.
+	The kind is #modified over #added over #removed."
 	gitChanges ifNil: [^ nil].
 	gitStatusCache ifNil: [gitStatusCache := IdentityDictionary new].
 	^ gitStatusCache
 		at: aNode
-		ifAbsent: [gitStatusCache at: aNode put: (self computeGitStatusOf: aNode)]
+		ifAbsent: [gitStatusCache at: aNode put: (self computeGitStateOf: aNode)]
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
+}
+SWACodeTreemapMorph >> gitStatusOf: aNode [
+	"#added, #modified or #removed, rolled up; nil when nothing in the subtree changed."
+	^ (self gitStateOf: aNode) ifNotNil: [:state | state first]
 ]
 
 {
@@ -1490,6 +1513,15 @@ SWACodeTreemapMorph >> isLiveCodeRoot: aNode [
 	^ (aNode isKindOf: SWACodeRootNode)
 		and: [(aNode isKindOf: SWACodeSnapshotRootNode) not
 		and: [(aNode isKindOf: SWACodeMarkSetRootNode) not]]
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
+}
+SWACodeTreemapMorph >> isReviewedChange: aNode [
+	"Whether every change at or under aNode is signed off."
+	^ (self gitStateOf: aNode) ifNil: [false] ifNotNil: [:state | state second]
 ]
 
 {
@@ -1980,7 +2012,7 @@ SWACodeTreemapMorph >> selectedSourceString [
 
 {
 	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 7/14/2026 11:01'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
 }
 SWACodeTreemapMorph >> selectionInfoString [
 	"Line 2 of the panel info area: info about the CURRENTLY SELECTED node only
@@ -1988,7 +2020,7 @@ SWACodeTreemapMorph >> selectionInfoString [
 	nothing is selected. (SWAPane content protocol.)"
 	^ selectedNode
 		ifNil: ['']
-		ifNotNil: [:n | self metaInfoStringForNode: n]
+		ifNotNil: [:n | (self metaInfoStringForNode: n), (self lastChangeInfoFor: n)]
 ]
 
 {

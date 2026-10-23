@@ -275,6 +275,14 @@ SWAGitHistory >> branchName [
 ]
 
 {
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
+}
+SWAGitHistory >> branchNames [
+	^ ([workingCopy fsgitRepository branchNames] on: Error do: [:e | #()]) asSortedCollection asArray
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:56'
 }
@@ -310,6 +318,20 @@ SWAGitHistory >> buildTreeProgress: aTwoArgBlockOrNil [
 	root children isEmpty ifTrue: [
 		root label: self rootLabel, '  (no code changes in ', list size printString, ' commits)'].
 	^ root
+]
+
+{
+	#category : #'member history',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAGitHistory >> changeInfoOf: aCommit [
+	"String -> String, so it can go into a mark's provenance."
+	^ Dictionary new
+		at: 'lastChangeCommit' put: ([aCommit hexHash first: 7] on: Error do: [:e | '?']);
+		at: 'lastChangeDate' put: (self timeStampOf: aCommit) printString;
+		at: 'lastChangeAuthor' put: ([aCommit author name asString] on: Error do: [:e | '?']);
+		at: 'lastChangeSummary' put: (self summaryOf: aCommit);
+		yourself
 ]
 
 {
@@ -366,27 +388,29 @@ SWAGitHistory >> commitLabelFor: aCommit [
 
 {
 	#category : #scanning,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:58'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
+}
+SWAGitHistory >> commitNamed: aString [
+	"A branch's tip commit, or the commit a hash prefix names."
+	aString isEmptyOrNil ifTrue: [^ nil].
+	(self branchNames includes: aString) ifTrue: [
+		^ [self gitUnitOfWork branchNamed: aString] on: Error do: [:e | nil]].
+	^ self commitWithHexPrefix: aString
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
 }
 SWAGitHistory >> commitWithHexPrefix: aHexPrefix [
-	"The commit anywhere in the ancestry whose hash starts with aHexPrefix, or nil. Only
-	hashes are compared, so this is cheap -- unlike anything that diffs trees.
-
-	The WHOLE ancestry, not just the first-parent chain: a branch point is usually the
-	second parent of a merge, so following first parents alone cannot find it."
-
-	| seen queue |
-	seen := Set new.
-	queue := OrderedCollection with: workingCopy headCommit.
-	[queue isEmpty] whileFalse: [
-		| current hash |
-		current := queue removeFirst.
-		hash := current ifNil: [nil] ifNotNil: [[current hexHash] on: Error do: [:e | nil]].
-		(hash notNil and: [(seen includes: hash) not]) ifTrue: [
-			(hash beginsWith: aHexPrefix) ifTrue: [^ current].
-			seen add: hash.
-			([current parents] on: Error do: [:e | #()]) do: [:each | queue addLast: each]]].
-	^ nil
+	"The commit whose hash starts with aHexPrefix on any branch, or nil -- also nil
+	when the prefix names more than one commit."
+	| unitOfWork commits |
+	unitOfWork := self gitUnitOfWork.
+	commits := (self objectNamesWithPrefix: aHexPrefix) asArray
+		collect: [:each | [unitOfWork objectNamed: each] on: Error do: [:e | nil]]
+		thenSelect: [:each | each isKindOf: GitCommit].
+	^ commits size = 1 ifTrue: [commits first] ifFalse: [nil]
 ]
 
 {
@@ -432,6 +456,14 @@ SWAGitHistory >> commitsToScan [
 ]
 
 {
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
+}
+SWAGitHistory >> gitUnitOfWork [
+	^ workingCopy fsgitRepository repository unitOfWork
+]
+
+{
 	#category : #initialization,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 10:54'
 }
@@ -450,6 +482,34 @@ SWAGitHistory >> labelPrefixFor: anOperationKind [
 	anOperationKind == #added ifTrue: [^ '+ '].
 	anOperationKind == #removed ifTrue: [^ '- '].
 	^ ''
+]
+
+{
+	#category : #'member history',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAGitHistory >> lastChangeOfMember: aKey inFile: aPath from: aCommit [
+	"The commit that last changed the member aKey -- 'Foo>>bar', 'Foo class>>bar',
+	'Foo>>#ivar', 'Foo (comment)' or 'Foo' -- following first parents back from
+	aCommit; nil if it never changed within the walked history. Commits whose class
+	file kept its blob are skipped without reading it, so the cost is one tree lookup
+	per commit plus a parse wherever the file changed."
+	| current state blob texts |
+	texts := Dictionary new.
+	current := aCommit.
+	blob := [current hexHashAtPath: aPath] on: Error do: [:e | nil].
+	state := self memberText: aKey inBlob: blob cache: texts.
+	1 to: 2000 do: [:step | | parent parentBlob |
+		parent := [current parents ifEmpty: [nil] ifNotEmpty: [:parents | parents first]]
+			on: Error do: [:e | nil].
+		parent ifNil: [^ state ifNil: [nil] ifNotNil: [current]].
+		parentBlob := [parent hexHashAtPath: aPath] on: Error do: [:e | nil].
+		(parentBlob ~= blob
+			and: [(self memberText: aKey inBlob: parentBlob cache: texts) ~= state])
+				ifTrue: [^ current].
+		blob := parentBlob.
+		current := parent].
+	^ nil
 ]
 
 {
@@ -547,6 +607,46 @@ SWAGitHistory >> maxCommits: anIntegerOrNil [
 ]
 
 {
+	#category : #'member history',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAGitHistory >> memberText: aKey in: someDefinitions [
+	| className member classDefinition |
+	className := aKey copyUpTo: $>.
+	classDefinition := someDefinitions detect: [:each | each isClassDefinition] ifNone: [nil].
+	(aKey endsWith: ' (comment)') ifTrue: [
+		^ classDefinition ifNotNil: [:each | each comment ifNotNil: [:text | text asString]]].
+	(aKey includesSubstring: '>>') ifFalse: [
+		^ classDefinition ifNotNil: [:each | each definitionString]].
+	member := aKey copyAfter: $>.
+	member := member copyAfter: $>.
+	(member beginsWith: '#') ifTrue: [
+		^ (classDefinition notNil and: [classDefinition instVarNames includes: member allButFirst])
+			ifTrue: [member]
+			ifFalse: [nil]].
+	^ (someDefinitions
+		detect: [:each |
+			each isMethodDefinition
+				and: [each selector = member asSymbol
+				and: [each classIsMeta = (className endsWith: ' class')]]]
+		ifNone: [nil]) ifNotNil: [:each | each source asString]
+]
+
+{
+	#category : #'member history',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAGitHistory >> memberText: aKey inBlob: aBlobHash cache: aDictionary [
+	"The member's text in one version of its class file, nil where it does not exist."
+	| definitions |
+	aBlobHash ifNil: [^ nil].
+	definitions := aDictionary at: aBlobHash ifAbsentPut: [
+		[TonelParser parseString: (self gitUnitOfWork objectNamed: aBlobHash) bytes asString]
+			on: Error do: [:e | #()]].
+	^ self memberText: aKey in: definitions
+]
+
+{
 	#category : #scanning,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 18:19'
 }
@@ -570,6 +670,40 @@ SWAGitHistory >> newestCommits: aCount [
 			with: aCount
 			with: (self walkNewestCommits: aCount from: head)].
 	^ (newestCommitsCache at: 3) first: (aCount min: (newestCommitsCache at: 3) size)
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
+}
+SWAGitHistory >> objectNamesWithPrefix: aHexPrefix [
+	"Every object name starting with aHexPrefix, on whatever branch. Only the loose
+	objects' directory for the first byte and each pack index's fanout bucket for it
+	are read: enumerating the packs themselves takes nine seconds."
+	| prefix firstByte names |
+	prefix := aHexPrefix asString asLowercase.
+	(prefix size >= 4 and: [prefix allSatisfy: [:each | '0123456789abcdef' includes: each]])
+		ifFalse: [^ #()].
+	firstByte := Integer readFrom: (prefix first: 2) base: 16.
+	names := Set new.
+	self gitUnitOfWork objectStores do: [:store |
+		(store isKindOf: GitLooseObjectStore) ifTrue: [ | directory |
+			directory := store baseDir / 'objects' / (prefix first: 2).
+			directory exists ifTrue: [
+				directory files do: [:each | | name |
+					name := (prefix first: 2), each basename.
+					(name beginsWith: prefix) ifTrue: [names add: name]]]].
+		(store isKindOf: GitPackedObjectStore) ifTrue: [
+			store packs do: [:pack | | index low high |
+				index := pack indexFile.
+				low := index indexForFanout: firstByte - 1.
+				high := index indexForFanout: firstByte.
+				index readStreamDo: [:stream |
+					low to: high - 1 do: [:position | | name |
+						stream position: position * 20 + index hashStreamStart.
+						name := (stream next: 20) asHexHash.
+						(name beginsWith: prefix) ifTrue: [names add: name]]]]]].
+	^ names
 ]
 
 {

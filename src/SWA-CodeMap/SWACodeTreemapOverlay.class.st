@@ -27,7 +27,7 @@ SWACodeTreemapOverlay >> aaCanvasFrom: aCanvas [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
 }
 SWACodeTreemapOverlay >> addMenuItems: menu for: aNode [
 	"Code context-menu items: browse the element; for method tiles also offer
@@ -40,7 +40,7 @@ SWACodeTreemapOverlay >> addMenuItems: menu for: aNode [
 		menu add: 'implementors' selector: #browseImplementors: argument: aNode].
 	(treemapMorph gitStatusOf: aNode) ifNotNil: [:status |
 		menu
-			add: (status == #reviewed ifTrue: ['Unmark reviewed'] ifFalse: ['Mark reviewed'])
+			add: ((treemapMorph isReviewedChange: aNode) ifTrue: ['Unmark reviewed (r)'] ifFalse: ['Mark reviewed (r)'])
 			target: treemapMorph selector: #toggleReviewedUnder: argument: aNode].
 	dataMenu := self dataMenuMorph.
 	dataMenu ifNotNil: [menu addLine. menu add: 'Data' subMenu: dataMenu].
@@ -77,7 +77,7 @@ SWACodeTreemapOverlay >> browseSenders: aMethodNode [
 
 {
 	#category : #events,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
 }
 SWACodeTreemapOverlay >> colorModeOptions [
 	"Color (base-tint) modes for the Code Map: the CHEAP intrinsics only. The
@@ -103,7 +103,7 @@ SWACodeTreemapOverlay >> colorModeOptions [
 	) asOrderedCollection.
 	tm := self treemapMorph.
 	((tm respondsTo: #gitChanges) and: [tm gitChanges notNil]) ifTrue: [
-		base add: #(#gitChanges 'By commit range (added/modified/reviewed)')].
+		base add: #(#gitChanges 'By commit range (added/modified/removed)')].
 	(tm respondsTo: #datasets) ifTrue: [
 		tm datasets do: [:ds |
 			ds metrics do: [:metric |

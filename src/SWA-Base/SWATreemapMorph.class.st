@@ -316,6 +316,14 @@ SWATreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 ]
 
 {
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
+}
+SWATreemapMorph >> drawTileFrame: aNode in: screenR on: aCanvas [
+	"Hook: mark a tile on top of its frame, where no colour mode paints over it."
+]
+
+{
 	#category : #layout,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:30'
 }
@@ -696,7 +704,7 @@ SWATreemapMorph >> refreshChrome [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 16:43'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
 }
 SWATreemapMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 	"Paint every tile in draw order into aCanvas. No header, no hover.
@@ -712,6 +720,7 @@ SWATreemapMorph >> renderStaticLayerOn: aCanvas at: anOrigin [
 		aCanvas fillRectangle: screenR color: fill.
 		self drawTileContent: node in: screenR on: aCanvas.
 		aCanvas frameRectangle: screenR color: borderColor.
+		self drawTileFrame: node in: screenR on: aCanvas.
 		font := self fontForNode: node.
 		fontH := font height.
 		((screenR width * screenR height) >= minTileForLabel

@@ -54,7 +54,8 @@ Class {
 		'cachedGitHistory',
 		'priorSources',
 		'reviewScope',
-		'gitChanges'
+		'gitChanges',
+		'lastChanges'
 	],
 	#classVars : [
 		'CrossRefGeneration',
@@ -153,6 +154,17 @@ SWAView class >> intrinsicMuteAlpha [
 	says something about. Keeping 30% of the hue leaves the structure readable as
 	ground while the measured tiles stay the figure."
 	^ 0.3
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
+}
+SWAView class >> reviewHashOf: aString [
+	"The first 12 hex digits of the SHA-1 of aString, with its line endings normalised."
+	| hex |
+	hex := (SecureHashAlgorithm new hashMessage: aString asString withSqueakLineEndings) printStringBase: 16.
+	^ ((String new: 40 - hex size withAll: $0), hex) asLowercase first: 12
 ]
 
 {
@@ -281,6 +293,19 @@ SWAView >> addDataset: aSWADataset [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> addLastChange: aDictionary toReviewOf: aNode [
+	| key provenance |
+	key := self reviewKeyFor: aNode.
+	(key notNil and: [SWAMarkSet reviewed includes: key]) ifFalse: [^ self].
+	provenance := (SWAMarkSet reviewed provenanceAt: key) ifNil: [Dictionary new] ifNotNil: [:each | each copy].
+	provenance addAll: aDictionary.
+	SWAMarkSet reviewed provenanceAt: key put: provenance.
+]
+
+{
 	#category : #datasets,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:54'
 }
@@ -330,6 +355,15 @@ SWAView >> applyColorMetricSymbol: aSymbolOrNil [
 SWAView >> baseColorForNode: aNode [
 	"Intrinsic fill color for a node, ignoring cross-ref highlight. Subclasses override."
 	^ self subclassResponsibility
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
+}
+SWAView >> branchChoices [
+	^ (self gitHistory ifNil: [#()] ifNotNil: [:history | history branchNames])
+		collect: [:each | each -> (each, ' (branch tip)')]
 ]
 
 {
@@ -456,17 +490,17 @@ SWAView >> colorModeOptions [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
 }
-SWAView >> commitLabelFor: aHexPrefix [
+SWAView >> commitLabelFor: aCommitName [
 	"'aae5930  the subject line', short enough to sit in a field."
 	| repoHistory commit |
-	aHexPrefix ifNil: [^ ''].
+	aCommitName ifNil: [^ ''].
 	repoHistory := self gitHistory.
-	repoHistory ifNil: [^ aHexPrefix].
-	commit := repoHistory commitWithHexPrefix: aHexPrefix.
-	commit ifNil: [^ aHexPrefix].
-	^ aHexPrefix, '  ', ((repoHistory summaryOf: commit) truncateWithElipsisTo: 30)
+	repoHistory ifNil: [^ aCommitName].
+	commit := repoHistory commitNamed: aCommitName.
+	commit ifNil: [^ aCommitName].
+	^ aCommitName, '  ', ((repoHistory summaryOf: commit) truncateWithElipsisTo: 30)
 ]
 
 {
@@ -785,6 +819,19 @@ SWAView >> deactivateCoverageProvenance [
 ]
 
 {
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> definitionTextOf: aClass [
+	"Monticello's form for live classes too, so a class reviewed in the image and in
+	git hashes the same."
+	^ [(aClass isKindOf: SWASnapshotBehavior)
+		ifTrue: [aClass definition definitionString]
+		ifFalse: [aClass asClassDefinition definitionString]]
+			on: Error do: [:e | '']
+]
+
+{
 	#category : #scrolling,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
 }
@@ -980,12 +1027,14 @@ SWAView >> fromCommit: aString [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
 }
 SWAView >> fromCommitChoices [
 	"PARENT leads the list: with From on PARENT, stepping To down the log shows what
-	each commit changed, one at a time."
-	^ (OrderedCollection with: 'PARENT' -> 'PARENT (just what To changed)') , self recentCommits
+	each commit changed, one at a time. The branches let a range span two of them;
+	any other commit can be typed as a hash."
+	^ (OrderedCollection with: 'PARENT' -> 'PARENT (just what To changed)'),
+		self branchChoices, self recentCommits
 ]
 
 {
@@ -1178,6 +1227,16 @@ SWAView >> hasRenderedChildren: aNode [
 	cannot answer say false, which keeps the historical 'tint every node' behaviour.
 	SWATreemapMorph overrides with the real answer (see #computeLayout)."
 	^ false
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
+}
+SWAView >> hashOf: aCommitName [
+	"The short hash of a branch or hash prefix, on any branch; nil when it names none."
+	^ (self gitHistory ifNotNil: [:history | history commitNamed: aCommitName])
+		ifNotNil: [:commit | [commit hexHash first: 7] on: Error do: [:e | nil]]
 ]
 
 {
@@ -1403,6 +1462,15 @@ SWAView >> isParentFrom [
 ]
 
 {
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
+}
+SWAView >> isReviewKey: aCharacter event: anEvent [
+	^ aCharacter = $r
+		and: [(anEvent commandKeyPressed or: [anEvent controlKeyPressed]) not]
+]
+
+{
 	#category : #scrolling,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
 }
@@ -1450,11 +1518,11 @@ SWAView >> keyIndex [
 
 {
 	#category : #'event handling',
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:18'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
 }
 SWAView >> keyStroke: evt [
-	"Ctrl+F (Cmd+F on Mac) focuses the header search field; everything else is ignored
-	(the map has no other typed input). Ctrl+F may arrive either as the letter $f with
+	"Ctrl+F (Cmd+F on Mac) focuses the header search field, r toggles the selection's
+	review sign-off. Ctrl+F may arrive either as the letter $f with
 	the control/command modifier set, or -- on some platforms -- as control-code 6."
 	| isFindKey |
 	isFindKey := (evt keyValue = 6)
@@ -1463,7 +1531,64 @@ SWAView >> keyStroke: evt [
 	isFindKey ifTrue: [
 		navPanel ifNotNil: [navPanel focusSearchField: evt].
 		^ self].
+	((self isReviewKey: evt keyCharacter event: evt) and: [selectedNode notNil])
+		ifTrue: [^ self toggleReviewedUnder: selectedNode].
 	^ super keyStroke: evt
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> lastChangeInfoFor: aNode [
+	"For the selection's info line."
+	(self gitKindAt: (aNode markKey ifNil: [^ ''])) ifNil: [^ ''].
+	^ (self lastChangeOf: aNode)
+		ifNil: [(self lastChanges at: aNode markKey ifAbsent: [nil]) == #pending
+			ifTrue: ['   last change: looking...']
+			ifFalse: ['']]
+		ifNotNil: [:info |
+			'   last change ', (info at: 'lastChangeCommit'), ' ', (info at: 'lastChangeDate'),
+				' ', (info at: 'lastChangeAuthor'), ': ', (info at: 'lastChangeSummary')]
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> lastChangeOf: aNode [
+	"The last-change info of a changed member: a Dictionary once known, nil while it
+	is being looked for or when there is none. The first ask starts the search in the
+	background; finding it repaints, and adds it to a sign-off made in the meantime."
+	| key snapshot path to |
+	key := aNode markKey ifNil: [^ nil].
+	(self gitKindAt: key) ifNil: [^ nil].
+	(self lastChanges at: key ifAbsent: [nil]) ifNotNil: [:known |
+		^ known == #none | (known == #pending) ifTrue: [nil] ifFalse: [known]].
+	snapshot := gitChanges at: #snapshot ifAbsent: [^ nil].
+	path := snapshot classFilePathFor: key.
+	to := self gitHistory ifNotNil: [:history | history commitNamed: self resolvedToCommit].
+	(path isNil or: [to isNil]) ifTrue: [^ nil].
+	self lastChanges at: key put: #pending.
+	[ | history info |
+	  history := self gitHistory.
+	  info := [(history lastChangeOfMember: key inFile: path from: to)
+			ifNotNil: [:commit | history changeInfoOf: commit]]
+		on: Error do: [:e | nil].
+	  WorldState addDeferredUIMessage: [
+		self lastChanges at: key put: (info ifNil: [#none]).
+		info ifNotNil: [self addLastChange: info toReviewOf: aNode].
+		navPanel ifNotNil: [:panel | panel refresh]] ]
+		forkAt: Processor userBackgroundPriority.
+	^ nil
+]
+
+{
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> lastChanges [
+	^ lastChanges ifNil: [lastChanges := Dictionary new]
 ]
 
 {
@@ -1491,7 +1616,7 @@ SWAView >> leavesUnder: aNode do: aBlock [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:06'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
 }
 SWAView >> loadGitRange [
 	"Load the range and hand it to #showGitChanges:. Answers whether it loaded.
@@ -1504,10 +1629,13 @@ SWAView >> loadGitRange [
 	(repositoryName isNil or: [fromCommit isNil]) ifTrue: [^ false].
 	to := self resolvedToCommit.
 	from := self resolvedFromCommit.
+	(toCommit notNil and: [to isNil]) ifTrue: [
+		self reportProblem: 'no commit or branch ', toCommit, ' in ', repositoryName.
+		^ false].
 	from ifNil: [
 		self reportProblem: (self isParentFrom
 			ifTrue: ['no commit starting ', (toCommit ifNil: ['HEAD']), ' to take the parent of']
-			ifFalse: ['no commit starting ', fromCommit, ' in ', repositoryName]).
+			ifFalse: ['no commit or branch ', fromCommit, ' in ', repositoryName]).
 		^ false].
 	result := [(SWACodeSnapshot
 			repository: repositoryName from: from to: to packages: self gitRangePackageNames) changes]
@@ -1515,9 +1643,11 @@ SWAView >> loadGitRange [
 		do: [:e | self reportProblem: e messageText. nil].
 	result ifNil: [^ false].
 	gitChanges := result.
+	lastChanges := nil.
 	self priorSources: (result at: #priorSources).
 	self reviewScope: self gitRangeLabel.
 	self showGitChanges: result.
+	self reportReviewedChanges.
 	^ true
 ]
 
@@ -1968,6 +2098,23 @@ SWAView >> reportProblem: aString [
 ]
 
 {
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
+}
+SWAView >> reportReviewedChanges [
+	"Sign-offs follow the text, so a range can arrive partly reviewed already."
+	| changed reviewed |
+	changed := 0.
+	reviewed := 0.
+	(gitChanges at: #kinds) keysDo: [:key |
+		(self keyIndex at: key ifAbsent: [nil]) ifNotNil: [:node |
+			changed := changed + 1.
+			(self isNodeReviewed: node) ifTrue: [reviewed := reviewed + 1]]].
+	navPanel ifNotNil: [:panel |
+		panel showMessage: reviewed printString, ' of ', changed printString, ' changes already reviewed'].
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
 }
@@ -2017,31 +2164,31 @@ SWAView >> resetRangeToNewestCommit [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
 }
 SWAView >> resolvedFromCommit [
 	"The hash the range starts at. PARENT means the first parent of the TO end, which
 	is what makes stepping To down the log show one commit at a time."
 	| repoHistory target |
 	fromCommit ifNil: [^ nil].
-	self isParentFrom ifFalse: [^ fromCommit].
+	self isParentFrom ifFalse: [^ self hashOf: fromCommit].
 	repoHistory := self gitHistory.
 	repoHistory ifNil: [^ nil].
 	target := toCommit
 		ifNil: [[repoHistory workingCopy headCommit] on: Error do: [:e | nil]]
-		ifNotNil: [:hex | repoHistory commitWithHexPrefix: hex].
+		ifNotNil: [:name | repoHistory commitNamed: name].
 	target ifNil: [^ nil].
 	^ [target firstParent hexHash first: 7] on: Error do: [:e | nil]
 ]
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
 }
 SWAView >> resolvedToCommit [
-	"The hash the range ends at. The field may say HEAD, which moves."
+	"The hash the range ends at. The field may say HEAD or a branch, which move."
 	| repoHistory |
-	toCommit ifNotNil: [^ toCommit].
+	toCommit ifNotNil: [^ self hashOf: toCommit].
 	repoHistory := self gitHistory.
 	repoHistory ifNil: [^ nil].
 	^ [repoHistory workingCopy headCommit hexHash first: 7] on: Error do: [:e | nil]
@@ -2059,18 +2206,26 @@ SWAView >> revealPackageNode: aNode [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:18'
+}
+SWAView >> reviewHashFor: aNode [
+	^ self class reviewHashOf: (self reviewTextFor: aNode)
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
 }
 SWAView >> reviewKeyFor: aNode [
-	"The key under which aNode is signed off in SWAMarkSet reviewed, or nil when there
-	is nothing to sign off: no commit range, or a node with no mark key."
+	"A sign-off belongs to what was read: the member plus a hash of its text. It holds
+	in any range, on any branch and in the image wherever the member reads the same,
+	and lapses when it changes."
 	| key |
-	reviewScope ifNil: [^ nil].
 	aNode ifNil: [^ nil].
 	key := aNode markKey.
 	key ifNil: [^ nil].
-	^ reviewScope, ' ', key
+	^ key, ' @', (self reviewHashFor: aNode)
 ]
 
 {
@@ -2090,6 +2245,21 @@ SWAView >> reviewScope: aStringOrNil [
 	A review mark is only meaningful together with the version reviewed, so the scope
 	becomes part of the reviewed key. nil switches the review badges off."
 	reviewScope := aStringOrNil.
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> reviewTextFor: aNode [
+	"The member as this view shows it. A removal is reviewed as the text that went."
+	| key |
+	key := aNode markKey.
+	(self gitKindAt: key) == #removed ifTrue: [
+		^ '(removed) ', (priorSources ifNil: [''] ifNotNil: [:sources | sources at: key ifAbsent: ['']])].
+	(aNode isKindOf: SWACodeMethodNode) ifTrue: [^ aNode source].
+	(aNode isKindOf: SWACodeClassNode) ifTrue: [^ self definitionTextOf: aNode theClass].
+	^ ''
 ]
 
 {
@@ -2604,12 +2774,13 @@ SWAView >> toCommit: aString [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
 }
 SWAView >> toCommitChoices [
 	"HEAD leads the list: reviewing up to the tip is the common case, and it stays
 	right as the branch grows."
-	^ (OrderedCollection with: 'HEAD' -> 'HEAD (branch tip)') , self recentCommits
+	^ (OrderedCollection with: 'HEAD' -> 'HEAD (checked-out tip)'),
+		self branchChoices, self recentCommits
 ]
 
 {
@@ -2642,19 +2813,29 @@ SWAView >> toggleMark: aNode [
 ]
 
 {
-	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
 }
 SWAView >> toggleReviewed: aNode [
 	"Sign aNode off, or take the sign-off back."
-	| key prov |
+	| key provenance |
 	key := self reviewKeyFor: aNode.
 	key ifNil: [^ self].
-	prov := self markProvenance.
-	prov at: 'nodeKind' put: aNode nodeKind asString.
-	prov at: 'reviewScope' put: reviewScope.
-	SWAMarkSet reviewed toggle: key from: prov.
+	provenance := self markProvenance.
+	provenance at: 'nodeKind' put: aNode nodeKind asString.
+	provenance at: 'reviewedAt' put: DateAndTime now printString.
+	reviewScope ifNotNil: [provenance at: 'reviewScope' put: reviewScope].
+	(self lastChangeOf: aNode) ifNotNil: [:info | provenance addAll: info].
+	SWAMarkSet reviewed toggle: key from: provenance.
 	self updateReviewMarkers.
+]
+
+{
+	#category : #review,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+}
+SWAView >> toggleReviewedUnder: aNode [
+	self toggleReviewed: aNode.
 ]
 
 {
