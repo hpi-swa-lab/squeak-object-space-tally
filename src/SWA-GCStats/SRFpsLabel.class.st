@@ -9,12 +9,12 @@ Class {
 	#superclass : #SRObject,
 	#instVars : [
 		'source',
-		'fastTexture',
 		'meshObject',
 		'labelFont',
 		'frameCount',
 		'deltaSum',
-		'shownFps'
+		'shownFps',
+		'texture'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -104,18 +104,6 @@ SRFpsLabel >> collisionGeometry [
 	#category : #'as yet unclassified',
 	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
 }
-SRFpsLabel >> ensureShader [
-	"The backing Form is BGRA (SRTextureSource), so draw the quad with the morphicPanel
-	shader that swizzles .bgra on the GPU. Set once, when a GL context exists (as SRGCStats)."
-	meshObject material shader ifNil: [
-		SRRenderer hasContext ifTrue: [
-			meshObject material shader: SRShader morphicPanel load]]
-]
-
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
-}
 SRFpsLabel >> initialize [
 	super initialize.
 	self name: 'FpsLabel'.
@@ -147,47 +135,37 @@ SRFpsLabel >> labelFont [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 11:16'
 }
 SRFpsLabel >> rebuildSource [
-	"(Re)build the pixel buffer, GPU texture and quad aspect for the current font. Size the
-	texture to hold the widest string we draw ('fps 000') plus a small margin."
+	"Size the texture to hold the widest string we draw ('fps 000') plus a small margin."
 	| font w h |
 	font := self labelFont.
 	w := (font widthOfString: 'fps 000') + 8.
 	h := font height + 4.
-	source := SRTextureSource width: w height: h fill: GcGraph backgroundColor.
-	fastTexture := SRFastTexture on: source.
-	meshObject material texture: fastTexture.
+	source := SRTextureSourceForm width: w height: h fill: GcGraph backgroundColor.
+	texture := SRTexture withSource: source.
+	meshObject material
+		shader: SRShader morphicPanel;
+		texture: texture.
 	meshObject scale: (Vector3 x: 1.0 y: 1.0 z: h / w).
-	self redraw
+	self redraw.
 ]
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 11:16'
 }
 SRFpsLabel >> redraw [
-	"Paint the current shownFps string, over a fresh background."
-	source fillColor: GcGraph backgroundColor.
-	source
-		drawString: 'fps ', shownFps printString
-		at: 4 @ 2
-		color: GcGraph slateColor
-		on: GcGraph backgroundColor
-		font: self labelFont.
-	source notifyTextureChanged
-]
 
-{
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/20/2026 18:42'
-}
-SRFpsLabel >> renderOn: aSRRenderer [
-	"Push this frame's pixel changes to the GPU while the GL context is live. The child
-	SRMeshObject draws the quad itself via the tree walk (as SRGCStats)."
-	self ensureShader.
-	fastTexture syncToGpu
+	source editDo: [:each |
+		each
+			fillColor: GcGraph backgroundColor;
+			drawString: 'fps ', shownFps printString
+				at: 4 @ 2
+				color: GcGraph slateColor
+				on: GcGraph backgroundColor
+				font: self labelFont].
 ]
 
 {

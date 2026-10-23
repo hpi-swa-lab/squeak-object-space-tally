@@ -50,6 +50,7 @@ Class {
 		'crossRefDependents'
 	],
 	#classVars : [
+		'CrossRefGeneration',
 		'DatasetContainerTint'
 	],
 	#category : #'SWA-Base',

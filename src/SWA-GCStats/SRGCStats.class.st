@@ -10,13 +10,13 @@ Class {
 	#superclass : #SRObject,
 	#instVars : [
 		'source',
-		'fastTexture',
 		'meshObject',
 		'panel',
 		'labelFont',
 		'suspended',
 		'periodMillis',
-		'lastPaintMillis'
+		'lastPaintMillis',
+		'texture'
 	],
 	#category : #'SWA-GCStats',
 	#'squeak_changestamp' : '<historical>'
@@ -106,7 +106,7 @@ SRGCStats >> addCustomMenuItemsTo: aMenu [
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:57'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 11:16'
 }
 SRGCStats >> buildPanelAndMesh [
 	"Build (or rebuild) the panel model and the textured mesh from scratch. Extracted from
@@ -127,7 +127,7 @@ SRGCStats >> buildPanelAndMesh [
 	meshObject rotation: (Quaternion angle: 90 axis: Vector3 right).
 	self addChild: meshObject.
 
-	fastTexture := nil.
+	texture := nil.
 	self rebuildSource
 ]
 
@@ -151,29 +151,6 @@ SRGCStats >> collisionGeometry [
 		width: w
 		height: h)
 		object: self
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/13/2026 16:32'
-}
-SRGCStats >> ensureShader [
-	"The backing Form is BGRA (see SRTextureSource), so the quad must draw with the
-	morphicPanel shader which swizzles .bgra on the GPU. Set once, when a GL context
-	exists to load it."
-
-	meshObject material shader ifNil: [
-		SRRenderer hasContext ifTrue: [
-			meshObject material shader: SRShader morphicPanel load]]
-]
-
-{
-	#category : #accessing,
-	#'squeak_changestamp' : 'MCPServer 8/13/2026 13:38'
-}
-SRGCStats >> fastTexture [
-
-	^ fastTexture
 ]
 
 {
@@ -241,7 +218,7 @@ SRGCStats >> onWorldStopped [
 
 {
 	#category : #stepping,
-	#'squeak_changestamp' : 'MCPServer 9/18/2026 14:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 11:16'
 }
 SRGCStats >> paint [
 	"The fps lane already holds every frame of the interval, measured in #step:."
@@ -249,8 +226,8 @@ SRGCStats >> paint [
 	| before |
 	before := Smalltalk vmParameterAt: 34.
 	panel stepGraphsWithDelta: nil.
-	panel renderOn: (GcStatsTextureSurface new source: source font: self labelFont).
-	source notifyTextureChanged.
+	source editDo: [:each |
+		panel renderOn: (GcStatsTextureSurface new source: each font: self labelFont)].
 	panel discountBytes: (Smalltalk vmParameterAt: 34) - before.
 	lastPaintMillis := Time millisecondClockValue.
 ]
@@ -281,21 +258,18 @@ SRGCStats >> periodMillis: anInteger [
 
 {
 	#category : #layout,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:58'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 11:16'
 }
 SRGCStats >> rebuildSource [
-	"(Re)build the pixel buffer, GPU texture and quad aspect for the current label font.
-	Layout: [fps label strip][fps graph][mem label strip][mem graph]."
-
+	"The panel's graph forms and label font are already at the native texture resolution, so the texture is their actual size."
 	| extent |
-	"The panel computes the composited size from its graph forms and our label font.
-	Graph forms and the label font are already at the render scale (native texture
-	resolution), so the texture is their actual size -- real pixels, no upscaling."
 	extent := panel extentFor: (GcStatsTextureSurface new source: nil font: self labelFont).
-	source := SRTextureSource width: extent x height: extent y fill: GcGraph backgroundColor.
-	fastTexture := SRFastTexture on: source.
-	meshObject material texture: fastTexture.
-	meshObject scale: (Vector3 x: 1.0 y: 1.0 z: extent y / extent x)
+	source := SRTextureSourceForm width: extent x height: extent y fill: GcGraph backgroundColor.
+	texture := SRTexture withSource: source.
+	meshObject material
+		shader: SRShader morphicPanel;
+		texture: texture.
+	meshObject scale: (Vector3 x: 1.0 y: 1.0 z: extent y / extent x).
 ]
 
 {
@@ -318,22 +292,6 @@ SRGCStats >> reconfigure [
 SRGCStats >> remove [
 	panel release.
 	super remove
-]
-
-{
-	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 8/21/2026 10:51'
-}
-SRGCStats >> renderOn: aSRRenderer [
-	"Push this frame's pixel changes to the GPU while the GL context is live. The
-	child SRMeshObject draws the quad itself via the tree walk."
-
-	"Only touch GL when a context is live, and never let a transient texture-rebuild error
-	propagate: SRFrame>>renderObjects would flag us badRender: true and skip us forever."
-	suspended == true ifTrue: [^ self].
-	SRRenderer hasContext ifFalse: [^ self].
-	self ensureShader.
-	[fastTexture syncToGpu] on: Error do: [:e | "next frame retries the sync"]
 ]
 
 {
