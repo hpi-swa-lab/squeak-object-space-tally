@@ -9,7 +9,7 @@ Reference material sits behind this: [landscape.md](landscape.md) enumerates the
 tools and derives the coverage systematically, [stories.md](stories.md) records
 the individual findings this argument is abstracted from,
 [architecture.md](architecture.md) describes construction,
-[gallery.md](gallery.md) shows each view, [todo.md](todo.md) holds the resulting
+[gallery/index.md](gallery/index.md) shows each view, [todo.md](todo.md) holds the resulting
 backlog.
 
 ## 1. The problem is distance, not access

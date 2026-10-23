@@ -68,7 +68,7 @@ box in media/swa-landscape.dot, and a re-render of that figure.
 | **Alloc Tracer** (`SWAAllocTracer`) | Which *code paths* allocate these -- and are they kept? | allocation call tree | allocations, coloured by retention |
 | **GC Stats / Memory Graph** ([journal](../../journal/2026-08-21c-gc-stats-memory-lanes-and-the-freeze-hunt.md)) | What is the heap doing over time, inside and outside the image? | -- (time series) | bytes / fps / scavenges |
 
-See the **[gallery](gallery.md)** for a screenshot of each.
+See the **[gallery](gallery/index.md)** for a screenshot of each.
 
 ## The Shared View Layer
 
