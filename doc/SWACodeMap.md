@@ -443,7 +443,7 @@ view kind, dataset, package scope). Marks persist to a JSON sidecar
 (Save/Load in the flap's burger menu) and survive window open/close.
 
 From the marks burger menu, **Class diagram of marks (live)** opens a
-[Class Diagram](gallery.md#class-diagram--inheritance-diagram) scoped to exactly the
+[Class Diagram](gallery/class-diagram.md) scoped to exactly the
 marked classes, in the `+Selected` granularity (each box shows only its *marked*
 ivars and methods), staying **live-synced** as you mark/unmark elsewhere.
 

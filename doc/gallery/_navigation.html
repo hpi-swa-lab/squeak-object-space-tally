@@ -1,0 +1,45 @@
+
+
+<lively-script><script>
+// #TODO replace with own.. lively-navigation tag #Feature #Component
+var context = lively.query(this, "lively-import")
+if (context) {
+  var contextURL = context.getAttribute("src")
+} 
+if (contextURL) {
+  contextURL = contextURL.replace(/[^\/]*$/,"")
+  
+  var links = {
+    doc: "../index.md",
+    "views": "../views.md",
+    "landscape": "../landscape.md",
+    "stories": "../stories.md",
+    "gallery": "index.md",
+    "packages": "../packages.md",
+    "motivation": "../motivation.md",
+    "vision": "../vision.md",
+    "ideas": "../ideas.md",
+    "related-work": "../related-work.md",
+    "research": "../research.md",
+    "architecture": "../architecture.md",
+    "api": "../api.md",
+    "todo": "../todo.md",
+    "tests": "../tests.md",
+    "benchmarks": "../benchmarks.md",
+    "smells": "../smells.md",
+  }
+  var container = lively.query(this, "lively-container")
+  var base = contextURL;
+  var div = document.createElement("div")
+  if (container) {
+    Object.keys(links).forEach(ea => {
+      div.appendChild(container.createLink(base, ea, links[ea]))
+      div.appendChild(document.createTextNode(" | "))
+    })
+  };
+  var result = div
+} else {
+  var result = <b>please use lively-import to include this page</b>
+};
+result
+</script></lively-script>

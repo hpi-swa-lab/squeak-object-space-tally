@@ -6,7 +6,7 @@ Systematic enumeration of what the suite measures, and derivation of what it doe
 not. The reading of this material, and the coverage argument built on it, is in
 [views.md](views.md); resulting work items are in [todo.md](todo.md).
 Construction is in [architecture.md](architecture.md), appearance in
-[gallery.md](gallery.md), usage in [api.md](api.md).
+[gallery/index.md](gallery/index.md), usage in [api.md](api.md).
 
 ![The SWA measurement landscape](media/swa-landscape.png)
 

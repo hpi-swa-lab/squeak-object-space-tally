@@ -78,7 +78,7 @@ The flamegraph, class diagram, and each treemap re-implement small chrome hooks
 ## 2. Naming / clarity
 
 ### 2.1 `SWAView` vs `SWAPane` **[naming]**
-Already flagged in `gallery.md` ("consider whether `SWAView` wants a clearer name
+Already flagged in `gallery/view-layer.md` ("consider whether `SWAView` wants a clearer name
 alongside `SWAPane`"). `SWAView` is the *content morph*; `SWAPane` is the *window
 chrome*. The names invite confusion (a "pane" usually *is* the content). Worth
 settling before more subclasses appear.
@@ -249,7 +249,7 @@ symmetric-difference are natural next steps the structure already anticipates
 ("operator" is stored) but doesn't implement.
 
 ### 6.4 Class-diagram containment mode removed, nothing replaced it **[open]**
-`gallery.md` notes the containment graph mode was removed as "superseded by the
+`gallery/class-diagram.md` notes the containment graph mode was removed as "superseded by the
 treemap Code Map." Fine, but the diagram is now inheritance-only; a package-level
 *collaboration/reference* diagram is an obvious gap (and `SWACodeInstVarNode` was
 added "so instance variables can... later carry EDGES to other nodes -- composition/
@@ -285,7 +285,7 @@ projection idea is more general than its current use.
   pinned (and the file itself warns "if they drift, re-run the snippet"). The class
   hierarchy diagram omits `SWACodeInstVarNode`, `SWACodeMarkSetRootNode`,
   `SWAMaskSource`, `SWAStructure`, and the whole marks/instrumentation family.
-- `index.md` / `gallery.md` / per-tool docs predate the **Marks**, **Mask (B\A)**,
+- `index.md` / `gallery/` / per-tool docs predate the **Marks**, **Mask (B\A)**,
   **Generate** (async on-the-fly datasets), **topic model**, and **live
   class-diagram-of-marks** features -- none are documented.
 - `SWASpaceTally.md` "Performance" and "deadline" sections describe a pre-rewrite
