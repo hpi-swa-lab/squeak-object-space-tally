@@ -49,7 +49,7 @@ SWATreemapOverlay >> addContainerTintItemsTo: aMenu [
 
 {
 	#category : #menu,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
 }
 SWATreemapOverlay >> addMarkMenuItems: aMenu for: aNode [
 	"Add the mark/bookmark context-menu items for aNode: a toggle (Mark / Unmark)
@@ -61,6 +61,11 @@ SWATreemapOverlay >> addMarkMenuItems: aMenu for: aNode [
 		(treemapMorph isNodeMarked: aNode)
 			ifTrue: [aMenu add: 'Unmark' target: treemapMorph selector: #toggleMark: argument: aNode]
 			ifFalse: [aMenu add: 'Mark' target: treemapMorph selector: #toggleMark: argument: aNode]].
+	(treemapMorph respondsTo: #toggleFocusMarked) ifTrue: [
+		aMenu
+			add: (treemapMorph focusMarked ifTrue: ['<yes>Focus marked'] ifFalse: ['<no>Focus marked'])
+			target: treemapMorph
+			selector: #toggleFocusMarked].
 	aMenu add: 'explore tally node' target: treemapMorph selector: #exploreNode: argument: aNode
 ]
 
@@ -131,20 +136,15 @@ SWATreemapOverlay >> doubleClickMillis [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:58'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
 }
 SWATreemapOverlay >> drawMarksOn: aCanvas origin: origin [
-	"Draw a GREEN border around every tile currently in the global mark set
-	(SWAMarkSet), resolved to this view's nodes via #markedNodes. Hover-independent
-	and persistent: marks stay visible as the mouse moves. Only currently-laid-out
-	tiles have a rectangle (rectForNode: answers nil otherwise), so marks off-screen
-	under a zoom are simply not drawn."
+
 	(treemapMorph respondsTo: #markedNodes) ifFalse: [^ self].
 	treemapMorph markedNodes do: [:node | | r |
 		r := treemapMorph rectForNode: node.
 		r ifNotNil: [
-			SWASelectionPainter
-				frame: (r translateBy: origin) on: aCanvas width: 3 color: Color green]]
+			SWASelectionPainter markFrameOn: aCanvas rect: (r translateBy: origin)]].
 ]
 
 {

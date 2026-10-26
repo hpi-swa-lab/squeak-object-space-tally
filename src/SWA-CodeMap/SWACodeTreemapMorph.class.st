@@ -968,13 +968,16 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
 }
 SWACodeTreemapMorph >> drawTileFrame: aNode in: screenR on: aCanvas [
-	"Signed-off changes get a thin blue border, so the fill can stay whatever the
-	colour mode says."
+	"Signed-off changes get a blue border inside the mark frame, so a tile can show
+	both, and the fill stays whatever the colour mode says."
+
+	| inset |
 	(self isReviewedChange: aNode) ifFalse: [^ self].
-	aCanvas frameRectangle: (screenR insetBy: 1) width: 2 color: (Color h: 210 s: 0.85 v: 1.0).
+	inset := (screenR width min: screenR height) > 12 ifTrue: [3] ifFalse: [1].
+	aCanvas frameRectangle: (screenR insetBy: inset) width: 2 color: (Color h: 210 s: 0.85 v: 1.0).
 ]
 
 {

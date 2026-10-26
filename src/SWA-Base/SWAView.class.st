@@ -60,7 +60,9 @@ Class {
 		'snapshotRoot',
 		'rangeView',
 		'rangeViewButtons',
-		'gitStatusCache'
+		'gitStatusCache',
+		'focusMarked',
+		'focusMarkedSet'
 	],
 	#classVars : [
 		'CrossRefGeneration',
@@ -531,17 +533,18 @@ SWAView >> colorForChange: aKind reviewed: aBoolean [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer 7/3/2026 14:04'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
 }
 SWAView >> colorForNode: aNode [
-	"Tile color, with the name-SEARCH overlay applied last: compute the intrinsic color
-	(metric / coverage / highlight compositing -- see #intrinsicColorForNode:) then, if
-	a name-search is running and aNode is neither a match nor an ancestor of one, DIM it
-	toward near-black so the matching tiles (and the path down to them) stand out."
+	"Tile colour, then the dimming layers on top: an active name search, then the
+	focus on marked nodes."
+
 	| base |
 	base := self intrinsicColorForNode: aNode.
 	(self isSearchDimmed: aNode)
 		ifTrue: [^ base alphaMixed: 0.16 with: (Color gray: 0.1)].
+	(self isFocusDimmed: aNode)
+		ifTrue: [^ base alphaMixed: 0.22 with: (Color gray: 0.1)].
 	^ base
 ]
 
@@ -1122,12 +1125,13 @@ SWAView >> flushCache [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 09:57'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
 }
 SWAView >> flushMarksCache [
-	"Drop the cached set of marked nodes so it is rebuilt from the global mark set
-	on next draw. Called when the shared SWAMarkSet changes."
-	markedNodesCache := nil
+
+	markedNodesCache := nil.
+	focusMarkedSet := nil.
+	self focusMarked ifTrue: [self flushCache].
 ]
 
 {
@@ -1143,6 +1147,42 @@ SWAView >> focusForNode: aNode [
 	((aNode respondsTo: #classNode) and: [aNode classNode notNil])
 		ifTrue: [^ #class -> aNode classNode name].
 	^ nil
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
+}
+SWAView >> focusMarked [
+
+	^ focusMarked == true
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
+}
+SWAView >> focusMarkedSet [
+	"The most specific marks win: a marked class lights its members only when none of
+	them is marked itself."
+
+	| hasMarkedBelow |
+	focusMarkedSet ifNotNil: [^ focusMarkedSet].
+	focusMarkedSet := IdentitySet new.
+	hasMarkedBelow := IdentitySet new.
+	self markedNodes do: [:each | | ancestor |
+		ancestor := each parent.
+		[ancestor notNil and: [(hasMarkedBelow includes: ancestor) not]] whileTrue: [
+			hasMarkedBelow add: ancestor.
+			ancestor := ancestor parent]].
+	self markedNodes do: [:each | | node |
+		node := each.
+		[node notNil] whileTrue: [
+			focusMarkedSet add: node.
+			node := node parent].
+		(hasMarkedBelow includes: each) ifFalse: [
+			each withAllChildrenDo: [:child | focusMarkedSet add: child]]].
+	^ focusMarkedSet
 ]
 
 {
@@ -1656,6 +1696,16 @@ SWAView >> isFilteredOut: aNode [
 	coveringTestFilter notNil ifTrue: [
 		^ aNode crossRefKey ~= (selectedNode ifNil: [nil] ifNotNil: [:n | n crossRefKey])].
 	^ false
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
+}
+SWAView >> isFocusDimmed: aNode [
+
+	self focusMarked ifFalse: [^ false].
+	^ (self focusMarkedSet includes: aNode) not
 ]
 
 {
@@ -3125,7 +3175,7 @@ SWAView >> takeKeyboardFocusFrom: evt [
 
 {
 	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
 }
 SWAView >> takeOverFrom: aView [
 	"Show what aView showed: its commit range and review scope, its root and zoom, its
@@ -3134,6 +3184,8 @@ SWAView >> takeOverFrom: aView [
 	self takeOverRootFrom: aView.
 	self focusOn: aView currentFocus.
 	self shareDatasetsOf: aView.
+	focusMarked := aView focusMarked.
+	focusMarkedSet := nil.
 	(aView colorMode notNil and: [(self metricForMode: aView colorMode) notNil])
 		ifTrue: [self colorMode: aView colorMode].
 	aView selectedNode ifNotNil: [:node | self selectNodeForKey: node crossRefKey].
@@ -3266,6 +3318,17 @@ SWAView >> toCommitLabel [
 	"What the To field shows. The head commit has a name rather than a blank."
 	toCommit ifNil: [^ 'HEAD'].
 	^ self commitLabelFor: toCommit
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
+}
+SWAView >> toggleFocusMarked [
+
+	focusMarked := self focusMarked not.
+	focusMarkedSet := nil.
+	self flushCache.
 ]
 
 {

@@ -58,6 +58,28 @@ SWASelectionPainter class >> hoverFrameOn: aCanvas rect: aRect [
 ]
 
 {
+	#category : #colors,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
+}
+SWASelectionPainter class >> markColor [
+
+	^ Color r: 1.0 g: 0.85 b: 0.0
+]
+
+{
+	#category : #drawing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
+}
+SWASelectionPainter class >> markFrameOn: aCanvas rect: aRect [
+	"Outlined so it reads on every fill, including the green of added code. It takes
+	the outer three pixels; a review sign-off is framed just inside it."
+
+	aRect ifNil: [^ self].
+	aCanvas frameRectangle: aRect width: 1 color: Color black.
+	aCanvas frameRectangle: (aRect insetBy: 1) width: 2 color: self markColor.
+]
+
+{
 	#category : #constants,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 18:00'
 }

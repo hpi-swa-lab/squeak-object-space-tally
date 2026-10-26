@@ -66,12 +66,18 @@ Class {
 		'followButton',
 		'followingNow',
 		'keyShownInLeader',
-		'followedState'
+		'followedState',
+		'marksTitleMorph',
+		'reviewedTitleMorph',
+		'reviewedList',
+		'reviewedPrimaryIndex',
+		'reviewedHeight'
 	],
 	#classVars : [
 		'CallTallyCounter',
 		'CodeMapWorkingSet',
 		'LastTallyDoit',
+		'MarksDirectory',
 		'SampleTallyDuration',
 		'TopicK',
 		'TopicSweeps'
@@ -373,6 +379,17 @@ SWAPane class >> initialize [
 ]
 
 {
+	#category : #'marks files',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
+}
+SWAPane class >> marksDirectory [
+
+	^ (MarksDirectory notNil and: [FileDirectory default directoryExists: MarksDirectory])
+		ifTrue: [FileDirectory on: MarksDirectory]
+		ifFalse: [FileDirectory default]
+]
+
+{
 	#category : #'xr frame profiling',
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 17:19'
 }
@@ -403,6 +420,15 @@ SWAPane class >> measureXRFrames: aCount packages: aGlobCollection in: aWorld [
 					SWAMethodWrapper uninstallAllStrayWrappers.
 					SWATallyWrapper resetCallTree]].
 	^ cov
+]
+
+{
+	#category : #'marks files',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
+}
+SWAPane class >> noteMarksFile: aFullName [
+
+	MarksDirectory := (FileDirectory forFileName: aFullName) fullName.
 ]
 
 {
@@ -2014,6 +2040,22 @@ SWAPane >> chooseJsonFilePrompt: aPromptString [
 ]
 
 {
+	#category : #'marks - persistence',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
+}
+SWAPane >> chooseMarksFileLabelled: aString [
+
+	| name |
+	name := UIManager default
+		chooseFileFrom: self class marksDirectory
+		matching: '*.json'
+		label: aString.
+	(name isNil or: [name isEmpty]) ifTrue: [^ nil].
+	self class noteMarksFile: name.
+	^ name
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:36'
 }
@@ -2106,7 +2148,7 @@ SWAPane >> clearMarks [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:35'
 }
 SWAPane >> clearReviewed [
 	"Drop every review sign-off, after confirming -- there is no undo and the set is
@@ -2117,6 +2159,7 @@ SWAPane >> clearReviewed [
 	SWAMarkSet reviewed clear.
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
+	reviewedPrimaryIndex := 0.
 	commentEditKey := nil.
 ]
 
@@ -2128,6 +2171,34 @@ SWAPane >> clearSelectionShownInLeader [
 	keyShownInLeader ifNil: [^ self].
 	keyShownInLeader := nil.
 	leaderPane view showForeignSelectionKey: nil.
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> clickRow: anIndex in: items shifted: shifted controlled: controlled from: previousIndex [
+	"Answers the new primary row. A plain click replaces the selection and reveals the
+	mark in an open view; Ctrl toggles; Shift extends from the previous primary row."
+
+	| key |
+	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
+	(anIndex between: 1 and: items size) ifFalse: [
+		commentEditKey := nil.
+		self updateCommentField.
+		^ 0].
+	key := items at: anIndex.
+	shifted
+		ifTrue: [self extendSelectionTo: anIndex in: items from: previousIndex]
+		ifFalse: [controlled
+			ifTrue: [(marksSelectedKeys includes: key)
+				ifTrue: [marksSelectedKeys remove: key]
+				ifFalse: [marksSelectedKeys add: key]]
+			ifFalse: [marksSelectedKeys := Set with: key]].
+	commentEditKey := key.
+	self updateCommentField.
+	(shifted or: [controlled]) ifFalse: [self revealMarkInOpenView: key].
+	^ anIndex
 ]
 
 {
@@ -2255,7 +2326,7 @@ SWAPane >> collapseData [
 
 {
 	#category : #'marks - flap',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:07'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:35'
 }
 SWAPane >> collapseMarks [
 	"Collapse the Marks flap: remove the panel + splitter (and its floating collapse
@@ -2264,6 +2335,7 @@ SWAPane >> collapseMarks [
 	(marksPanel isNil or: [marksPanel owner isNil]) ifTrue: [^ self].
 	marksSplitter ifNotNil: [marksSplitter delete. marksSplitter := nil].
 	marksPanel delete. marksPanel := nil. marksList := nil. commentField := nil.
+	reviewedList := marksTitleMorph := reviewedTitleMorph := nil.
 	marksCollapseTab := nil.
 	self showMarksTab.
 	self layoutChanged
@@ -2498,21 +2570,20 @@ SWAPane >> datasetNameFor: aPath [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
 }
 SWAPane >> defaultMarksFileName [
-	"The suggested file name for Save/Load, in the image directory."
-	^ FileDirectory default fullNameFor: 'swa-marks.json'
+	^ self class marksDirectory fullNameFor: 'swa-marks.json'
 ]
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
 }
 SWAPane >> defaultReviewedFileName [
-	"The suggested file name for the reviewed set, in the image directory. A separate
+	"The suggested file name for the reviewed set, in the marks directory. A separate
 	sidecar from swa-marks.json: review sign-offs outlive any one working set."
-	^ FileDirectory default fullNameFor: 'swa-reviewed.json'
+	^ self class marksDirectory fullNameFor: 'swa-reviewed.json'
 ]
 
 {
@@ -2682,18 +2753,15 @@ SWAPane >> exportCoverage [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 12:33'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
-SWAPane >> extendMarksSelectionTo: anIndex [
-	"SHIFT-click: select the contiguous range of rows between the previous primary row
-	and anIndex (inclusive). With no prior primary, behaves like a single select."
-	| items from to |
-	items := self marksListItems.
-	from := (marksPrimaryIndex isNil or: [marksPrimaryIndex = 0]) ifTrue: [anIndex] ifFalse: [marksPrimaryIndex].
-	to := anIndex.
+SWAPane >> extendSelectionTo: anIndex in: items from: previousIndex [
+
+	| from |
+	from := previousIndex = 0 ifTrue: [anIndex] ifFalse: [previousIndex].
 	marksSelectedKeys := Set new.
-	(from min: to) to: (from max: to) do: [:i |
-		(i between: 1 and: items size) ifTrue: [marksSelectedKeys add: (items at: i)]]
+	(from min: anIndex) to: (from max: anIndex) do: [:i |
+		(i between: 1 and: items size) ifTrue: [marksSelectedKeys add: (items at: i)]].
 ]
 
 {
@@ -2703,6 +2771,17 @@ SWAPane >> extendMarksSelectionTo: anIndex [
 SWAPane >> flashMarksMessage: aString [
 	"Briefly show feedback (e.g. after Copy) in the run-info line."
 	self showMessage: aString
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
+}
+SWAPane >> focusMarkedLabel [
+
+	^ ((view respondsTo: #focusMarked) and: [view focusMarked])
+		ifTrue: ['<yes>Focus marked']
+		ifFalse: ['<no>Focus marked']
 ]
 
 {
@@ -3182,6 +3261,19 @@ SWAPane >> growPackagesListBy: deltaPixels [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> growReviewedListBy: deltaPixels [
+	"Dragging the splitter down (positive) makes the reviewed list shorter."
+
+	reviewedList ifNil: [^ self].
+	reviewedHeight := (((reviewedHeight ifNil: [120]) - deltaPixels) max: 40) min: 600.
+	reviewedList height: reviewedHeight.
+	self layoutChanged.
+]
+
+{
 	#category : #actions,
 	#'squeak_changestamp' : 'MCPServer 6/30/2026 12:11'
 }
@@ -3328,6 +3420,16 @@ SWAPane >> importData [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> isSelectedRow: anIndex in: items [
+
+	(anIndex between: 1 and: items size) ifFalse: [^ false].
+	^ marksSelectedKeys notNil and: [marksSelectedKeys includes: (items at: anIndex)]
+]
+
+{
 	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 8/4/2026 15:55'
 }
@@ -3450,17 +3552,15 @@ SWAPane >> loadJsonFile: aPath [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:34'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
 }
 SWAPane >> loadMarks [
 	"Prompt for a JSON marks file and REPLACE the current marks + comments with it.
 	Clears the local selection since the keys change; all panes refresh via notifyPanes.
 	The pattern is a String (';'/CR/LF-separated globs), NOT an Array."
 	| name n |
-	name := UIManager default
-		chooseFileMatching: '*.json'
-		label: 'Load marks from file'.
-	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	name := self chooseMarksFileLabelled: 'Load marks from file'.
+	name ifNil: [^ self].
 	n := SWAMarkSet default loadFromFile: name.
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
@@ -3471,15 +3571,13 @@ SWAPane >> loadMarks [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
 }
 SWAPane >> loadReviewed [
 	"Prompt for a JSON file and REPLACE the reviewed set + comments with it."
 	| name n |
-	name := UIManager default
-		chooseFileMatching: '*.json'
-		label: 'Load reviewed marks from file'.
-	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	name := self chooseMarksFileLabelled: 'Load reviewed marks from file'.
+	name ifNil: [^ self].
 	n := SWAMarkSet reviewed loadFromFile: name.
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
@@ -3529,19 +3627,18 @@ SWAPane >> loadTopicJson: json name: aName [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
 SWAPane >> markSetForKey: aKey [
-	"Which of the two sets a Marks-list row belongs to, or nil for the section header.
-	Comments and removal must act on the owning set, not always on #default."
-	aKey = self marksReviewedHeader ifTrue: [^ nil].
+	"Comments and removal must act on the set that owns the row, not always on #default."
+
 	(SWAMarkSet reviewed includes: aKey) ifTrue: [^ SWAMarkSet reviewed].
 	^ SWAMarkSet default
 ]
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:27'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
 }
 SWAPane >> marksBurgerMenu: aMenu [
 	"The 'burger' menu that replaces the Copy/Clear button row. Bundles the
@@ -3555,6 +3652,7 @@ SWAPane >> marksBurgerMenu: aMenu [
 		ifTrue: [aMenu add: 'Copy selected (', n printString, ')' target: self selector: #copyMarks]
 		ifFalse: [aMenu add: 'Copy all' target: self selector: #copyMarks].
 	aMenu add: 'Clear' target: self selector: #clearMarks.
+	aMenu add: self focusMarkedLabel target: self selector: #toggleFocusMarked.
 	aMenu addLine.
 	aMenu add: 'Class diagram of marks (live)' target: self selector: #openMarksClassDiagram.
 	aMenu addLine.
@@ -3617,18 +3715,11 @@ SWAPane >> marksDetailsText [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
 SWAPane >> marksListItems [
-	"The list contents for the Marks panel: the global mark keys in mark order
-	(package name / class name / 'ClassName>>selector')."
-	| items reviewed |
-	items := SWAMarkSet default keys asOrderedCollection.
-	reviewed := SWAMarkSet reviewed keys.
-	reviewed notEmpty ifTrue: [
-		items add: self marksReviewedHeader.
-		items addAll: reviewed].
-	^ items asArray
+
+	^ SWAMarkSet default keys asArray
 ]
 
 {
@@ -3661,31 +3752,20 @@ SWAPane >> marksListMenu: aMenu [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:36'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
-SWAPane >> marksListSelectionAt: index [
-	"Is the Marks row at index part of the multi-selection?"
-	| items |
-	items := self marksListItems.
-	(index between: 1 and: items size) ifFalse: [^ false].
-	^ marksSelectedKeys notNil and: [marksSelectedKeys includes: (items at: index)]
+SWAPane >> marksListSelectionAt: anIndex [
+
+	^ self isSelectedRow: anIndex in: self marksListItems
 ]
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/16/2026 11:37'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
-SWAPane >> marksListSelectionAt: index put: aBoolean [
-	"Add/remove the Marks row at index from the multi-selection (shift/ctrl-click)."
-	| items key |
-	items := self marksListItems.
-	(index between: 1 and: items size) ifFalse: [^ self].
-	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
-	key := items at: index.
-	aBoolean
-		ifTrue: [marksSelectedKeys add: key. commentEditKey := key]
-		ifFalse: [marksSelectedKeys remove: key ifAbsent: []].
-	self updateCommentField
+SWAPane >> marksListSelectionAt: anIndex put: aBoolean [
+
+	self selectRow: anIndex in: self marksListItems put: aBoolean.
 ]
 
 {
@@ -3700,50 +3780,18 @@ SWAPane >> marksPrimaryIndex [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 12:46'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
 SWAPane >> marksPrimaryIndex: anIndex shifted: shifted controlled: controlled [
-	"Selection semantics for the Marks list (AlternatePluggableListMorphOfMany):
-	 - PLAIN click: replace the selection with just this row.
-	 - CTRL click: toggle this row in/out of the selection.
-	 - SHIFT click: extend the selection as a range from the previous primary row.
-	The clicked row becomes primary and its comment loads into the editor. On a PLAIN
-	click we also try to REVEAL the mark in an already-open view of its recorded kind+scope
-	(select the node so its source shows) -- like clicking the node itself. We never spawn
-	a new window here; that is reserved for the explicit 'Show in a view' menu entry.
 
-	Ctrl+click arrives here as #controlled:true because the global SWAMarksClickFilter
-	rewrites the VM's emulated Ctrl+click (yellow button) back into a real Ctrl+Red
-	left-click before dispatch (requires Morph metaMenuForAll to be OFF)."
-	| items key |
-	items := self marksListItems.
-	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
-	(anIndex between: 1 and: items size) ifFalse: [
-		marksPrimaryIndex := 0. commentEditKey := nil.
-		self updateCommentField. marksList ifNotNil: [marksList changed]. ^ self].
-	key := items at: anIndex.
-	shifted
-		ifTrue: [self extendMarksSelectionTo: anIndex]
-		ifFalse: [controlled
-			ifTrue: [(marksSelectedKeys includes: key)
-				ifTrue: [marksSelectedKeys remove: key ifAbsent: []]
-				ifFalse: [marksSelectedKeys add: key]]
-			ifFalse: [marksSelectedKeys := Set with: key]].
-	marksPrimaryIndex := anIndex.
-	commentEditKey := key.
-	self updateCommentField.
-	(shifted not and: [controlled not]) ifTrue: [self revealMarkInOpenView: key].
-	marksList ifNotNil: [marksList changed]
-]
-
-{
-	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
-}
-SWAPane >> marksReviewedHeader [
-	"The section divider between the working set and the reviewed set in the Marks
-	list. It occupies a row, so every key-by-index lookup must skip it."
-	^ '--- reviewed ---'
+	marksPrimaryIndex := self
+		clickRow: anIndex
+		in: self marksListItems
+		shifted: shifted
+		controlled: controlled
+		from: self marksPrimaryIndex.
+	reviewedPrimaryIndex := 0.
+	self refreshMarksLists.
 ]
 
 {
@@ -3774,7 +3822,7 @@ SWAPane >> metaInfoContents [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:35'
 }
 SWAPane >> morphViewInto: aViewMorph [
 	"Replace the panel's inner view with aViewMorph and rebuild the chrome around it,
@@ -3795,6 +3843,7 @@ SWAPane >> morphViewInto: aViewMorph [
 	depthButtons := fullButton := nil.
 	bodyRow := marksPanel := marksList := marksButton := nil.
 	marksSplitter := commentField := nil.
+	reviewedList := marksTitleMorph := reviewedTitleMorph := nil.
 	self setView: aViewMorph.
 	self layoutChanged.
 	aViewMorph changed
@@ -4002,12 +4051,13 @@ SWAPane >> newMarksCollapseButton [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer 9/22/2026 15:26'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:35'
 }
 SWAPane >> newMarksPanel [
 	"Build the left-hand Marks panel. The content column (burger-menu row, then the
 	Packages section, then a
-	MULTI-SELECT list of the global mark keys, then a comment editor) fills the WHOLE
+	MULTI-SELECT list of the global mark keys and one of the review sign-offs, each
+	under a title row with its count and a Load button, then a comment editor) fills the WHOLE
 	panel width; the vertical 'Marks' collapse tab (#newMarksCollapseButton) FLOATS
 	over the content's left edge, overlapping into the list rather than taking its own
 	column, and is centred vertically by #positionMarksCollapseTab. Clicking the tab
@@ -4038,6 +4088,20 @@ SWAPane >> newMarksPanel [
 		keystroke: nil.
 	marksList
 		hResizing: #spaceFill; vResizing: #spaceFill;
+		color: Color white;
+		textColor: Color black.
+	reviewedList := SWAMarksListMorph
+		on: self
+		list: #reviewedListItems
+		primarySelection: #reviewedPrimaryIndex
+		changePrimarySelection: #reviewedPrimaryIndex:shifted:controlled:
+		listSelection: #reviewedListSelectionAt:
+		changeListSelection: #reviewedListSelectionAt:put:
+		menu: #reviewedListMenu:
+		keystroke: nil.
+	reviewedList
+		hResizing: #spaceFill; vResizing: #rigid;
+		height: (reviewedHeight ifNil: [reviewedHeight := 120]);
 		color: Color white;
 		textColor: Color black.
 	detailsTitleMorph := StringMorph new
@@ -4082,7 +4146,19 @@ SWAPane >> newMarksPanel [
 		addMorphBack: (SWASplitter horizontal
 			resizeAction: [:d | self growPackagesListBy: d];
 			yourself);
+		addMorphBack: (self
+			newMarksSectionRow: (marksTitleMorph := self newMarksSectionTitle)
+			load: #loadMarks
+			balloon: 'Load marks from a JSON file');
 		addMorphBack: marksList;
+		addMorphBack: (SWASplitter horizontal
+			resizeAction: [:d | self growReviewedListBy: d];
+			yourself);
+		addMorphBack: (self
+			newMarksSectionRow: (reviewedTitleMorph := self newMarksSectionTitle)
+			load: #loadReviewed
+			balloon: 'Load review sign-offs from a JSON file');
+		addMorphBack: reviewedList;
 		addMorphBack: detailsTitleMorph;
 		addMorphBack: marksDetailsMorph;
 		addMorphBack: commentTitle;
@@ -4101,6 +4177,42 @@ SWAPane >> newMarksPanel [
 	marksCollapseTab := self newMarksCollapseButton.
 	panel addMorphFront: marksCollapseTab.
 	^ panel
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> newMarksSectionRow: aTitleMorph load: aSelector balloon: aString [
+
+	| load row |
+	load := self buttonLabelled: 'Load' action: aSelector.
+	load setBalloonText: aString.
+	row := Morph new
+		color: (Color gray: 0.12);
+		layoutPolicy: TableLayout new;
+		listDirection: #leftToRight;
+		vResizing: #shrinkWrap; hResizing: #spaceFill;
+		cellInset: 3;
+		wrapCentering: #center; cellPositioning: #leftCenter;
+		yourself.
+	^ row
+		addMorphBack: aTitleMorph;
+		addMorphBack: load;
+		yourself
+]
+
+{
+	#category : #'marks - flap',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> newMarksSectionTitle [
+
+	^ StringMorph new
+		font: (TextStyle default fontOfPointSize: 10);
+		color: (Color gray: 0.7);
+		hResizing: #spaceFill; vResizing: #rigid;
+		yourself
 ]
 
 {
@@ -4951,6 +5063,16 @@ SWAPane >> refreshDataPanel [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> refreshMarksLists [
+
+	marksList ifNotNil: [marksList changed].
+	reviewedList ifNotNil: [reviewedList changed].
+]
+
+{
 	#category : #dialogs,
 	#'squeak_changestamp' : 'MCPServer 7/31/2026 16:35'
 }
@@ -5001,25 +5123,21 @@ SWAPane >> removePackageHere [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
 SWAPane >> removeSelectedMark [
-	"Remove the currently multi-selected marks (globally). Falls back to the primary
-	row if the multi-selection is empty."
+
 	| picked |
 	picked := (marksSelectedKeys notNil and: [marksSelectedKeys notEmpty])
 		ifTrue: [marksSelectedKeys asArray]
-		ifFalse: [
-			| items idx |
-			items := self marksListItems.
-			idx := self marksPrimaryIndex.
-			(idx between: 1 and: items size) ifTrue: [{ items at: idx }] ifFalse: [#()]].
+		ifFalse: [commentEditKey ifNil: [#()] ifNotNil: [:key | {key}]].
 	picked isEmpty ifTrue: [^ self].
 	SWAMarkSet default removeAll: picked.
 	SWAMarkSet reviewed removeAll: picked.
 	marksSelectedKeys := Set new.
 	marksPrimaryIndex := 0.
-	commentEditKey := nil
+	reviewedPrimaryIndex := 0.
+	commentEditKey := nil.
 ]
 
 {
@@ -5229,6 +5347,79 @@ SWAPane >> revealMarkKey: aMarkKey [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> reviewedListItems [
+
+	^ SWAMarkSet reviewed keys asArray
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> reviewedListMenu: aMenu [
+
+	| n |
+	n := (self reviewedListItems select: [:each | marksSelectedKeys notNil and: [marksSelectedKeys includes: each]]) size.
+	aMenu addTitle: 'Reviewed'.
+	(commentEditKey notNil and: [SWAMarkSet reviewed includes: commentEditKey]) ifTrue: [
+		aMenu add: 'Show in a view' target: self selector: #showSelectedMark.
+		aMenu addLine].
+	n > 0 ifTrue: [aMenu add: 'Remove selected (', n printString, ')' target: self selector: #removeSelectedMark].
+	aMenu add: 'Copy reviewed (', SWAMarkSet reviewed size printString, ')' target: self selector: #copyReviewed.
+	aMenu add: 'Clear reviewed' target: self selector: #clearReviewed.
+	aMenu addLine.
+	aMenu add: 'Save reviewed to file...' target: self selector: #saveReviewed.
+	aMenu add: 'Load reviewed from file...' target: self selector: #loadReviewed.
+	^ aMenu
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> reviewedListSelectionAt: anIndex [
+
+	^ self isSelectedRow: anIndex in: self reviewedListItems
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> reviewedListSelectionAt: anIndex put: aBoolean [
+
+	self selectRow: anIndex in: self reviewedListItems put: aBoolean.
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> reviewedPrimaryIndex [
+
+	^ reviewedPrimaryIndex ifNil: [0]
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> reviewedPrimaryIndex: anIndex shifted: shifted controlled: controlled [
+
+	reviewedPrimaryIndex := self
+		clickRow: anIndex
+		in: self reviewedListItems
+		shifted: shifted
+		controlled: controlled
+		from: self reviewedPrimaryIndex.
+	marksPrimaryIndex := 0.
+	self refreshMarksLists.
+]
+
+{
 	#category : #content,
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 14:51'
 }
@@ -5289,7 +5480,7 @@ SWAPane >> saveDataset: aDataset [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 10:22'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
 }
 SWAPane >> saveMarks [
 	"Prompt for a file name and write ALL marks + comments as JSON. Save always
@@ -5299,6 +5490,7 @@ SWAPane >> saveMarks [
 		saveFilenameRequest: 'Save marks to file'
 		initialAnswer: self defaultMarksFileName.
 	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	self class noteMarksFile: name.
 	SWAMarkSet default saveToFile: name.
 	self flashMarksMessage: 'Saved ', SWAMarkSet default keys size printString,
 		' mark(s) to ', (FileDirectory localNameFor: name)
@@ -5318,7 +5510,7 @@ SWAPane >> savePackagesHere [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:26'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:01'
 }
 SWAPane >> saveReviewed [
 	"Prompt for a file name and write the whole reviewed set + comments as JSON."
@@ -5327,9 +5519,26 @@ SWAPane >> saveReviewed [
 		saveFilenameRequest: 'Save reviewed marks to file'
 		initialAnswer: self defaultReviewedFileName.
 	(name isNil or: [name isEmpty]) ifTrue: [^ self].
+	self class noteMarksFile: name.
 	SWAMarkSet reviewed saveToFile: name.
 	self flashMarksMessage: 'Saved ', SWAMarkSet reviewed size printString,
 		' reviewed mark(s) to ', (FileDirectory localNameFor: name)
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> selectRow: anIndex in: items put: aBoolean [
+
+	| key |
+	(anIndex between: 1 and: items size) ifFalse: [^ self].
+	marksSelectedKeys ifNil: [marksSelectedKeys := Set new].
+	key := items at: anIndex.
+	aBoolean
+		ifTrue: [marksSelectedKeys add: key. commentEditKey := key]
+		ifFalse: [marksSelectedKeys remove: key ifAbsent: []].
+	self updateCommentField.
 ]
 
 {
@@ -5808,6 +6017,15 @@ SWAPane >> toggleData [
 ]
 
 {
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
+}
+SWAPane >> toggleFocusMarked [
+
+	(view respondsTo: #toggleFocusMarked) ifTrue: [view toggleFocusMarked].
+]
+
+{
 	#category : #following,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:39'
 }
@@ -6030,11 +6248,10 @@ SWAPane >> updateFollowButton [
 
 {
 	#category : #marks,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:19'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
 }
 SWAPane >> updateMarksList [
-	"Refresh the Marks list contents (if shown), pruning selection/comment keys that
-	no longer exist and reloading the comment editor."
+
 	| live |
 	live := SWAMarkSet default keys asSet addAll: SWAMarkSet reviewed keys; yourself.
 	marksSelectedKeys ifNotNil: [
@@ -6042,7 +6259,21 @@ SWAPane >> updateMarksList [
 	(commentEditKey notNil and: [(live includes: commentEditKey) not])
 		ifTrue: [commentEditKey := nil].
 	marksList ifNotNil: [marksList updateList].
-	self updateCommentField
+	reviewedList ifNotNil: [reviewedList updateList].
+	self updateMarksTitles.
+	self updateCommentField.
+]
+
+{
+	#category : #marks,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:34'
+}
+SWAPane >> updateMarksTitles [
+
+	marksTitleMorph ifNotNil: [
+		marksTitleMorph contents: 'Marks (', SWAMarkSet default size printString, ')'].
+	reviewedTitleMorph ifNotNil: [
+		reviewedTitleMorph contents: 'Reviewed (', SWAMarkSet reviewed size printString, ')'].
 ]
 
 {
