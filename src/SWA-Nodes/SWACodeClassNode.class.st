@@ -11,7 +11,8 @@ Class {
 		'removedMembers',
 		'memberKinds',
 		'compositionData',
-		'boxFill'
+		'boxFill',
+		'memberFills'
 	],
 	#category : #'SWA-Nodes',
 	#'squeak_changestamp' : '<historical>'
@@ -144,18 +145,26 @@ SWACodeClassNode >> kind [
 
 {
 	#category : #composition,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:05'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:03'
 }
 SWACodeClassNode >> kindColorFor: aCrossRefKey [
-	"Green added, orange modified, red removed, nil for anything we were told nothing about."
-
+	"Green added, orange modified, red removed, else a fill the view picked, nil for
+	anything we were told nothing about."
 	| kind |
-	memberKinds isNil ifTrue: [^ nil].
-	kind := memberKinds at: aCrossRefKey ifAbsent: [nil].
+	kind := memberKinds ifNotNil: [:kinds | kinds at: aCrossRefKey ifAbsent: [nil]].
 	kind == #added ifTrue: [^ '#d8f0d8'].
 	kind == #modified ifTrue: [^ '#ffe8cc'].
 	kind == #removed ifTrue: [^ '#f8d7da'].
-	^ nil
+	^ memberFills ifNotNil: [:fills | fills at: aCrossRefKey ifAbsent: [nil]]
+]
+
+{
+	#category : #composition,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:03'
+}
+SWACodeClassNode >> memberFills: aDictionaryOrNil [
+	"crossRefKey -> a row fill the view picked for a member; a change colour wins."
+	memberFills := aDictionaryOrNil
 ]
 
 {
@@ -381,7 +390,7 @@ SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showMethods
 
 {
 	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'MCPServer 7/17/2026 13:51'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:33'
 }
 SWACodeClassNode >> recordLabelColorMode: aColorMode maxLoc: aMaxLoc showState: showState showMethods: showMethods [
 	"A Graphviz HTML-like label (UML class box) as a <table>: class name (bold) on

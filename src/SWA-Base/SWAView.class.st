@@ -62,7 +62,11 @@ Class {
 		'rangeViewButtons',
 		'gitStatusCache',
 		'focusMarked',
-		'focusMarkedSet'
+		'focusMarkedSet',
+		'context',
+		'contextWithTests',
+		'contextComposition',
+		'rangeContext'
 	],
 	#classVars : [
 		'CrossRefGeneration',
@@ -376,6 +380,14 @@ SWAView >> baseColorForNode: aNode [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> baseRoot [
+	^ self unfocusedRoot
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
 }
@@ -433,6 +445,25 @@ SWAView >> canZoomOut [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:54'
+}
+SWAView >> centreContextOnMarks [
+	"Every marked place and its direct context in one picture: mark what a document is
+	about, then show it."
+	| marks keys |
+	marks := SWAMarkSet default keys select: [:each | SWASelectionContext canAnchorOn: each].
+	marks isEmpty ifTrue: [^ self reportProblem: 'mark a class, method or instance variable first'].
+	keys := OrderedCollection new.
+	marks do: [:mark |
+		(SWASelectionContext withMembers: mark) do: [:each |
+			(keys includes: each) ifFalse: [keys add: each]]].
+	self
+		computeContextOn: keys
+		named: marks size printString, (marks size = 1 ifTrue: [' mark'] ifFalse: [' marks'])
+]
+
+{
 	#category : #review,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:40'
 }
@@ -482,11 +513,18 @@ SWAView >> codeChanged [
 
 {
 	#category : #chrome,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
 }
 SWAView >> codeRunInfoString [
-	self showsGitRange ifFalse: [^ 'live image'].
-	^ self gitRangeLabel, (self showsChangesOnly ifTrue: [', changes only'] ifFalse: [', full picture'])
+	| mode range shown |
+	mode := self rangeView
+		caseOf: {[#changes] -> [', changes only']. [#context] -> [', context']. [#full] -> [', full picture']}
+		otherwise: [''].
+	range := self showsGitRange
+		ifTrue: [self gitRangeLabel, mode]
+		ifFalse: ['live image', mode].
+	shown := self shownContext ifNil: [^ range].
+	^ shown label, ' -- ', range
 ]
 
 {
@@ -533,18 +571,30 @@ SWAView >> colorForChange: aKind reviewed: aBoolean [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
 }
 SWAView >> colorForNode: aNode [
-	"Tile colour, then the dimming layers on top: an active name search, then the
-	focus on marked nodes."
-
-	| base |
+	"Tile colour, then the layers on top: an active name search and the focus on marked
+	nodes dim, a context grays. Its classes and their method categories are a step
+	lighter than the rest of the picture, its members another. With nothing coloured by
+	git, the rest goes plain gray, so a context reads the same in the image as next to
+	changes: the selection in colour, the context light, the rest dark."
+	| base role |
 	base := self intrinsicColorForNode: aNode.
 	(self isSearchDimmed: aNode)
 		ifTrue: [^ base alphaMixed: 0.16 with: (Color gray: 0.1)].
 	(self isFocusDimmed: aNode)
 		ifTrue: [^ base alphaMixed: 0.22 with: (Color gray: 0.1)].
+	role := self contextRoleOf: aNode.
+	role == #context ifTrue: [
+		^ (#(#class #category) includes: aNode kind)
+			ifTrue: [Color gray: 0.45]
+			ifFalse: [(self hasRenderedChildren: aNode) ifTrue: [Color gray: 0.45] ifFalse: [Color gray: 0.62]]].
+	(role isNil
+		and: [self shownContext notNil
+		and: [self showsGitRange not
+		and: [(#(#root #package) includes: aNode kind) not]]])
+			ifTrue: [^ Color gray: 0.3].
 	^ base
 ]
 
@@ -617,6 +667,26 @@ SWAView >> commitLabelFor: aCommitName [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:54'
+}
+SWAView >> computeContextOn: aKeyOrKeys [
+	self computeContextOn: aKeyOrKeys named: nil
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:54'
+}
+SWAView >> computeContextOn: aKeyOrKeys named: aStringOrNil [
+	| newContext |
+	newContext := self newContextOn: (aKeyOrKeys isString ifTrue: [{aKeyOrKeys}] ifFalse: [aKeyOrKeys]).
+	newContext anchorName: aStringOrNil.
+	Cursor wait showWhile: [newContext compute].
+	self showContext: newContext
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
@@ -670,6 +740,153 @@ SWAView >> contentHeight [
 	"Total height of the scrollable content in content coordinates, or nil for a view
 	that does not scroll. Set by #ensureLayout in the views that do."
 	^ contentHeight
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
+}
+SWAView >> context [
+	^ context
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:10'
+}
+SWAView >> contextChanged [
+	self contextViewChanged.
+	self updateWindowLabel.
+	navPanel ifNotNil: [:panel | panel updateContextButtons; refresh]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
+}
+SWAView >> contextColorFor: aNode [
+	"Gray for the context; nil for what is selected or changed, which keeps the colour
+	the view gives it, and for anything outside. How the context is related, the class
+	diagram's arrows say."
+	^ (self contextRoleOf: aNode) == #context ifTrue: [Color gray: 0.62] ifFalse: [nil]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:33'
+}
+SWAView >> contextColorForRole: aRole distance: anInteger [
+	"Orange the selection, blue what reaches it, green what it reaches; pale, and paler
+	further out, so the colour mode underneath still reads."
+	aRole == #anchor ifTrue: [^ Color h: 30 s: 0.55 v: 0.95].
+	^ Color
+		h: (aRole == #caller ifTrue: [210] ifFalse: [130])
+		s: (#(0.45 0.3 0.2) at: (anInteger min: 3))
+		v: 0.85
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> contextComposition [
+	"Holders are only found among analysed classes: those of the full picture."
+	| root classes |
+	root := self contextScopeRoot ifNil: [^ nil].
+	(contextComposition notNil and: [contextComposition key == root]) ifTrue: [^ contextComposition value].
+	classes := (self contextScope collect: [:name | Smalltalk classNamed: name])
+		select: [:each | each notNil and: [each isBehavior]].
+	contextComposition := root -> (classes size <= 1000
+		ifTrue: [SWACompositionData fromClasses: classes named: 'context']
+		ifFalse: [nil]).
+	^ contextComposition value
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:35'
+}
+SWAView >> contextIncludes: aNode in: aSelectionContext [
+	aNode kind == #class ifTrue: [^ aSelectionContext includesClassNamed: aNode crossRefKey].
+	(#(#root #package #category) includes: aNode kind) ifTrue: [
+		^ (aNode children ifNil: [#()]) anySatisfy: [:each | self contextIncludes: each in: aSelectionContext]].
+	^ aSelectionContext showsMember: aNode crossRefKey
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
+}
+SWAView >> contextRoleOf: aNode [
+	"#anchor for what is selected or changed, members of an anchor's class included;
+	#context for the rest of the context; nil outside it. A category goes with its class."
+	| shown key role |
+	shown := self shownContext ifNil: [^ nil].
+	aNode kind == #category ifTrue: [^ aNode parent ifNotNil: [:class | self contextRoleOf: class]].
+	key := aNode crossRefKey ifNil: [^ nil].
+	role := (aNode isKindOf: SWACodeClassNode)
+		ifTrue: [(shown classRoleAt: key) ifNotNil: [:each | each key]]
+		ifFalse: [(shown roleAt: key) ifNil: [
+			(shown isAnchorClass: (shown classNameOfKey: key)) ifTrue: [#anchor] ifFalse: [nil]]].
+	role ifNil: [^ nil].
+	^ role == #anchor ifTrue: [#anchor] ifFalse: [#context]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> contextScope [
+	"The class names of the full picture; packages are walked, classes not opened."
+	| names visit |
+	names := Set new.
+	visit := nil.
+	visit := [:node |
+		node kind == #class
+			ifTrue: [names add: node crossRefKey]
+			ifFalse: [(#(#root #package) includes: node kind)
+				ifTrue: [(node children ifNil: [#()]) do: [:each | visit value: each]]]].
+	self contextScopeRoot ifNotNil: [:root | visit value: root].
+	^ names
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> contextScopeRoot [
+	"The full picture: the repository's tree in a range, else the packages shown."
+	(gitChanges notNil and: [snapshotRoot notNil and: [self rangeView ~~ #live]])
+		ifTrue: [^ snapshotRoot].
+	(self isLiveCodeRoot: self unfocusedRoot) ifTrue: [^ self unfocusedRoot].
+	^ liveRoot ifNil: [self unfocusedRoot]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:13'
+}
+SWAView >> contextSettingsChanged [
+	rangeContext := nil.
+	context ifNotNil: [^ self computeContextOn: context anchorKeys].
+	self rangeView == #context ifTrue: [self installRoot: (self rootForRangeView: #context)].
+	self contextChanged
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:10'
+}
+SWAView >> contextViewChanged [
+	self rangeViewChanged
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
+}
+SWAView >> contextWithTests [
+	^ contextWithTests == true
 ]
 
 {
@@ -1110,6 +1327,16 @@ SWAView >> filterToTestKey: aTestOrClassKey [
 	self rebuildEffectiveWeights.
 	self flushCacheKeepingSelection.
 	self changed
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
+}
+SWAView >> filteringContext [
+	"The context that decides what is shown at all: only in the context view."
+	self rangeView == #context ifFalse: [^ nil].
+	^ context ifNil: [self rangeContext]
 ]
 
 {
@@ -1579,7 +1806,7 @@ SWAView >> highlightWeights: aDictionaryOrNil [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
 }
 SWAView >> installRoot: aRootNode [
 	aRootNode == rootNode ifTrue: [^ self].
@@ -1670,6 +1897,18 @@ SWAView >> intrinsicColorMode [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> isContextHidden: aNode [
+	"A container is shown when something in it is: the context filters the full
+	picture, it does not rebuild it."
+	| shown |
+	shown := self filteringContext ifNil: [^ false].
+	^ (self contextIncludes: aNode in: shown) not
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
@@ -1719,7 +1958,7 @@ SWAView >> isFocusDimmed: aNode [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
 }
 SWAView >> isLiveCodeRoot: aNode [
 	^ (aNode isKindOf: SWACodeRootNode)
@@ -1915,6 +2154,17 @@ SWAView >> layoutProgress: aBlockOrNil [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
+}
+SWAView >> leaveContext [
+	context ifNil: [^ self].
+	context := nil.
+	(gitChanges isNil and: [self rangeView ~~ #live]) ifTrue: [self rangeView: #live].
+	self contextChanged
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/29/2026 13:39'
 }
@@ -2092,6 +2342,19 @@ SWAView >> navPanel [
 SWAView >> navPanel: aSWAPane [
 	"The chrome panel that owns my breadcrumb/selection/meta labels + source pane."
 	navPanel := aSWAPane
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:35'
+}
+SWAView >> newContextOn: aCollectionOfKeys [
+	"One hop: a neighbour is directly related to what is selected or changed, so it can
+	be drawn with the arrow that says how."
+	^ (SWASelectionContext onAll: aCollectionOfKeys hops: 1 includesTests: self contextWithTests)
+		scope: self contextScope;
+		composition: self contextComposition;
+		yourself
 ]
 
 {
@@ -2342,6 +2605,35 @@ SWAView >> provenanceListTitle [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> rangeContext [
+	"The context of everything the loaded range changed. While it is computed the cache
+	holds nil, so a redraw meanwhile neither starts a second walk nor draws a half-built
+	one; a walk that fails stays nil instead of failing again on every frame."
+	| newContext |
+	(gitChanges isNil or: [(gitChanges at: #kinds) isEmpty]) ifTrue: [^ nil].
+	(rangeContext notNil and: [rangeContext key == gitChanges]) ifTrue: [^ rangeContext value].
+	rangeContext := gitChanges -> nil.
+	newContext := self newContextOn: (gitChanges at: #kinds) keys asSortedCollection.
+	[Cursor wait showWhile: [newContext compute]]
+		on: Error do: [:e |
+			self reportProblem: 'context of the changes: ', e messageText.
+			^ nil].
+	rangeContext := gitChanges -> newContext.
+	^ newContext
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:14'
+}
+SWAView >> rangeContextCache [
+	^ rangeContext
+]
+
+{
 	#category : #'range view',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
@@ -2351,27 +2643,31 @@ SWAView >> rangeView [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
 }
 SWAView >> rangeView: aSymbol [
-	"#full and #changes show the loaded range on the tree built from git, #live the image."
-	(aSymbol ~~ #live and: [snapshotRoot isNil]) ifTrue: [^ self].
+	"#full, #context and #changes show the loaded range on the tree built from git,
+	#context with the neighbours of the changes added from the image; #live the image.
+	Without a range, #full and #context are views of a selection's context."
+	(aSymbol == #changes and: [snapshotRoot isNil]) ifTrue: [^ self].
+	(aSymbol ~~ #live and: [snapshotRoot isNil and: [context isNil]]) ifTrue: [^ self].
 	rangeView := aSymbol.
 	gitStatusCache := nil.
 	self installRoot: (self rootForRangeView: aSymbol).
 	self rangeViewChanged.
 	self updateRangeViewButtons.
 	self updateWindowLabel.
+	navPanel ifNotNil: [:panel | panel updateContextButtons; refresh].
 ]
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:14'
 }
 SWAView >> rangeViewButtonsFor: aPane [
 	| buttons |
 	rangeViewButtons := Dictionary new.
-	buttons := #(#(#full 'Full picture') #(#changes 'Changes only') #(#live 'Live image'))
+	buttons := #(#(#full 'Full picture') #(#context 'Context') #(#changes 'Changes only') #(#live 'Live image'))
 		collect: [:pair | | button |
 			button := (aPane buttonLabelled: pair second action: #rangeView:)
 				target: self;
@@ -2379,6 +2675,7 @@ SWAView >> rangeViewButtonsFor: aPane [
 				yourself.
 			rangeViewButtons at: pair first put: button.
 			button].
+	(rangeViewButtons at: #context) setBalloonText: 'The changes and what reaches them or they reach'.
 	self updateRangeViewButtons.
 	^ buttons
 ]
@@ -2471,6 +2768,18 @@ SWAView >> recentCommits [
 	^ ancestry collect: [:commit |
 		([commit hexHash first: 7] on: Error do: [:e | '???????'])
 			-> (repoHistory commitLabelFor: commit)]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:41'
+}
+SWAView >> recentreContext [
+	| key |
+	key := selectedNode ifNotNil: [:node | node crossRefKey].
+	(SWASelectionContext canAnchorOn: key)
+		ifFalse: [^ self reportProblem: 'select a class, method or instance variable first'].
+	self computeContextOn: (SWASelectionContext withMembers: key)
 ]
 
 {
@@ -2689,11 +2998,12 @@ SWAView >> reviewTextFor: aNode [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
 }
 SWAView >> rootForRangeView: aSymbol [
+	"Without a loaded range the full picture and the context are of the image."
 	aSymbol == #live ifTrue: [^ liveRoot ifNil: [rootNode]].
-	^ snapshotRoot
+	^ snapshotRoot ifNil: [liveRoot ifNil: [rootNode]]
 ]
 
 {
@@ -2973,6 +3283,18 @@ SWAView >> shareDatasetsOf: aView [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
+}
+SWAView >> showContext: aSelectionContext [
+	"Without a range, the plain image would not show it: start with the context view."
+	context := aSelectionContext.
+	(gitChanges isNil and: [self rangeView == #live])
+		ifTrue: [self rangeView: #context].
+	self contextChanged
+]
+
+{
 	#category : #'cross-ref',
 	#'squeak_changestamp' : 'MCPServer 6/25/2026 12:40'
 }
@@ -3081,11 +3403,31 @@ SWAView >> showRangeTree: aDictionary [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
+}
+SWAView >> shownContext [
+	"The context drawn: the selection's, else the changes' of a loaded range, in whatever
+	way the range is shown. The live image without a range is the image as it is."
+	context ifNotNil: [
+		^ (gitChanges isNil and: [self rangeView == #live]) ifTrue: [nil] ifFalse: [context]].
+	^ self rangeContext
+]
+
+{
 	#category : #'range view',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
 }
 SWAView >> showsChangesOnly [
 	^ self rangeView == #changes
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
+}
+SWAView >> showsContext [
+	^ context notNil
 ]
 
 {
@@ -3179,6 +3521,14 @@ SWAView >> styleClassForSelection [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
+}
+SWAView >> supportsContext [
+	^ false
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
 }
@@ -3197,13 +3547,30 @@ SWAView >> takeKeyboardFocusFrom: evt [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
+}
+SWAView >> takeOverContextFrom: aView [
+	"The context of the changes is shared with a view of the same range: it is costly."
+	(aView rangeContextCache notNil and: [aView rangeContextCache key == gitChanges])
+		ifTrue: [rangeContext := aView rangeContextCache].
+	context == aView context ifTrue: [^ self].
+	(self supportsContext and: [aView showsContext])
+		ifTrue: [self showContext: aView context]
+		ifFalse: [self leaveContext]
+]
+
+{
 	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:08'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
 }
 SWAView >> takeOverFrom: aView [
-	"Show what aView showed: its commit range and review scope, its root and zoom, its
-	datasets, its colour layer when that is a shared dataset, and its selection."
+	"Show what aView showed: its commit range and review scope, its context, its root
+	and zoom, its datasets, its colour layer when that is a shared dataset, and its
+	selection. The context goes first, so the root taken over lands beneath it rather
+	than being drawn only to be replaced."
 	self gitRangeState: aView gitRangeState.
+	self takeOverContextFrom: aView.
 	self takeOverRootFrom: aView.
 	self focusOn: aView currentFocus.
 	self shareDatasetsOf: aView.
@@ -3216,14 +3583,14 @@ SWAView >> takeOverFrom: aView [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
 }
 SWAView >> takeOverRangeRootsFrom: aView [
 	"A package root from aView becomes the live tree. A diagram of a range has none, so
 	a view made from it gets one over the packages the range was loaded for. A tree
 	aView built from the same commits is shared, and so is how it was shown."
-	(self isLiveCodeRoot: aView unfocusedRoot) ifTrue: [
-		liveRoot := aView unfocusedRoot.
+	(self isLiveCodeRoot: aView baseRoot) ifTrue: [
+		liveRoot := aView baseRoot.
 		self rangeView == #live ifTrue: [self installRoot: liveRoot]].
 	aView liveRoot ifNotNil: [:root | liveRoot := root].
 	liveRoot ifNil: [
@@ -3232,8 +3599,9 @@ SWAView >> takeOverRangeRootsFrom: aView [
 				name: repositoryName;
 				addPackages: ((aView gitChanges at: #snapshot) packages collect: [:each | each packageName]);
 				yourself]
-			ifFalse: [aView unfocusedRoot]].
-	aView showsGitRange ifFalse: [^ self rangeView: #live].
+			ifFalse: [aView baseRoot]].
+	aView showsGitRange ifFalse: [
+		^ self rangeView: ((gitChanges isNil and: [aView context notNil]) ifTrue: [aView rangeView] ifFalse: [#live])].
 	(aView snapshotRoot notNil and: [aView snapshotRoot snapshot == (gitChanges at: #snapshot)])
 		ifTrue: [snapshotRoot := aView snapshotRoot].
 	aView rangeView == #live ifFalse: [rangeView := aView rangeView].
@@ -3345,6 +3713,24 @@ SWAView >> toCommitLabel [
 	toCommit ifNil: [^ 'HEAD'].
 	self isCurrentTo ifTrue: [^ 'CURRENT  (the image)'].
 	^ self commitLabelFor: toCommit
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
+}
+SWAView >> toggleContext [
+	self showsContext ifTrue: [^ self leaveContext].
+	self recentreContext
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:13'
+}
+SWAView >> toggleContextTests [
+	contextWithTests := self contextWithTests not.
+	self contextSettingsChanged
 ]
 
 {
@@ -3552,13 +3938,15 @@ SWAView >> viewKindLabel [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:40'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
 }
 SWAView >> visibleChildrenOf: aNode [
-	"Changes only keeps what the range changed, a search what matches it."
+	"Changes only keeps what the range changed, a context its members, a search what
+	matches it."
 	^ (aNode children ifNil: [#()]) select: [:each |
 		(self showsChangesOnly not or: [(self gitStatusOf: each) notNil])
-			and: [(self isSearchDimmed: each) not]]
+			and: [(self isContextHidden: each) not
+			and: [(self isSearchDimmed: each) not]]]
 ]
 
 {

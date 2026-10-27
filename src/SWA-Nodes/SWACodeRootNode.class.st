@@ -243,6 +243,14 @@ SWACodeRootNode >> ownerOfSystemCategory: aCategory [
 
 {
 	#category : #accessing,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:02'
+}
+SWACodeRootNode >> packageClasses [
+	^ packages inject: OrderedCollection new into: [:all :each | all addAll: each classes; yourself]
+]
+
+{
+	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer 6/24/2026 14:37'
 }
 SWACodeRootNode >> packageNames [

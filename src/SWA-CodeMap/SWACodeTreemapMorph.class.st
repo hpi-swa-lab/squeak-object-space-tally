@@ -148,7 +148,7 @@ SWACodeTreemapMorph >> balloonStringFor: aNode [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:10'
 }
 SWACodeTreemapMorph >> baseColorForNode: aNode [
 	"Dispatch on the active color mode. A minted dataset-metric symbol
@@ -292,11 +292,13 @@ SWACodeTreemapMorph >> colorByFocusedTopic: aNode [
 
 {
 	#category : #coloring,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:28'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:23'
 }
 SWACodeTreemapMorph >> colorByGitChange: aNode [
-	"Green added, orange modified, red removed; containers muted so the changed
-	members inside them stand out. Review is a border, see #drawTileFrame:in:on:."
+	"Green added, orange modified, red removed. Packages and categories are muted so the
+	changed members inside them stand out; a touched class keeps its full colour, so the
+	classes a change went into read at a glance. Review is a border, see
+	#drawTileFrame:in:on:."
 	| color |
 	color := (self gitStatusOf: aNode)
 		caseOf: {
@@ -304,7 +306,8 @@ SWACodeTreemapMorph >> colorByGitChange: aNode [
 			[#modified] -> [Color h: 30 s: 0.75 v: 0.95].
 			[#removed] -> [Color h: 0 s: 0.65 v: 0.85] }
 		otherwise: [^ Color gray: 0.3].
-	(self hasRenderedChildren: aNode) ifTrue: [^ color alphaMixed: 0.35 with: (Color gray: 0.2)].
+	((self hasRenderedChildren: aNode) and: [aNode kind ~~ #class])
+		ifTrue: [^ color alphaMixed: 0.35 with: (Color gray: 0.2)].
 	^ color
 ]
 
@@ -595,6 +598,16 @@ SWACodeTreemapMorph >> containerDuplicatesFor: aContainerNode metric: aMetric [
 		entries := entries copyWith:
 			(('... ', (rows size - limit) printString, ' more') -> nil)].
 	^ entries
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:10'
+}
+SWACodeTreemapMorph >> contextViewChanged [
+	"The context is a frame and a dimming layer, so the colour mode stays as chosen."
+	self invalidateLayout.
+	self flushCache.
 ]
 
 {
@@ -968,7 +981,7 @@ SWACodeTreemapMorph >> drawTileContent: aNode in: screenR on: aCanvas [
 
 {
 	#category : #drawing,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:33'
 }
 SWACodeTreemapMorph >> drawTileFrame: aNode in: screenR on: aCanvas [
 	"Signed-off changes get a blue border inside the mark frame, so a tile can show
@@ -1467,14 +1480,20 @@ SWACodeTreemapMorph >> keySetUnder: aNode [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:14'
 }
 SWACodeTreemapMorph >> layoutSizeOf: aNode [
-	"With changes only, a container is as big as what changed in it."
+	"With changes only, a container is as big as what changed in it; in a context, as
+	big as its members. A class that is only named has no members to show, and at its
+	full size it would bury the ones that do."
 	| kids |
-	self showsChangesOnly ifFalse: [^ super layoutSizeOf: aNode].
+	(self showsChangesOnly or: [self filteringContext notNil]) ifFalse: [^ super layoutSizeOf: aNode].
 	kids := self visibleChildrenOf: aNode.
 	(kids isNil or: [kids isEmpty]) ifTrue: [
+		self filteringContext notNil ifTrue: [
+			^ (aNode isKindOf: SWACodeClassNode)
+				ifTrue: [aNode totalSize min: 5]
+				ifFalse: [aNode totalSize]].
 		^ (self gitStatusOf: aNode) ifNil: [0] ifNotNil: [:status | aNode totalSize]].
 	^ kids inject: 0 into: [:sum :each | sum + (self layoutSizeOf: each)]
 ]
@@ -1771,10 +1790,10 @@ SWACodeTreemapMorph >> provenanceListTitle [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:53'
 }
 SWACodeTreemapMorph >> rangeViewChanged [
-	self colorMode: (self rangeView == #live ifTrue: [self intrinsicColorMode] ifFalse: [#gitChanges]).
+	self colorMode: (self showsGitRange ifTrue: [#gitChanges] ifFalse: [self intrinsicColorMode]).
 	self invalidateLayout.
 	self flushCache.
 ]
@@ -1965,6 +1984,14 @@ SWACodeTreemapMorph >> showGitChanges: aDictionary [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:03'
+}
+SWACodeTreemapMorph >> supportsContext [
+	^ true
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
 }
@@ -2085,12 +2112,15 @@ SWACodeTreemapMorph >> viewKind [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:49'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:14'
 }
 SWACodeTreemapMorph >> visibleChildrenOf: aNode [
-	self showsChangesOnly ifFalse: [^ super visibleChildrenOf: aNode].
-	^ aNode children ifNotNil: [:kids |
-		kids select: [:each | (self gitStatusOf: each) notNil]]
+	| kids |
+	(self showsChangesOnly or: [self filteringContext notNil]) ifFalse: [^ super visibleChildrenOf: aNode].
+	kids := aNode children ifNil: [^ nil].
+	^ kids select: [:each |
+		(self showsChangesOnly not or: [(self gitStatusOf: each) notNil])
+			and: [(self isContextHidden: each) not]]
 ]
 
 {

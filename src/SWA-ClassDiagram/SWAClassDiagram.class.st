@@ -22,7 +22,8 @@ Class {
 		'displayedKeys',
 		'fullRoot',
 		'focus',
-		'changesRoot'
+		'changesRoot',
+		'builtContext'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
@@ -369,6 +370,72 @@ SWAClassDiagram >> compositionLabel [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:03'
+}
+SWAClassDiagram >> contextComposition [
+	"A loaded composition knows more classes than the shown packages."
+	(self datasets reverse
+		detect: [:each | each kind == #composition and: [each source isGenerated not]]
+		ifNone: [nil]) ifNotNil: [:dataset | ^ dataset source].
+	^ super contextComposition
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:06'
+}
+SWAClassDiagram >> contextFillFor: aClassNode [
+	"Context is gray: the arrows say how it is related, the colour stays with what is
+	selected or changed."
+	^ (self isContextOnly: aClassNode) ifTrue: ['#e8e8e8'] ifFalse: [nil]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:06'
+}
+SWAClassDiagram >> contextMemberFillsFor: aClassNode [
+	"The members that relate a class to the selection or the changes, a shade darker."
+	| shown fills |
+	shown := self shownContext ifNil: [^ nil].
+	fills := Dictionary new.
+	(aClassNode recordMethodNodes, aClassNode recordIvarNodes) do: [:member |
+		((shown roleAt: member crossRefKey) ifNil: [#anchor]) == #anchor
+			ifFalse: [fills at: member crossRefKey put: '#d2d2d2']].
+	^ fills
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:06'
+}
+SWAClassDiagram >> contextSuppressedSuperclassNames [
+	"Superclasses outside the diagram that only context classes have: a superclass is
+	that kind of neighbour already, and drawing it would pull in a second ring."
+	| inDiagram contextOnly others |
+	self shownContext ifNil: [^ #()].
+	inDiagram := Set new.
+	contextOnly := Set new.
+	others := Set new.
+	rootNode withAllChildrenDo: [:node |
+		(node isKindOf: SWACodeClassNode) ifTrue: [
+			inDiagram add: node crossRefKey.
+			node superclassName ifNotNil: [:name |
+				((self isContextOnly: node) ifTrue: [contextOnly] ifFalse: [others]) add: name]]].
+	^ (contextOnly reject: [:name | (others includes: name) or: [inDiagram includes: name]]) asArray
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:25'
+}
+SWAClassDiagram >> contextViewChanged [
+	"The context is part of the root the graph was built from, see #focusedCopyOf:."
+	(fullRoot notNil and: [builtContext ~~ self filteringContext]) ifTrue: [self showFocus]
+]
+
+{
 	#category : #focus,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
@@ -442,13 +509,17 @@ SWAClassDiagram >> focusOn: aFocus [
 
 {
 	#category : #focus,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:24'
 }
 SWAClassDiagram >> focusedCopyOf: aRoot [
-	"A root of its own rather than a filter on aRoot, which the Code Map may be showing."
-	| filter |
-	(focus isNil or: [aRoot isNil]) ifTrue: [^ aRoot].
-	filter := [:class | self focusIncludesClass: class].
+	"A root of its own rather than a filter on aRoot, which the Code Map may be showing.
+	Narrowed by the focus and by the context."
+	| shown filter |
+	shown := self filteringContext.
+	((focus isNil and: [shown isNil]) or: [aRoot isNil]) ifTrue: [^ aRoot].
+	filter := [:class |
+		(self focusIncludesClass: class)
+			and: [shown isNil or: [shown includesClassNamed: class name asString]]].
 	(aRoot isKindOf: SWACodeMarkSetRootNode) ifTrue: [
 		^ SWACodeMarkSetRootNode new
 			markSet: aRoot markSet;
@@ -598,18 +669,35 @@ SWAClassDiagram >> installRoot: aRootNode [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:06'
+}
+SWAClassDiagram >> isContextOnly: aClassNode [
+	"In the diagram as a neighbour only, not for anything selected or changed in it."
+	| role |
+	role := (self shownContext ifNil: [^ false]) classRoleAt: aClassNode crossRefKey.
+	^ role notNil and: [role key ~~ #anchor]
+]
+
+{
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:35'
 }
 SWAClassDiagram >> ivarFilterForBuild [
 	"The ivar-filter block to install on class nodes for the current granularity, or nil to
-	show all instance variables. For #selected, only ivars whose crossRefKey
-	('Class>>#ivar') is in the mark set are shown. Uses the synced mark set if any, else the
-	global singleton."
-	| ms |
-	leafKind = #selected ifFalse: [^ nil].
-	ms := self markSetForBuild.
-	^ [:ivarNode | ms includes: ivarNode crossRefKey]
+	show all instance variables. #selected shows the ivars whose crossRefKey
+	(''Class>>#ivar'') is in the mark set. A context cuts a class down to the members
+	that relate it, but leaves the classes of what is selected or changed to the depth."
+	| ms depthFilter shown |
+	leafKind = #selected ifTrue: [
+		ms := self markSetForBuild.
+		depthFilter := [:ivarNode | ms includes: ivarNode crossRefKey]].
+	shown := self filteringContext ifNil: [^ depthFilter].
+	^ [:ivarNode | | key |
+		key := ivarNode crossRefKey.
+		(shown isAnchorClass: (shown classNameOfKey: key))
+			ifTrue: [depthFilter isNil or: [depthFilter value: ivarNode]]
+			ifFalse: [shown includesKey: key]]
 ]
 
 {
@@ -693,16 +781,23 @@ SWAClassDiagram >> markSetForBuild [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:35'
 }
 SWAClassDiagram >> methodFilterForBuild [
 	"The method-filter block to install on class nodes for the current granularity, or nil
-	to show all methods. For #selected, only methods whose crossRefKey ('Class>>sel') is in
-	the mark set are shown. Uses the synced mark set if any, else the global singleton."
-	| ms |
-	leafKind = #selected ifFalse: [^ nil].
-	ms := self markSetForBuild.
-	^ [:methodNode | ms includes: methodNode crossRefKey]
+	to show all methods. #selected shows the methods whose crossRefKey (''Class>>sel'')
+	is in the mark set. A context cuts a class down to the members that relate it, but
+	leaves the classes of what is selected or changed to the depth."
+	| ms depthFilter shown |
+	leafKind = #selected ifTrue: [
+		ms := self markSetForBuild.
+		depthFilter := [:methodNode | ms includes: methodNode crossRefKey]].
+	shown := self filteringContext ifNil: [^ depthFilter].
+	^ [:methodNode | | key |
+		key := methodNode crossRefKey.
+		(shown isAnchorClass: (shown classNameOfKey: key))
+			ifTrue: [depthFilter isNil or: [depthFilter value: methodNode]]
+			ifFalse: [shown includesKey: key]]
 ]
 
 {
@@ -739,6 +834,16 @@ SWAClassDiagram >> peerWeightKeys [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:25'
+}
+SWAClassDiagram >> rangeViewChanged [
+	"Full picture and Context share a root, so only the context tells them apart."
+	super rangeViewChanged.
+	self contextViewChanged
+]
+
+{
 	#category : #composition,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:18'
 }
@@ -762,7 +867,7 @@ SWAClassDiagram >> rebuildGraph [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:06'
 }
 SWAClassDiagram >> rebuildGraphKeepView: keepView [
 	"(Re)generate the DOT for the class diagram and hand it to the embedded
@@ -793,14 +898,17 @@ SWAClassDiagram >> rebuildGraphKeepView: keepView [
 			node ivarFilter: ivarFilter.
 			node compositionData: composition.
 			node memberKinds: (self showsGitRange ifTrue: [gitChanges at: #kinds] ifFalse: [nil]).
-			node boxFill: (self showsCompositionColor ifTrue: [self boxFillFor: node] ifFalse: [nil])]].
+			node memberFills: (self contextMemberFillsFor: node).
+			node boxFill: ((self contextFillFor: node) ifNil: [
+				self showsCompositionColor ifTrue: [self boxFillFor: node] ifFalse: [nil]])]].
 	tuple := rootNode
 		classDiagramGraphColorMode: self colorMode
 		showState: showState
 		showMethods: showMethods
-		suppressingSuperclasses: self suppressedSuperclassNames
+		suppressingSuperclasses: self suppressedSuperclassNames asArray, self contextSuppressedSuperclassNames
 		clustered: self clustered
 		composition: (self showsComposition and: [showState]).
+	tuple at: 1 put: (self withContextEdges: tuple first ids: tuple second).
 	nodesByDotId := Dictionary new.
 	fieldNodesByDotId := Dictionary new.
 	rectKeyByNode := IdentityDictionary new.
@@ -855,12 +963,12 @@ SWAClassDiagram >> reviewBadgeRectFor: aFieldRect [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:52'
 }
 SWAClassDiagram >> rootForRangeView: aSymbol [
 	"Changes only draws just the classes the range touched."
 	| snapshot |
-	aSymbol == #changes ifFalse: [^ super rootForRangeView: aSymbol].
+	(aSymbol == #changes and: [gitChanges notNil]) ifFalse: [^ super rootForRangeView: aSymbol].
 	snapshot := gitChanges at: #snapshot.
 	(changesRoot notNil and: [changesRoot snapshot == snapshot]) ifTrue: [^ changesRoot].
 	^ changesRoot := SWACodeMarkSetRootNode new
@@ -981,9 +1089,10 @@ SWAClassDiagram >> setRoot: aNode [
 
 {
 	#category : #focus,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:25'
 }
 SWAClassDiagram >> showFocus [
+	builtContext := self filteringContext.
 	rootNode := self focusedCopyOf: fullRoot.
 	self forgetGeneratedComposition.
 	self rebuildKeyIndex.
@@ -1071,6 +1180,14 @@ SWAClassDiagram >> showsState [
 	inside class boxes. Off only at the coarsest #class granularity. For #selected the
 	compartment is rendered but FILTERED to marked ivars (see #ivarFilterForBuild)."
 	^ leafKind ~= #class
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:03'
+}
+SWAClassDiagram >> supportsContext [
+	^ true
 ]
 
 {
@@ -1210,6 +1327,39 @@ SWAClassDiagram >> widerFocus [
 		^ category ifNotNil: [#category -> category asString]].
 	(focus value includes: $-) ifFalse: [^ nil].
 	^ #category -> (focus value copyUpToLast: $-)
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:28'
+}
+SWAClassDiagram >> withContextEdges: aDotString ids: anIdDictionary [
+	"The use that put each class into the context, dashed in its role's colour and
+	labelled with what was found: a dependency, where the composition edges are
+	associations. Left out of the ranking, so the hierarchy keeps its layout. An
+	xlabel, since orthogonal edges do not take a centred label."
+	| shown byName extra |
+	shown := self shownContext ifNil: [^ aDotString].
+	byName := Dictionary new.
+	anIdDictionary keysAndValuesDo: [:node :id |
+		(node isKindOf: SWACodeClassNode) ifTrue: [byName at: node crossRefKey put: id]].
+	extra := WriteStream on: String new.
+	shown classEdges do: [:edge | | from to color |
+		from := byName at: edge first ifAbsent: [nil].
+		to := byName at: edge second ifAbsent: [nil].
+		(from notNil and: [to notNil]) ifTrue: [
+			color := SWACodeNode hexColor: ((self contextColorForRole: edge third distance: 1) adjustBrightness: -0.3).
+			extra
+				nextPutAll: '  '; nextPutAll: from; nextPutAll: ' -> '; nextPutAll: to;
+				nextPutAll: ' [style=dashed, arrowhead=vee, constraint=false, color="'; nextPutAll: color; nextPutAll: '"'.
+			edge fourth isEmpty ifFalse: [
+				extra
+					nextPutAll: ', fontcolor="'; nextPutAll: color;
+					nextPutAll: '", fontsize=8, xlabel="';
+					nextPutAll: (SWACodeNode dotEscape: edge fourth); nextPutAll: '"'].
+			extra nextPutAll: '];'; nextPut: Character lf]].
+	extra contents isEmpty ifTrue: [^ aDotString].
+	^ (aDotString copyUpToLast: $}), extra contents, '}', (String with: Character lf)
 ]
 
 {

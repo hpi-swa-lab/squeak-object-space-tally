@@ -700,6 +700,14 @@ SWACodeBrowser >> side: aSymbol [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:03'
+}
+SWACodeBrowser >> supportsContext [
+	^ true
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:44'
 }

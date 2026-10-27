@@ -596,6 +596,14 @@ SWACodeLinearView >> styled: aString for: aNode [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:03'
+}
+SWACodeLinearView >> supportsContext [
+	^ true
+]
+
+{
 	#category : #'git range',
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:42'
 }

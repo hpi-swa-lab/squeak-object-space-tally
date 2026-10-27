@@ -71,7 +71,8 @@ Class {
 		'reviewedTitleMorph',
 		'reviewedList',
 		'reviewedPrimaryIndex',
-		'reviewedHeight'
+		'reviewedHeight',
+		'contextButtons'
 	],
 	#classVars : [
 		'CallTallyCounter',
@@ -1588,6 +1589,28 @@ SWAPane >> addCompositionDataset: aCompositionData name: aName [
 ]
 
 {
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:54'
+}
+SWAPane >> addContextButtonsTo: aRow [
+	"Context toggles; Re-centre, Marks and Tests only show while a context is drawn."
+	| toggle |
+	contextButtons := Dictionary new.
+	#(#(#toggle 'Context' #toggleContext 'Show the selection with what uses it and what it uses')
+	  #(#recentre 'Re-centre' #recentreContext 'Centre the context on the selection')
+	  #(#marks 'Marks' #centreContextOnMarks 'Centre the context on everything marked')
+	  #(#tests 'Tests' #toggleContextTests 'Whether tests count as neighbours')) do: [:spec | | button |
+		button := (self buttonLabelled: spec second action: spec third)
+			target: view;
+			yourself.
+		button setBalloonText: spec fourth.
+		contextButtons at: spec first put: button].
+	toggle := contextButtons at: #toggle.
+	aRow addMorphBack: toggle.
+	self updateContextButtons
+]
+
+{
 	#category : #'code map - datasets',
 	#'squeak_changestamp' : 'MCPServer 7/14/2026 17:39'
 }
@@ -1889,7 +1912,7 @@ SWAPane >> buildCrumbRow [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 16:38'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 17:03'
 }
 SWAPane >> buildHeaderRow [
 	"Build the wrapping button bar into headerRow: a generic pane HAMBURGER menu
@@ -1904,6 +1927,7 @@ SWAPane >> buildHeaderRow [
 	Call Tally is no longer a header button: it is a Data-menu generator that pops up
 	a STOP window (see #generateCallTallyDataset / #openTallyStopWindow)."
 	| menuButton ovl |
+	contextButtons := nil.
 	headerRow := self newChromeRow
 		wrapDirection: #topToBottom;
 		vResizing: #shrinkWrap;
@@ -1949,6 +1973,8 @@ SWAPane >> buildHeaderRow [
 				at: kind
 				put: (self depthJumpButtonFor: kind letter: (letters at: kind)))].
 		self updateDepthButtons].
+	((view respondsTo: #supportsContext) and: [view supportsContext])
+		ifTrue: [self addContextButtonsTo: headerRow].
 	"Live name-search: dims tiles whose entity name doesn't match what you type."
 	(view respondsTo: #searchFor:) ifTrue: [
 		headerRow addMorphBack: self newSearchField].
@@ -3653,7 +3679,7 @@ SWAPane >> markSetForKey: aKey [
 
 {
 	#category : #'marks - persistence',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/26/2026 15:09'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:54'
 }
 SWAPane >> marksBurgerMenu: aMenu [
 	"The 'burger' menu that replaces the Copy/Clear button row. Bundles the
@@ -3670,6 +3696,8 @@ SWAPane >> marksBurgerMenu: aMenu [
 	aMenu add: self focusMarkedLabel target: self selector: #toggleFocusMarked.
 	aMenu addLine.
 	aMenu add: 'Class diagram of marks (live)' target: self selector: #openMarksClassDiagram.
+	((view respondsTo: #supportsContext) and: [view supportsContext]) ifTrue: [
+		aMenu add: 'Context of marks' target: view selector: #centreContextOnMarks].
 	aMenu addLine.
 	aMenu add: 'Save to file...' target: self selector: #saveMarks.
 	aMenu add: 'Load from file...' target: self selector: #loadMarks.
@@ -6218,6 +6246,27 @@ SWAPane >> updateCommentField [
 	currently being edited."
 	commentField ifNotNil: [commentField setText: self commentFieldText].
 	marksDetailsMorph ifNotNil: [marksDetailsMorph setText: self marksDetailsText]
+]
+
+{
+	#category : #context,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 18:54'
+}
+SWAPane >> updateContextButtons [
+	| toggle on |
+	contextButtons ifNil: [^ self].
+	toggle := contextButtons at: #toggle.
+	on := view showsContext.
+	toggle color: (on ifTrue: [self activeButtonColor] ifFalse: [Color gray: 0.3]).
+	(contextButtons at: #tests) color: (view contextWithTests
+		ifTrue: [self activeButtonColor]
+		ifFalse: [Color gray: 0.3]).
+	#(#tests #marks #recentre) do: [:key | | button |
+		button := contextButtons at: key.
+		(on or: [view shownContext notNil])
+			ifTrue: [(button owner isNil and: [toggle owner notNil])
+				ifTrue: [toggle owner addMorph: button after: toggle]]
+			ifFalse: [button delete]]
 ]
 
 {
