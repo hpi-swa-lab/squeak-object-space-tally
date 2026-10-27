@@ -21,7 +21,8 @@ Class {
 		'showsComposition',
 		'displayedKeys',
 		'fullRoot',
-		'focus'
+		'focus',
+		'changesRoot'
 	],
 	#category : #'SWA-ClassDiagram',
 	#'squeak_changestamp' : '<historical>'
@@ -376,6 +377,14 @@ SWAClassDiagram >> currentFocus [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+}
+SWAClassDiagram >> dataPanelExtrasFor: aPane [
+	^ self rangeViewButtonsFor: aPane
+]
+
+{
 	#category : #events,
 	#'squeak_changestamp' : 'MCPServer 7/13/2026 17:32'
 }
@@ -579,6 +588,16 @@ SWAClassDiagram >> initialize [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+}
+SWAClassDiagram >> installRoot: aRootNode [
+	"rootNode is only the focused copy of fullRoot."
+	aRootNode == fullRoot ifTrue: [^ self].
+	super installRoot: aRootNode
+]
+
+{
 	#category : #building,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
 }
@@ -657,7 +676,7 @@ SWAClassDiagram >> loadCompositionData [
 
 {
 	#category : #building,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 16:22'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
 }
 SWAClassDiagram >> markSetForBuild [
 	"The mark set the #selected granularity filters against. A root node built on its own
@@ -666,6 +685,7 @@ SWAClassDiagram >> markSetForBuild [
 	which knows nothing about the keys the root was built from."
 
 	syncedMarkSet ifNotNil: [^ syncedMarkSet].
+	self showsGitRange ifTrue: [^ gitChanges at: #marks].
 	(rootNode notNil and: [rootNode respondsTo: #markSet])
 		ifTrue: [rootNode markSet ifNotNil: [:ms | ^ ms]].
 	^ SWAMarkSet default
@@ -834,6 +854,22 @@ SWAClassDiagram >> reviewBadgeRectFor: aFieldRect [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+}
+SWAClassDiagram >> rootForRangeView: aSymbol [
+	"Changes only draws just the classes the range touched."
+	| snapshot |
+	aSymbol == #changes ifFalse: [^ super rootForRangeView: aSymbol].
+	snapshot := gitChanges at: #snapshot.
+	(changesRoot notNil and: [changesRoot snapshot == snapshot]) ifTrue: [^ changesRoot].
+	^ changesRoot := SWACodeMarkSetRootNode new
+		markSet: (gitChanges at: #marks);
+		snapshot: snapshot;
+		yourself
+]
+
+{
 	#category : #accessing,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
 }
@@ -957,16 +993,21 @@ SWAClassDiagram >> showFocus [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
 }
 SWAClassDiagram >> showGitChanges: aDictionary [
 	"A diagram opened on the live mark set filters against THAT set (see
-	#markSetForBuild); leaving the sync up would hide everything the range found."
+	#markSetForBuild); leaving the sync up would hide everything the range found.
+	A range reads best showing only what changed."
 	self syncToMarkSet: nil.
-	self rootNode: (SWACodeMarkSetRootNode new
-		markSet: (aDictionary at: #marks);
-		snapshot: (aDictionary at: #snapshot);
-		yourself).
+	(self rangeView == #live and: [self isLiveCodeRoot: fullRoot]) ifTrue: [liveRoot := fullRoot].
+	liveRoot ifNil: [
+		liveRoot := SWACodeRootNode new
+			name: repositoryName;
+			addPackages: ((aDictionary at: #snapshot) packages collect: [:each | each packageName]);
+			yourself].
+	self rangeView == #live ifTrue: [rangeView := #changes].
+	self showRangeTree: aDictionary.
 ]
 
 {
@@ -1008,15 +1049,6 @@ SWAClassDiagram >> showsComposition: aBoolean [
 }
 SWAClassDiagram >> showsCompositionColor [
 	^ colorMode notNil and: [colorMode asString beginsWith: 'composition_']
-]
-
-{
-	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:41'
-}
-SWAClassDiagram >> showsGitRange [
-	^ gitChanges notNil
-		and: [(rootNode isKindOf: SWACodeMarkSetRootNode) and: [rootNode snapshot notNil]]
 ]
 
 {
@@ -1083,23 +1115,19 @@ SWAClassDiagram >> syncToMarkSet: aMarkSet [
 
 {
 	#category : #switching,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 13:50'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
 }
 SWAClassDiagram >> takeOverRootFrom: aView [
-	"Root and focus together: drawing the whole tree first would cost a layout of
-	every class only to be thrown away."
-	| newFocus |
-	newFocus := aView currentFocus.
-	aView showsGitRange ifFalse: [
-		(aView unfocusedRoot == fullRoot and: [newFocus = focus]) ifTrue: [^ self].
-		focus := newFocus.
-		^ self rootNode: aView unfocusedRoot].
-	"A range reads best showing only what changed, but a depth chosen here is kept."
-	fullRoot ifNil: [leafKind := #selected].
-	(self showsGitRange and: [rootNode snapshot == (gitChanges at: #snapshot)])
-		ifTrue: [^ self focusOn: newFocus].
-	focus := newFocus.
-	self showGitChanges: gitChanges.
+	"Focus before root: drawing the whole tree first would cost a layout of every
+	class only to be thrown away."
+	| previousRoot previousFocus |
+	previousRoot := fullRoot.
+	previousFocus := focus.
+	focus := aView currentFocus.
+	(fullRoot isNil and: [aView showsGitRange]) ifTrue: [leafKind := #selected].
+	self takeOverRangeRootsFrom: aView.
+	(fullRoot notNil and: [fullRoot == previousRoot and: [focus ~= previousFocus]])
+		ifTrue: [self showFocus].
 ]
 
 {

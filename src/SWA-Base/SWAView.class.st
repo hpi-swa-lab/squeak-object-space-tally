@@ -2351,16 +2351,14 @@ SWAView >> rangeView [
 
 {
 	#category : #'range view',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:39'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
 }
 SWAView >> rangeView: aSymbol [
 	"#full and #changes show the loaded range on the tree built from git, #live the image."
 	(aSymbol ~~ #live and: [snapshotRoot isNil]) ifTrue: [^ self].
 	rangeView := aSymbol.
 	gitStatusCache := nil.
-	self installRoot: (aSymbol == #live
-		ifTrue: [liveRoot ifNil: [rootNode]]
-		ifFalse: [snapshotRoot]).
+	self installRoot: (self rootForRangeView: aSymbol).
 	self rangeViewChanged.
 	self updateRangeViewButtons.
 	self updateWindowLabel.
@@ -2687,6 +2685,15 @@ SWAView >> reviewTextFor: aNode [
 	(aNode isKindOf: SWACodeMethodNode) ifTrue: [^ aNode source].
 	(aNode isKindOf: SWACodeClassNode) ifTrue: [^ self definitionTextOf: aNode theClass].
 	^ ''
+]
+
+{
+	#category : #'range view',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:44'
+}
+SWAView >> rootForRangeView: aSymbol [
+	aSymbol == #live ifTrue: [^ liveRoot ifNil: [rootNode]].
+	^ snapshotRoot
 ]
 
 {

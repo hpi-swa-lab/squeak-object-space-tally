@@ -2765,6 +2765,21 @@ SWAPane >> extendSelectionTo: anIndex in: items from: previousIndex [
 ]
 
 {
+	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:43'
+}
+SWAPane >> flapState [
+	"Which flaps are open, each with the height it was dragged to; nil while it shrink-wraps."
+	| state |
+	state := Dictionary new.
+	(marksPanel notNil and: [marksPanel owner notNil]) ifTrue: [state at: #marks put: nil].
+	(sourceRow notNil and: [sourceRow owner notNil]) ifTrue: [state at: #source put: sourceRow height].
+	(dataRow notNil and: [dataRow owner notNil]) ifTrue: [
+		state at: #data put: (dataRow vResizing == #rigid ifTrue: [dataRow height])].
+	^ state
+]
+
+{
 	#category : #marks,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/22/2026 13:32'
 }
@@ -5295,6 +5310,26 @@ SWAPane >> resetPackagesHere [
 
 {
 	#category : #structure,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:43'
+}
+SWAPane >> restoreFlapState: aDictionary [
+	"The flaps are rebuilt for the current view, which need not support all of them."
+	((aDictionary includesKey: #marks) and: [view respondsTo: #markedNodes])
+		ifTrue: [self openMarks].
+	(aDictionary includesKey: #data) ifTrue: [
+		self openData.
+		(aDictionary at: #data) ifNotNil: [:height |
+			(dataRow notNil and: [dataRow owner notNil])
+				ifTrue: [dataRow vResizing: #rigid; height: height]]].
+	(aDictionary includesKey: #source) ifTrue: [
+		self openSource.
+		sourceRow height: (aDictionary at: #source).
+		sourceMorph ifNotNil: [sourceMorph height: (aDictionary at: #source)]].
+	self layoutChanged
+]
+
+{
+	#category : #structure,
 	#'squeak_changestamp' : 'MCPServer 7/21/2026 14:56'
 }
 SWAPane >> restoreStructure: aKey [
@@ -5987,20 +6022,22 @@ SWAPane >> structureViews [
 
 {
 	#category : #structure,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 15:41'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:43'
 }
 SWAPane >> switchToCodeView: aKey [
 	"Morph between the views of code in place. All are kept, so going back finds the
 	zoom and layout it left; the incoming one takes over the root, commit range,
-	datasets and selection of the one it replaces."
-	| target |
+	datasets and selection of the one it replaces, and the flaps that were open."
+	| target flaps |
 	(view codeViewKey isNil or: [aKey == view codeViewKey]) ifTrue: [^ self].
 	self structureViews at: view codeViewKey put: view.
 	target := self structureViews at: aKey ifAbsent: [self newCodeView: aKey].
 	target extent: view extent.
 	target takeOverFrom: view.
+	flaps := self flapState.
 	self morphViewInto: target.
 	self wireOverlayFor: target.
+	self restoreFlapState: flaps.
 	self updateCodeViewWindowLabel.
 	target opensSourceFlap ifTrue: [self openSource].
 ]
