@@ -322,16 +322,22 @@ SWAGitHistory >> buildTreeProgress: aTwoArgBlockOrNil [
 
 {
 	#category : #'member history',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAGitHistory >> changeInfoOf: aCommit [
 	"String -> String, so it can go into a mark's provenance."
-	^ Dictionary new
+	| info |
+	info := Dictionary new
 		at: 'lastChangeCommit' put: ([aCommit hexHash first: 7] on: Error do: [:e | '?']);
 		at: 'lastChangeDate' put: (self timeStampOf: aCommit) printString;
 		at: 'lastChangeAuthor' put: ([aCommit author name asString] on: Error do: [:e | '?']);
 		at: 'lastChangeSummary' put: (self summaryOf: aCommit);
-		yourself
+		yourself.
+	(self isImageCommit: aCommit) ifTrue: [
+		info
+			at: 'lastChangeCommit' put: 'CURRENT';
+			at: 'lastChangeSummary' put: 'not committed yet'].
+	^ info
 ]
 
 {
@@ -388,13 +394,14 @@ SWAGitHistory >> commitLabelFor: aCommit [
 
 {
 	#category : #scanning,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:54'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:32'
 }
 SWAGitHistory >> commitNamed: aString [
 	"A branch's tip commit -- this image's branch, or a remote one as 'origin/main' --
-	or the commit a hash prefix names."
+	or the commit a hash prefix names. CURRENT is the image itself."
 	| unitOfWork objectId |
 	aString isEmptyOrNil ifTrue: [^ nil].
+	aString = 'CURRENT' ifTrue: [^ self imageCommit].
 	(self refNameOf: aString) ifNotNil: [:ref |
 		unitOfWork := self gitUnitOfWork.
 		objectId := [unitOfWork resolveRef: ref] on: Error do: [:e | nil].
@@ -461,10 +468,31 @@ SWAGitHistory >> commitsToScan [
 
 {
 	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
+}
+SWAGitHistory >> firstParentOf: aCommit [
+	"The image commit is written parentless, but it stands on the head commit."
+	(self isImageCommit: aCommit) ifTrue: [^ workingCopy headCommit].
+	^ aCommit parents ifEmpty: [nil] ifNotEmpty: [:parents | parents first]
+]
+
+{
+	#category : #scanning,
 	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:02'
 }
 SWAGitHistory >> gitUnitOfWork [
 	^ workingCopy fsgitRepository repository unitOfWork
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:32'
+}
+SWAGitHistory >> imageCommit [
+	"The image as it is now, written as a parentless commit -- what the Git Browser
+	diffs against for its changes to commit. GitS caches it and drops the cache on
+	every code change."
+	^ workingCopy withUnitOfWork: [workingCopy createImageCommit]
 ]
 
 {
@@ -474,6 +502,14 @@ SWAGitHistory >> gitUnitOfWork [
 SWAGitHistory >> initialize [
 	super initialize.
 	maxCommits := self class defaultMaxCommits
+]
+
+{
+	#category : #scanning,
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
+}
+SWAGitHistory >> isImageCommit: aCommit [
+	^ aCommit notNil and: [aCommit == workingCopy imageCommitCache cachedCommit]
 ]
 
 {
@@ -490,7 +526,7 @@ SWAGitHistory >> labelPrefixFor: anOperationKind [
 
 {
 	#category : #'member history',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:17'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAGitHistory >> lastChangeOfMember: aKey inFile: aPath from: aCommit [
 	"The commit that last changed the member aKey -- 'Foo>>bar', 'Foo class>>bar',
@@ -504,7 +540,7 @@ SWAGitHistory >> lastChangeOfMember: aKey inFile: aPath from: aCommit [
 	blob := [current hexHashAtPath: aPath] on: Error do: [:e | nil].
 	state := self memberText: aKey inBlob: blob cache: texts.
 	1 to: 2000 do: [:step | | parent parentBlob |
-		parent := [current parents ifEmpty: [nil] ifNotEmpty: [:parents | parents first]]
+		parent := [self firstParentOf: current]
 			on: Error do: [:e | nil].
 		parent ifNil: [^ state ifNil: [nil] ifNotNil: [current]].
 		parentBlob := [parent hexHashAtPath: aPath] on: Error do: [:e | nil].

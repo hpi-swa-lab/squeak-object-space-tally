@@ -1670,6 +1670,15 @@ SWAView >> intrinsicColorMode [
 ]
 
 {
+	#category : #'git range',
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
+}
+SWAView >> isCurrentTo [
+	"Whether the To end is the image rather than a commit."
+	^ toCommit = 'CURRENT'
+]
+
+{
 	#category : #scrolling,
 	#'squeak_changestamp' : 'MCPServer 8/5/2026 19:24'
 }
@@ -2114,7 +2123,7 @@ SWAView >> nodeForFocus: aFocus [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAView >> normalizeCommitInput: aString [
 	"The fields show 'aae5930  the subject line', so an accepted value may be a whole
@@ -2125,6 +2134,7 @@ SWAView >> normalizeCommitInput: aString [
 	text := (text findTokens: ' ') first.
 	text asUppercase = 'PARENT' ifTrue: [^ 'PARENT'].
 	text asUppercase = 'HEAD' ifTrue: [^ 'HEAD'].
+	text asUppercase = 'CURRENT' ifTrue: [^ 'CURRENT'].
 	^ text
 ]
 
@@ -2575,16 +2585,19 @@ SWAView >> resetRangeToNewestCommit [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAView >> resolvedFromCommit [
 	"The hash the range starts at. PARENT means the first parent of the TO end, which
-	is what makes stepping To down the log show one commit at a time."
+	is what makes stepping To down the log show one commit at a time. The image commit
+	has no parents; the parent of CURRENT is the head commit."
 	| repoHistory target |
 	fromCommit ifNil: [^ nil].
 	self isParentFrom ifFalse: [^ self hashOf: fromCommit].
 	repoHistory := self gitHistory.
 	repoHistory ifNil: [^ nil].
+	self isCurrentTo ifTrue: [
+		^ [repoHistory workingCopy headCommit hexHash first: 7] on: Error do: [:e | nil]].
 	target := toCommit
 		ifNil: [[repoHistory workingCopy headCommit] on: Error do: [:e | nil]]
 		ifNotNil: [:name | repoHistory commitNamed: name].
@@ -2594,11 +2607,14 @@ SWAView >> resolvedFromCommit [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAView >> resolvedToCommit [
-	"The hash the range ends at. The field may say HEAD or a branch, which move."
+	"The hash the range ends at. The field may say HEAD or a branch, which move.
+	CURRENT stays a keyword: the image commit is rewritten on every change, so its
+	hash would not resolve again."
 	| repoHistory |
+	self isCurrentTo ifTrue: [^ 'CURRENT'].
 	toCommit ifNotNil: [^ self hashOf: toCommit].
 	repoHistory := self gitHistory.
 	repoHistory ifNil: [^ nil].
@@ -3301,22 +3317,26 @@ SWAView >> toCommit: aString [
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 14:03'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAView >> toCommitChoices [
 	"HEAD leads the list: reviewing up to the tip is the common case, and it stays
-	right as the branch grows."
-	^ (OrderedCollection with: 'HEAD' -> 'HEAD (checked-out tip)'),
+	right as the branch grows. CURRENT is the image itself, uncommitted changes
+	included."
+	^ (OrderedCollection
+		with: 'HEAD' -> 'HEAD (checked-out tip)'
+		with: 'CURRENT' -> 'CURRENT (the image, with what is not committed yet)'),
 		self branchChoices, self recentCommits
 ]
 
 {
 	#category : #'git range',
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/23/2026 12:48'
+	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/27/2026 16:33'
 }
 SWAView >> toCommitLabel [
 	"What the To field shows. The head commit has a name rather than a blank."
 	toCommit ifNil: [^ 'HEAD'].
+	self isCurrentTo ifTrue: [^ 'CURRENT  (the image)'].
 	^ self commitLabelFor: toCommit
 ]
 
