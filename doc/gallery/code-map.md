@@ -11,19 +11,61 @@ tree as a squarified treemap, where tile **area** is a size metric (LOC / bytes 
 method count / execution counts) and tile **colour** is an orthogonal property,
 both switched live from the **Size** / **Color** buttons.
 
+It is the first of the four views of the **code pane** -- **Code map | Class
+diagram | Browser | Linear** -- which all draw the same tree and share the
+[aspects](index.md#shared-aspects): [commit range](git-range.md),
+[context](context.md), [marks](marks.md), [reviews](reviews.md),
+[source](source.md) and [linked views](linked-views.md).
+
 Full doc: **[SWACodeMap.md](../SWACodeMap.md)**.
 
 **Open:** `SWA Code: Code Map`, or `SWAPane open`.
 
-![Code Map of SqueakXR, sized by LOC, coloured by kind](../media/gallery-codemap.png)
+![Code Map of SqueakXR to class depth, sized by LOC, coloured by kind: SqueakXR's subcategories nest as Objects, Graphics, Benchmarks...](../media/gallery-codemap.png)
 
-<!-- SCREENSHOT gallery-codemap.png
-| w |
-w := SWAPane openOnPackageNamed: 'SqueakXR' leafKind: #class.
-World displayWorld. (Delay forMilliseconds: 500) wait. World displayWorld. (Delay forMilliseconds: 200) wait.
-PNGReadWriter putForm: w imageForm onFileNamed: 'squeak-object-space-tally/doc/media/gallery-codemap.png'.
-w delete.
+<!-- SCREENSHOT gallery-codemap.png -- off-screen, see index.md "Screenshot recipes"
+root := SWACodeRootNode new name: 'SqueakXR'; addPackages: 'SqueakXR'; yourself.
+view := SWACodeTreemapMorph on: root. view leafKind: #class.
+"...overlay, pane, window 1400@1000..."
 -->
+
+## Packages nest
+
+System categories are split on `-` into nested tiles (`SWACodeSubpackageNode`):
+`SqueakXR-Graphics-Mesh` is the tile *Mesh* inside *Graphics* inside *SqueakXR*.
+A package's own structure is visible without reading a single category name, and
+the depth buttons **P C A M** (package, class, c**A**tegory, method -- the
+highlighted one is active) jump between levels.
+
+## Legibility (2026-10-22)
+
+- Sibling tiles do not touch: 1 px gap for containers, 0 for leaves.
+- The squarified layout aims at an aspect ratio of **1.6** rather than squares
+  (`SWATreemapMorph class>>targetAspect:`), so labels fit.
+- A font size per level, 12 pt for packages down to 6 pt for methods: 68 % more
+  labels for 7 % more paint.
+- **Double-click** zooms in; zooming keeps the node you zoomed into as the frame and
+  heading, so you know where you are.
+
+Journal: [2026-10-22](../../../journal/2026-10-22-treemap-legibility-and-the-cross-reference-that-pushes-back.md).
+
+## On a commit range
+
+![The Code Map on the PR range 5caac0a..e43e4c2: added green, modified orange, removed red](../media/codemap-range-full.png)
+
+Load a range in the Data flap and the map is built from git, coloured by change
+kind, in one of four modes: Full picture, Context, Changes only (tiles sized by what
+changed in them), Live image. Sign-offs are thin blue inner frames. See
+[git-range.md](git-range.md) and [reviews.md](reviews.md).
+
+## Composition
+
+![The Code Map coloured by composition role, SRAvatar's associations drawn as links](../media/codemap-composition.png)
+
+**Generate: composition** in the Data menu runs the class diagram's ivar-type
+analysis as a dataset: **links** between class tiles for each association, and
+colour by role (blue held, orange holds, magenta both), by used-by, by uses. See
+[class-diagram.md](class-diagram.md#composition-as-data-and-colour).
 
 ## Scope: the working set
 
@@ -46,9 +88,10 @@ recently churned, poorly covered, or duplicated?* without rebuilding anything.
 
 ![Coverage as a colour overlay on a LOC-sized map](../media/codemap-coverage-overlay-on-loc.png)
 
-Datasets it loads: coverage, duplication, topic model, git churn
-([git-map.md](git-map.md)), space tally ([space-tally.md](space-tally.md)), and
-any live peer panel.
+Datasets it loads or generates: coverage, call tally / timing / trace, sample
+tally, duplication, topic model, composition, git churn ([git-map.md](git-map.md)),
+space tally ([space-tally.md](space-tally.md)), and any live peer panel
+([linked-views.md](linked-views.md#3-cross-reference-colour-one-view-by-another)).
 
 ## More colour and tree modes
 

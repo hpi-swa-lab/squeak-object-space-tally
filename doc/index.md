@@ -32,7 +32,10 @@ box in media/swa-landscape.dot, and a re-render of that figure.
 | Tool | Question it answers | Tree | Tile weight |
 |---|---|---|---|
 | **[SWACodeMap](SWACodeMap.md)** | What is the *shape* of this code -- size, documentation, coverage, churn? | package -> class -> category -> method | LOC / bytes / methods / execution counts |
-| **Class Diagram** ([journal](../../journal/2026-07-13-classdiagram-graphviz-json-and-graph-view.md)) | What is the *inheritance shape* of a package? | class graph | -- (diagram) |
+| **[Class Diagram](gallery/class-diagram.md)** | What is the *inheritance and composition shape* of these classes -- and what did a commit range change in it? | class graph | -- (diagram) |
+| **[Browser](gallery/browser.md)** (`SWACodeBrowser`) | Where exactly is it, and what does it say? The System Browser's four columns over the same tree | package -> class -> category -> method | -- (lists) |
+| **[Linear](gallery/linear.md)** (`SWACodeLinearView`) | Can I read it -- or review a range -- as one document? | outline, sources inline | -- (rows) |
+| **Composition** (`SWACompositionData`) | Who holds whom, by static ivar-type inference? | -- (a Code Map / Class Diagram dataset) | association count |
 | **Duplication** (`SWACodeSimilarity`) | Which methods are copies of each other? | -- (a Code Map dataset) | Jaccard score |
 | **Topic Model** (`SWABitermTopicModel`) | What is this code *about*? | -- (a Code Map dataset) | topic mixture |
 
@@ -68,6 +71,14 @@ box in media/swa-landscape.dot, and a re-render of that figure.
 | **Alloc Tracer** (`SWAAllocTracer`) | Which *code paths* allocate these -- and are they kept? | allocation call tree | allocations, coloured by retention |
 | **GC Stats / Memory Graph** ([journal](../../journal/2026-08-21c-gc-stats-memory-lanes-and-the-freeze-hunt.md)) | What is the heap doing over time, inside and outside the image? | -- (time series) | bytes / fps / scavenges |
 
+Code Map, Class Diagram, Browser and Linear are four views of **one code pane**,
+switched in place. What they share -- a [commit range](gallery/git-range.md), the
+[context](gallery/context.md) of a selection, [marks](gallery/marks.md),
+[review sign-offs](gallery/reviews.md), the [source flap](gallery/source.md) and
+the [links between views](gallery/linked-views.md) -- is documented once per
+aspect, with a matrix in the gallery under
+[Shared aspects](gallery/index.md#shared-aspects).
+
 See the **[gallery](gallery/index.md)** for a screenshot of each.
 
 ## The Shared View Layer
@@ -94,11 +105,13 @@ link axes and coverage provenance).
 
 ### `SWAPane` -- the chrome
 
-Wraps any `SWAView` with the shared header: **Back / Browse / Show**, plus
+Wraps any `SWAView` with the shared header: **Back / Browse / Spawn / Deselect**,
+the code-view switch (**Code map / Class diagram / Browser / Linear**), plus
 view-driven controls -- **Data** (pick a data source), **Tree** (pick the base
-structure), **Size / Color / Links**, and Code-Map-only **Tally / Export / Load /
-Depth** -- a breadcrumb, and a fullscreen toggle. The header is rebuilt per view
-(capability-gated), so it changes as you morph one tool into another.
+structure), **Size / Color / Links**, one-letter depth buttons, **Context** -- a
+breadcrumb, the **Marks**, **Data** and **Source** flaps, and a fullscreen toggle.
+The header is rebuilt per view (capability-gated), so it changes as you morph one
+tool into another. See [gallery/view-layer.md](gallery/view-layer.md).
 
 ## Datasets: the unified data path
 

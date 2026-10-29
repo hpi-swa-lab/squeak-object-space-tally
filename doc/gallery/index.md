@@ -12,6 +12,13 @@ the code structure see [packages.md](../packages.md). Every tool renders a tree 
 speaks the same `crossRefKey` vocabulary, so any tool can colour itself by any
 other's data.
 
+Four of the tools are **views of one code pane** -- Code Map, Class Diagram,
+Browser, Linear -- switched in place by buttons in its header. Much of what they
+can do is not a mode of one tool but an **aspect shared by all of them**: a commit
+range, the context of a selection, marks, review sign-offs, the source flap, and
+the links between views. Those have their own pages and a matrix
+[below the table](#shared-aspects).
+
 ## Reading the table
 
 - **Tool** -- bold rows are the tool itself; the rows under it are its modes.
@@ -41,6 +48,12 @@ complete relative to what is loaded.
 
 A new tool needs: a page, a bold row here plus its mode rows, a menu entry (or an
 explicit note that it has none), and a row in ../index.md.
+
+Shared aspects are NOT mode rows: a capability that several views have goes into
+the "Shared aspects" matrix below, with one page, and the tool pages link to it.
+Which view claims which aspect is READ FROM THE IMAGE too:
+  SWAView withAllSubclasses collect: [:c | c -> {c new supportsGitRange. c new supportsContext. c new codeViewKey}]
+  SWAPane new codeViewSpecs                          "the code-view switch"
 -->
 
 | Tool | Kind | Mode | Question it answers | Open | Shot |
@@ -68,11 +81,19 @@ explicit note that it has none), and a row in ../index.md.
 | | | Data space tally | How much **memory** does each class hold? | | **TODO** `codemap-data-spacetally.png` |
 | | | Data peer x-ref | Colour by **another open panel's** live weights | | `codemap-data-xref-peer.png` |
 | | | Data mask `B \ A` | What is in **B and not in A**? | | **TODO** `codemap-data-mask.png` |
-| **[Class Diagram](class-diagram.md)** | code · Look | -- | What is the *inheritance shape* of these packages? | `SWA Code: Class Diagram` | `gallery-classdiagram.png` |
+| | | Data composition | Who **holds** whom -- links between class tiles, colour by role | | `codemap-composition.png` |
+| | | depth **P C A M** | Package nesting: `SqueakXR-Graphics-Mesh` is *Mesh* in *Graphics* in *SqueakXR* | | `gallery-codemap.png` |
+| **[Class Diagram](class-diagram.md)** | code · Look | -- | What is the *inheritance and composition shape* of these classes? | `SWA Code: Class Diagram`, **Class diagram** button | `gallery-classdiagram.png` |
 | | | Color `kind` | Flat, by kind | | `gallery-classdiagram.png` |
 | | | Color `loc` | LOC heat over the boxes | | `classdiagram-color-loc.png` |
-| | | leafKind `class`/`state`/`method` | How much of each class to draw | | `classdiagram-leafkind-state.png` |
-| | | leafKind `selected` | Only the **marked** ivars and methods -- what makes a big package legible | | **TODO** `classdiagram-leafkind-selected.png` |
+| | | Color composition role / used-by / uses | **Blue held, orange holds, magenta both** | | `classdiagram-composition-role.png` |
+| | | depth **C S M** (`class`/`state`/`method`) | How much of each class to draw | | `classdiagram-leafkind-state.png` |
+| | | depth **E** (`selected`) | Only the **marked** ivars and methods -- what makes a big package legible | | **TODO** `classdiagram-leafkind-selected.png` |
+| | | (commit range) | What did the range do to the classes -- **renames and pull-ups** legible as struck + added rows | `SWA Code: Class Diagram (commit range)` | `classdiagram-range-selected.png` |
+| | | (context) | **How** the neighbours relate: dashed, labelled dependency edges | | `context-classdiagram.png` |
+| **[Browser](browser.md)** | code · Look | -- | Where exactly is it, and what does it say -- with range and review state visible? | **Browser** button of a code pane | `browser-range-changes.png` |
+| **[Linear](linear.md)** | code · Look | -- | Can I read it as **one document** -- and review a range top to bottom? | **Linear** button of a code pane | `linear-range-changes.png` |
+| | | depth **S** | Definitions, comments, method sources inline; diffs framed in their change colour | | `linear-range-changes.png` |
 | **[Change Map](change-map.md)** | code · Look | -- | *When* did the code change, and how much? | `SWA Code: Change Map` | `gallery-changemap.png` |
 | | | Color `changeKind` | method / doIt / class / comment / removal | | `changemap-color-kind.png` |
 | | | Color `status` | current / superseded / in-history / **gone** | | `changemap-color-status.png` |
@@ -128,7 +149,7 @@ explicit note that it has none), and a row in ../index.md.
 | **[GC Stats](gc-stats.md)** | process · Look | -- | What is the *heap* doing over time? No `crossRefKey` -- joined by **clock**, not key | `SWA Process: GC Stats` | `gallery-gcstats.png` |
 | **[Memory Stats](memory-stats.md)** | process · Look | -- | What is the whole *process* doing -- FFI, GPU, VRAM? Also clock-joined only | `SWA Process: Memory Stats` | `gallery-memorystats.png` |
 | **[The view layer](view-layer.md)** | -- | -- | Not a tool: the chrome, the dataset machinery, the Packages list | -- | `gallery-viewlayer.png` |
-| | | Show row | Details / source / covering-tests panes | | `codemap-show-source-details.png` |
+| | | Source flap | Details / source / covering-tests panes -- see [source.md](source.md) | | `codemap-show-source-details.png` |
 | **Scenarios** -- products of two axes | | | *Where the suite earns its keep: area asks one question, colour asks another, and the answer is the tiles that are extreme in both.* | | |
 | | code | Size `loc` × Color coverage | **Big and untested.** The classic: large tiles that stay red. Start here | Code Map, Load coverage | **TODO** `scenario-big-untested.png` |
 | | code | Size `invocations` × Color coverage | **Hot but untested.** Runs constantly, no test asserts anything about it -- worse than big-and-untested | Code Map, Load coverage | **TODO** `scenario-hot-untested.png` |
@@ -144,6 +165,29 @@ explicit note that it has none), and a row in ../index.md.
 | | event+process | Trace spans × GC bands | **Did the frame spike coincide with a scavenge?** The only place the key-joined and clock-joined halves meet | Trace | **TODO** `scenario-frame-spike-vs-gc.png` |
 | | object→event | Young Space classes → Alloc Tracer | **Where are the retained young objects created?** Young Space names the classes, the tracer catches them at the allocation site -- the workflow that survived the 2026-09-22 dead ends | `SWAAllocTracer traceClasses:` | *(a workflow, not one view -- see `gallery-youngspace.png` then `gallery-alloctracer.png`)* |
 | | event | Change Trace bytes × non-logging Workspace | **How much of my GC pressure is my own editing?** ~230 KB per doIt, measured | Change Trace | **TODO** `scenario-editing-cost.png` |
+
+## Shared aspects
+
+The rows above are *tools* and their *modes*. These are capabilities that cut
+across the tools: one mechanism, kept on `SWAView` / `SWAPane` or in a global set,
+that each view shows in its own way. Each has a page; the matrix says what the
+aspect looks like in each view, and where it is still missing.
+
+| Aspect | Code Map | Class Diagram | Browser | Linear | Other tools |
+|---|---|---|---|---|---|
+| **[Commit range](git-range.md)** -- Repository / From / To in the Data flap; Full picture / Context / Changes only / Live image | tiles green / orange / red; Changes only sizes by what changed | rows coloured, removals struck through | list items coloured, removals struck | each member framed in its change colour, with its diff | -- ([Git Map](git-map.md) is history, not a range) |
+| **[Context](context.md)** -- the selection plus what reaches it and what it reaches, one hop | neighbours grey, the rest hidden | dashed, labelled dependency edges; context classes cut to the relating members | lists filtered | rows filtered | -- |
+| **[Marks](marks.md)** -- one global `SWAMarkSet default`, comments, provenance | yellow frame; shift+click; **Focus marked** dims the rest | depth **E**: only marked members; `openOnMarks` | not shown | not shown | treemaps frame them; timeline, calendar, trace, chat flow toggle them |
+| **[Reviews](reviews.md)** -- sign-offs keyed by member + hash of its text | thin blue inner frame; **r** | marker on the row; **r** | fade + italic; **r** / **R** | fade + italic; header menu | -- |
+| **[Source](source.md)** -- the bottom flap: details, source, tests / duplicates | flap | flap | flap is the code pane | inline, plus the flap | details pane |
+| **[Linked views](linked-views.md)** | switch in place, Spawn / Follow, X-ref | same | same | same | X-ref (Data menu) only |
+| **[Datasets](view-layer.md#datasets----the-unified-data-path)** -- Color / Size / Links from loaded or generated data | all of them | `kind`, `loc`, composition | -- | -- | each tool its own; peer X-ref everywhere |
+
+Two pictures that show several aspects at once:
+
+![Range + marks + reviews: the teleport feature's marks (yellow) and three classes signed off (blue), Changes only, the Marks flap with both lists](../media/marks-reviews-changes-only.png)
+
+![Range + context: the Context mode of the same range keeps the changes and their direct neighbours](../media/context-range.png)
 
 ## Three walks of one heap
 
@@ -202,7 +246,49 @@ catches anything deferred to the next cycle (lazily built treemap layouts,
 overlays, scrollbars). Paths are relative to the VM's working directory, not to
 this file. Images live in [`../media/`](../media), shared with the per-tool docs.
 
-Three caveats learned while capturing these:
+### Off-screen, for the code views
+
+The shots taken since 2026-10-29 are rendered **off-screen**: the window is built
+but never added to the world, so nothing flickers in the running image and nothing
+is left behind (`SWAPane>>openInWindow...` would add it to the world).
+
+```smalltalk
+| root view overlay pane win path |
+root := SWACodeRootNode new name: 'SqueakXR'; addPackages: 'SqueakXR'; yourself.
+view := SWACodeTreemapMorph on: root.
+view leafKind: nil. view extent: 1300@800.
+overlay := SWACodeTreemapOverlay new.
+overlay treemapMorph: view. overlay extent: view extent.
+view overlayMorph: overlay. view addMorph: overlay.
+"optional: view setRepository: 'SqueakXRNative' from: '5caac0a' to: 'e43e4c2'. view loadGitRange."
+pane := SWAPane on: view.
+win := SystemWindow labelled: 'Code Treemap: SqueakXR'.
+win addMorph: pane frame: (0@0 corner: 1@1).
+win bounds: (0@0 extent: 1400@1100).
+win fullBounds. view ensureLayout.
+"select, zoom, pane openData / openMarks / openSource, pane switchToCodeView: #browser ..."
+win fullBounds.
+path := 'squeak-object-space-tally/doc/media/NAME.png'.
+(FileDirectory default fileExists: path) ifTrue: [FileDirectory default deleteFileNamed: path].
+PNGReadWriter putForm: win imageForm onFileNamed: path.
+```
+
+- `PNGReadWriter` refuses to overwrite: delete the old file first.
+- **Never show the user's marks or sign-offs.** Swap fresh sets into
+  `SWAMarkSet classPool` (`#Default`, `#Reviewed`) and restore them in an
+  `ensure:`, then `SWAMarkSet default notifyPanes`.
+- **Linear** fits its rows to the pane only when it steps: send `pane view step`
+  after `fullBounds`.
+- **Follow** only follows panes that are in a world; off-screen, do the follow step
+  by hand (see [linked-views.md](linked-views.md)).
+- A class diagram runs `dot` synchronously; wrap the switch in
+  `valueWithin: 60 seconds onTimeout:` so an MCP call cannot hang on it.
+- After `leafKind:` on a view, `pane updateDepthButtons` -- otherwise the shot shows
+  the old depth highlighted.
+
+### Caveats
+
+Three caveats learned while capturing the earlier shots:
 
 - **Record tools cannot be captured in one send.** Arm, act, then `requestStop`,
   then wait for the result window -- the measure phase can take ten seconds.

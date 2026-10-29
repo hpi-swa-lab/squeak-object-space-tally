@@ -12,15 +12,24 @@ Three abstractions, all in `SWA-Base`:
   `'Class>>selector'`.
 - **`SWAView`** -- the shared `Morph`: `rootNode`, selection, the cached-Form
   render, the `keyIndex`, and the **dataset layer**.
-- **`SWAPane`** -- the chrome: **Back / Browse / Deselect / Show / Data / Tree /
-  Size / Color / Links**, breadcrumb, two info lines, the toggleable **Show** row
-  (details / source / cross-references), the **Marks** flap, and fullscreen.
+- **`SWAPane`** -- the chrome: a header row (**Back / Browse / Spawn / Deselect**,
+  the code-view switch **Code map / Class diagram / Browser / Linear**, **Tree /
+  Data / Size / Color / Links**, one-letter **depth** buttons, **Context**, a search
+  field), breadcrumb and info lines, and three **flaps** on the edges of the view:
+  **Marks** (left), **Data** (top: dataset and [commit range](git-range.md)
+  fields), **Source** (bottom: details / source / covering tests or duplicates).
 
 The header is rebuilt per view and **capability-gated**, so it changes as you morph
 one tool into another. A button you do not see is a capability the current view
-does not claim.
+does not claim: `supportsGitRange` gates the range fields, `supportsContext` the
+Context buttons, `codeViewKey` the view switch and Spawn, `leafKind:` the depth
+letters (derived per view by `depthLetters`: **P C A M** for the map, **C S M E**
+for the diagram, **P C A M S** for Linear).
 
-![The shared SWAPane chrome in Show mode: header, breadcrumb, info lines, and the details/source/xref panes](../media/gallery-viewlayer.png)
+What the code views share on top of this chrome is collected under
+[Shared aspects](index.md#shared-aspects) in the gallery index.
+
+![The shared SWAPane chrome in Show mode: header, breadcrumb, info lines, and the details/source/xref panes (July 2026; the header has grown since, see the newer shots on the aspect pages)](../media/gallery-viewlayer.png)
 
 <!-- SCREENSHOT gallery-viewlayer.png -- needs a fixture: squeakxr-coverage.json alongside
 | w tm panel data leaf |

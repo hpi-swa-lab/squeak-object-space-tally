@@ -54,6 +54,21 @@ That projection is the join working as designed: `crossRefKey` is
 *By status vs image* -- whether each committed method **still exists**. The
 superseded and gone tiles are history that the current image no longer contains.
 
+## Git Map or commit range?
+
+The two git tools answer different questions. The Git Map is **history as a
+series**: every commit a tile, churn accumulated across them. A
+[commit range](git-range.md) in any code view is **one diff**, base against head:
+the net effect of a pull request, built from the two snapshots, with deleted code
+still in the picture and review sign-offs on it. Use the range to review; use the
+Git Map or the churn dataset to find where the work keeps going.
+
+Both depend on the GitS API. When GitS renamed `changeSetsFromCommit:toCommit:`
+to `changesFromCommit:toCommit:`, `codeChangesForCommit:` swallowed the error and
+answered `#()`, so the map was probably **silently empty** for every repository
+until it was repaired on 2026-10-21
+([journal](../../../journal/2026-10-21c-cleaning-up-for-the-merge-and-a-diagram-that-shows-the-diff.md)).
+
 ## What it cannot see
 
 Only what was **committed**. Work that was written and reverted, or never
