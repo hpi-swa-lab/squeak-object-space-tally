@@ -115,7 +115,7 @@ SWASamplingTally class >> recordSelfFor: seconds atRate: hz [
 
 {
 	#category : #configuration,
-	#'squeak_changestamp' : 'MCPServer 6/19/2026 14:27'
+	#'squeak_changestamp' : 'jl 10/29/2026 10:48'
 }
 SWASamplingTally class >> stSpyBinary [
 	"Command used to invoke st-spy. './st-spy' resolves against the VM's working
