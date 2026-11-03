@@ -774,7 +774,7 @@ GraphvizMorph >> relaxesEdgeLabels: aBooleanOrNil [
 
 {
 	#category : #rendering,
-	#'squeak_changestamp' : 'MCPServer (MCPServer) 10/21/2026 18:42'
+	#'squeak_changestamp' : 'MCPServer (SqueakXR) 11/3/2026 13:58'
 }
 GraphvizMorph >> render [
 	"Run the external layout engine (self engine, e.g. 'dot') to produce a PNG plus
@@ -789,7 +789,7 @@ GraphvizMorph >> render [
 	so a second call would double a stall that is already seconds long on a large graph.
 	See #layoutCommandFrom:to:and:gvpr: for the edge-label variant, which stays one
 	invocation by piping -Tdot through gvpr into neato -n2."
-	| dir dotFile pngFile jsonFile gvprFile form jsonText eng parser |
+	| dir dotFile pngFile jsonFile gvprFile form jsonText eng parser status |
 	eng := self engine.
 	dir := FileDirectory default fullNameFor: 'graphvizmorph'.
 	dotFile := dir, '.dot'.
@@ -800,9 +800,9 @@ GraphvizMorph >> render [
 	self relaxesEdgeLabels ifTrue: [
 		(FileStream forceNewFileNamed: gvprFile)
 			nextPutAll: self class edgeLabelRelaxationScript withUnixLineEndings; close].
-	(OSProcess waitForCommand: (self
-		layoutCommandFrom: dotFile to: pngFile and: jsonFile gvpr: gvprFile)) exitStatus = 0
-			ifFalse: [^ self error: eng, ' failed'].
+	status := self runLayoutCommand: (self
+		layoutCommandFrom: dotFile to: pngFile and: jsonFile gvpr: gvprFile).
+	status = 0 ifFalse: [^ self error: eng, ' failed, exit status ', status printString].
 	"A pipeline reports only its LAST stage, so a failing dot or gvpr leaves
 	neato exiting 0 on empty input."
 	(FileDirectory default fileExists: pngFile)
@@ -815,6 +815,25 @@ GraphvizMorph >> render [
 	graphSize := parser graphSize.
 	nodeRects := parser nodeRects.
 	fieldRects := parser fieldRects
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer (SqueakXR) 11/3/2026 13:57'
+}
+GraphvizMorph >> runLayoutCommand: aCommandString [
+	"waitForCommand: polls without a bound, so an engine that never exits takes the
+	whole image with it instead of one process. 1200 polls x 50ms = one minute."
+	| proc delay pollsLeft |
+	proc := OSProcess command: (self shellCommand: aCommandString).
+	proc ifNil: [^ self error: 'cannot start ', self engine].
+	delay := Delay forMilliseconds: 50.
+	pollsLeft := 1200.
+	[proc runState == #complete] whileFalse: [
+		(pollsLeft := pollsLeft - 1) < 0
+			ifTrue: [^ self error: self engine, ' timed out'].
+		delay wait].
+	^ proc exitStatus
 ]
 
 {
@@ -857,6 +876,17 @@ GraphvizMorph >> setDot: aDotString [
 	dotSource := aDotString.
 	self render.
 	^ self
+]
+
+{
+	#category : #rendering,
+	#'squeak_changestamp' : 'MCPServer (SqueakXR) 11/3/2026 13:57'
+}
+GraphvizMorph >> shellCommand: aCommandString [
+	"Windows CreateProcess is not a shell: the engine reads a '|' as a file name."
+	^ OSProcess isWindows
+		ifTrue: ['cmd /c ', aCommandString]
+		ifFalse: [aCommandString]
 ]
 
 {
